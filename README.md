@@ -1,106 +1,246 @@
-﻿# KTK Messenger
+# KTK Messenger
 
-Простой мессенджер на React + Node.js + PostgreSQL. Инструкция ниже рассчитана на полного новичка.
+```
+ _  __ _______ _  __     __  __                             
+| |/ /|__   __| |/ /    |  \/  |                            
+| ' /    | |  | ' / ___ | \  / | ___  ___ ___  ___ _ __   
+|  <     | |  |  < / _ \| |\/| |/ _ \/ __/ __|/ _ \ '__|  
+| . \    | |  | . \ (_) | |  | |  __/\__ \__ \  __/ |     
+|_|\_\   |_|  |_|\_\___/|_|  |_|\___||___/___/\___|_|     
+```
 
-## Что внутри
-- Личные и групповые чаты
-- Лента/посты, реакции, репосты
-- Загрузка изображений
-- Аудио‑звонки (WebRTC)
+Учебный мессенджер: web + mobile клиенты + backend на Node.js.
+Проект создан для практики: от архитектуры до полной реализации.
 
-## Требования
-- Node.js 18+ (лучше LTS)
+---
+
+## Содержание
+
+- [Функциональность](#функциональность)
+- [Стек](#стек)
+- [Запуск проекта (Windows + Docker)](#запуск-проекта-windows--docker)
+- [Запуск проекта (macOS/Linux + Docker)](#запуск-проекта-macoslinux--docker)
+- [Без Docker (локальная PostgreSQL)](#без-docker-локальная-postgresql)
+- [Мобильное приложение (Flutter)](#мобильное-приложение-flutter)
+- [Адреса](#адреса)
+- [Скриншоты / Превью](#скриншоты--превью)
+- [Структура проекта](#структура-проекта)
+- [FAQ / Частые вопросы](#faq--частые-вопросы)
+
+---
+
+## Функциональность
+
+- Регистрация и авторизация пользователей
+- Профиль, поиск, список контактов, диалоги
+- Приватные сообщения
+- Группы и групповые чаты
+- Мобильный клиент (Flutter)
+- real-time сообщения (socket.io)
+
+---
+
+## Стек
+
+- Frontend: React + Vite
+- Backend: Node.js + Express
+- Database: PostgreSQL
+- Mobile: Flutter
+
+---
+
+## Запуск проекта (Windows + Docker)
+
+### 0) Что потребуется
+
 - Git
-- Docker Desktop (рекомендуется для базы данных)
+- Node.js 18+ (LTS)
+- Docker Desktop
 
-## Быстрый старт (Windows, с Docker) — самый простой путь
-1) **Запусти Docker Desktop.**
-2) **Клонируй проект:**
-   ```powershell
-   git clone https://github.com/dasnai88/KTK-messedger.git
-   cd KTK-messedger
-   ```
-3) **Запусти базу данных:**
-   ```powershell
-   docker compose up -d
-   ```
-4) **Создай файл настроек:**
-   ```powershell
-   copy server\.env.example server\.env
-   notepad server\.env
-   ```
-   В `server/.env` обязательно замени `JWT_SECRET` на случайную строку.
-5) **Запусти сервер:**
-   ```powershell
-   cd server
-   npm install
-   npm run dev
-   ```
-6) **Примените схему БД (нужно один раз):**
-   ```powershell
-   Get-Content ..\server\src\schema.sql | docker exec -i elia_ktk_db psql -U elia -d elia_messenger
-   ```
-7) **Запусти клиент:**
-   ```powershell
-   cd ..\client
-   npm install
-   npm run dev
-   ```
-8) **Открой в браузере:** http://localhost:5173
+### 1) Клонирование
 
-## Быстрый старт (macOS/Linux)
-1) `git clone https://github.com/dasnai88/KTK-messedger.git`
-2) `cd KTK-messedger`
-3) `docker compose up -d`
-4) `cp server/.env.example server/.env` и измени `JWT_SECRET`
-5) `cd server && npm install && npm run dev`
-6) `cat server/src/schema.sql | docker exec -i elia_ktk_db psql -U elia -d elia_messenger`
-7) `cd ../client && npm install && npm run dev`
-8) Открой http://localhost:5173
+```powershell
+git clone https://github.com/dasnai88/KTK-messedger.git
+cd KTK-messedger
+```
 
-## Если не хочешь Docker (локальная PostgreSQL)
-1) Установи PostgreSQL.
-2) Создай пользователя и базу (пример):
-   ```sql
-   CREATE USER elia WITH PASSWORD 'elia_pass';
-   CREATE DATABASE elia_messenger OWNER elia;
-   ```
-3) Проверь `server/.env` (PGUSER/PGPASSWORD/PGDATABASE).
-4) Примени схему:
-   ```powershell
-   psql -h localhost -U elia -d elia_messenger -f server/src/schema.sql
-   ```
+### 2) Поднять PostgreSQL (Docker)
+
+```powershell
+docker compose up -d
+```
+
+### 3) Создать .env
+
+```powershell
+copy server\.env.example server\.env
+notepad server\.env
+```
+
+Важно: замените значения и добавьте JWT_SECRET в .env.
+
+### 4) Запустить backend
+
+```powershell
+cd server
+npm install
+npm run dev
+```
+
+### 5) Применить схему БД (один раз)
+
+```powershell
+Get-Content ..\server\src\schema.sql | docker exec -i elia_ktk_db psql -U elia -d elia_messenger
+```
+
+### 6) Запустить web-клиент
+
+```powershell
+cd ..\client
+npm install
+npm run dev
+```
+
+### 7) Открыть
+
+- http://localhost:5173
+
+---
+
+## Запуск проекта (macOS/Linux + Docker)
+
+```bash
+git clone https://github.com/dasnai88/KTK-messedger.git
+cd KTK-messedger
+docker compose up -d
+cp server/.env.example server/.env
+cd server && npm install && npm run dev
+cat server/src/schema.sql | docker exec -i elia_ktk_db psql -U elia -d elia_messenger
+cd ../client && npm install && npm run dev
+```
+
+Откройте http://localhost:5173
+
+---
+
+## Без Docker (локальная PostgreSQL)
+
+1) Установить PostgreSQL
+2) Создать пользователя и базу
+
+```sql
+CREATE USER elia WITH PASSWORD 'elia_pass';
+CREATE DATABASE elia_messenger OWNER elia;
+```
+
+3) Заполнить server/.env
+
+```
+PGHOST=localhost
+PGPORT=5432
+PGUSER=elia
+PGPASSWORD=elia_pass
+PGDATABASE=elia_messenger
+```
+
+4) Применить схему
+
+```powershell
+psql -h localhost -U elia -d elia_messenger -f server/src/schema.sql
+```
+
+---
+
+## Мобильное приложение (Flutter)
+
+Папка проекта: `mobile/`
+
+### Требования
+
+- Flutter SDK в PATH
+- Android Studio + Android SDK
+
+### Инициализация (один раз)
+
+```powershell
+cd mobile
+flutter create . --platforms=android,ios
+flutter pub get
+```
+
+### Запуск на Android эмуляторе
+
+```powershell
+flutter run --dart-define API_BASE_URL=http://10.0.2.2:4000/api --dart-define SOCKET_URL=http://10.0.2.2:4000
+```
+
+### Запуск на физическом устройстве
+
+1) Узнайте IP адрес ПК в одной сети Wi-Fi
+2) Укажите его вместо IP
+
+```powershell
+flutter run --dart-define API_BASE_URL=http://YOUR_PC_IP:4000/api --dart-define SOCKET_URL=http://YOUR_PC_IP:4000
+```
+
+Примечания:
+- 10.0.2.2 — адрес хоста для Android-эмулятора
+- Для iOS-эмулятора используйте http://localhost:4000
+
+---
+
+## Адреса
+
+- Web: http://localhost:5173
+- API health: http://localhost:4000/api/health
+
+---
+
+## Скриншоты / Превью
+
+Изображения находятся в `docs/screenshots/` и показаны ниже.
+
+![Web - лента](docs/screenshots/web-feed.png)
+![Web - чат](docs/screenshots/web-chats.png)
+![Mobile - логин](docs/screenshots/mobile-login.png)
+![Mobile - лента](docs/screenshots/mobile-feed.png)
+![Mobile - чат](docs/screenshots/mobile-chat.png)
+
+---
 
 ## Структура проекта
-- `client/` — фронтенд (React + Vite)
-- `server/` — backend (Node.js + Express + PostgreSQL)
-- `docker-compose.yml` — Postgres в Docker
-- `server/uploads/` — загруженные файлы
 
-## Полезные адреса
-- Клиент: http://localhost:5173
-- API health check: http://localhost:4000/api/health
+```
+KTK-messedger/
+|-- client/           # React + Vite
+|-- server/           # Node.js + Express + PostgreSQL
+|-- mobile/           # Flutter app
+|-- docker-compose.yml
+|-- server/uploads/   # загруженные файлы
+```
 
-## Настройки (.env)
-Главные параметры в `server/.env`:
-- `PORT` — порт сервера (по умолчанию 4000)
-- `CORS_ORIGIN` — откуда разрешены запросы (обычно http://localhost:5173)
-- `JWT_SECRET` — обязательно поменять
-- `DATABASE_URL` или `PGHOST/PGPORT/PGUSER/PGPASSWORD/PGDATABASE`
+---
 
-## Остановка
-- Сервер/клиент: `Ctrl + C`
-- Docker: `docker compose down`
+## FAQ / Частые вопросы
 
-## Частые проблемы
-- **ECONNREFUSED к 5432** — база не запущена. Запусти `docker compose up -d`.
-- **dockerDesktopLinuxEngine pipe error** — не запущен Docker Desktop или он в режиме Windows‑контейнеров. Включи Linux containers.
-- **Cannot find module 'helmet'** — не установлены зависимости сервера: `cd server && npm install`.
-- **CORS ошибки** — проверь `CORS_ORIGIN` в `server/.env`.
-- **EADDRINUSE** — порт занят. Закрой лишний процесс или поменяй `PORT`.
+**Почему порт 4000 занят?**
+- Проверьте, нет ли другого процесса, и при необходимости измените PORT в `server/.env`.
 
-## Безопасность
-- Никогда не коммить `server/.env` в публичный репозиторий.
-- Для продакшена включай HTTPS, используй сильные пароли и отдельную базу.
+**Почему БД не поднимается?**
+- Проверьте, что Docker запущен и контейнер PostgreSQL поднят.
 
-Если что-то не запускается — открой issue или напиши, помогу.
+**Flutter не подключается к backend**
+- Эмулятор: 10.0.2.2
+- Телефон: IP вашего ПК
+- Проверьте `API_BASE_URL` и `SOCKET_URL`
+
+**Android SDK / лицензии**
+
+```powershell
+flutter doctor --android-licenses
+```
+
+---
+
+Если найдете баги или есть предложения — открывайте issue, буду рад.
+Если что-то не запускается или есть вопросы — пишите.
