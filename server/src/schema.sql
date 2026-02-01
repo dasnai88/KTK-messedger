@@ -1,0 +1,166 @@
+create extension if not exists pgcrypto;
+
+create table if not exists users (
+  id uuid primary key default gen_random_uuid(),
+  login text unique not null,
+  username text unique not null,
+  password_hash text not null,
+  role text not null check (role in (
+    'programmist',
+    'tehnik',
+    'polimer',
+    'pirotehnik',
+    'tehmash',
+    'holodilchik'
+  )),
+  display_name text,
+  bio text,
+  avatar_url text,
+  banner_url text,
+  theme_color text,
+  is_admin boolean default false,
+  is_moderator boolean default false,
+  is_banned boolean default false,
+  warnings_count integer default 0,
+  created_at timestamptz default now()
+);
+
+create table if not exists conversations (
+  id uuid primary key default gen_random_uuid(),
+  title text,
+  is_group boolean default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists conversation_members (
+  conversation_id uuid references conversations(id) on delete cascade,
+  user_id uuid references users(id) on delete cascade,
+  role text default 'member',
+  joined_at timestamptz default now(),
+  primary key (conversation_id, user_id)
+);
+
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid references conversations(id) on delete cascade,
+  sender_id uuid references users(id) on delete set null,
+  body text not null,
+  attachment_url text,
+  edited_at timestamptz,
+  deleted_at timestamptz,
+  deleted_by uuid references users(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+create table if not exists posts (
+  id uuid primary key default gen_random_uuid(),
+  author_id uuid references users(id) on delete cascade,
+  body text not null,
+  image_url text,
+  repost_of uuid references posts(id) on delete set null,
+  edited_at timestamptz,
+  deleted_at timestamptz,
+  deleted_by uuid references users(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+create table if not exists warnings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade,
+  admin_id uuid references users(id) on delete set null,
+  reason text,
+  created_at timestamptz default now()
+);
+
+create table if not exists post_likes (
+  post_id uuid references posts(id) on delete cascade,
+  user_id uuid references users(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (post_id, user_id)
+);
+
+create table if not exists post_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid references posts(id) on delete cascade,
+  user_id uuid references users(id) on delete cascade,
+  body text not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists post_reposts (
+  post_id uuid references posts(id) on delete cascade,
+  user_id uuid references users(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (post_id, user_id)
+);
+
+create index if not exists idx_users_username on users (username);
+create index if not exists idx_members_user on conversation_members (user_id);
+create index if not exists idx_messages_conversation on messages (conversation_id, created_at);
+create index if not exists idx_posts_created on posts (created_at desc);
+create index if not exists idx_post_comments_post on post_comments (post_id, created_at);
+
+-- safe alters for existing databases
+DO $$ BEGIN
+  ALTER TABLE conversations ADD COLUMN is_group boolean default false;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN attachment_url text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE posts ADD COLUMN image_url text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE posts ADD COLUMN repost_of uuid;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN banner_url text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN theme_color text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN is_admin boolean default false;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN is_moderator boolean default false;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN is_banned boolean default false;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN warnings_count integer default 0;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN edited_at timestamptz;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN deleted_at timestamptz;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN deleted_by uuid;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE posts ADD COLUMN edited_at timestamptz;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE posts ADD COLUMN deleted_at timestamptz;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE posts ADD COLUMN deleted_by uuid;
+EXCEPTION WHEN duplicate_column THEN END $$;

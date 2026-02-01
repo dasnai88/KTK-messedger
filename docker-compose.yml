@@ -1,0 +1,14 @@
+services:
+  db:
+    image: postgres:16
+    container_name: elia_ktk_db
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: elia
+      POSTGRES_PASSWORD: elia_pass
+      POSTGRES_DB: elia_messenger
+    volumes:
+      - db_data:/var/lib/postgresql/data
+volumes:
+  db_data:
