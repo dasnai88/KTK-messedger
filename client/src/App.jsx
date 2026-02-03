@@ -96,6 +96,8 @@ function formatDuration(ms) {
 }
 
 const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
+const AVATAR_ZOOM_MIN = 1
+const AVATAR_ZOOM_MAX = 2.5
 
 function resolveMediaUrl(url) {
   if (!url) return ''
@@ -106,6 +108,10 @@ function resolveMediaUrl(url) {
     return mediaBase ? `${mediaBase}${url}` : url
   }
   return url
+}
+
+function clampAvatarZoom(value) {
+  return Math.min(AVATAR_ZOOM_MAX, Math.max(AVATAR_ZOOM_MIN, value))
 }
 
 export default function App() {
@@ -670,7 +676,7 @@ export default function App() {
     if (!file) return
     const url = URL.createObjectURL(file)
     setAvatarSource(url)
-    setAvatarZoom(1)
+    setAvatarZoom(AVATAR_ZOOM_MIN)
     setAvatarOffset({ x: 0, y: 0 })
     setDragStart(null)
     setAvatarModalOpen(true)
@@ -691,7 +697,7 @@ export default function App() {
       canvas.width = size
       canvas.height = size
       const ctx = canvas.getContext('2d')
-      const scale = Math.max(size / image.width, size / image.height) * avatarZoom
+      const scale = Math.max(size / image.width, size / image.height) * clampAvatarZoom(avatarZoom)
       const drawWidth = image.width * scale
       const drawHeight = image.height * scale
       const offsetX = (avatarOffset.x * size) / previewSize
@@ -2287,18 +2293,16 @@ export default function App() {
                 <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarChange} />
               </label>
             </div>
-            {!user.avatarUrl && (
-              <label>
-                Цвет профиля
-                <input
-                  type="color"
-                  value={profileForm.themeColor}
-                  onChange={(event) =>
-                    setProfileForm({ ...profileForm, themeColor: event.target.value })
-                  }
-                />
-              </label>
-            )}
+            <label>
+              Цвет профиля
+              <input
+                type="color"
+                value={profileForm.themeColor}
+                onChange={(event) =>
+                  setProfileForm({ ...profileForm, themeColor: event.target.value })
+                }
+              />
+            </label>
             <label>
               Отображаемое имя
               <input
@@ -2473,11 +2477,11 @@ export default function App() {
               Масштаб
               <input
                 type="range"
-                min="1"
-                max="2.5"
+                min={AVATAR_ZOOM_MIN}
+                max={AVATAR_ZOOM_MAX}
                 step="0.05"
                 value={avatarZoom}
-                onChange={(event) => setAvatarZoom(Number(event.target.value))}
+                onChange={(event) => setAvatarZoom(clampAvatarZoom(Number(event.target.value)))}
               />
             </label>
             <div className="modal-actions">

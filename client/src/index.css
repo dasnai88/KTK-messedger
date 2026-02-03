@@ -1393,3 +1393,104 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 720px) {
+  .page {
+    padding: 16px;
+  }
+
+  .content {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .top-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .user-pill {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .icon-rail {
+    gap: 8px;
+    padding: 10px;
+    justify-content: space-between;
+  }
+
+  .icon-rail button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .chat-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .chat-actions {
+    align-self: flex-end;
+  }
+
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .composer .file-btn,
+  .composer button {
+    width: 100%;
+  }
+
+  .feed-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .feed-actions .file-btn,
+  .feed-actions button {
+    width: 100%;
+  }
+
+  .message-bubble {
+    max-width: 90%;
+  }
+
+  .message-bubble img {
+    max-width: 70vw;
+  }
+
+  .feed-image {
+    max-height: 260px;
+  }
+
+  .profile-avatar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-item {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+
+  .admin-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .call-bar {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
