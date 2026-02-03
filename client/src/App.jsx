@@ -202,6 +202,10 @@ export default function App() {
   const toastIdRef = useRef(0)
   const toastTimersRef = useRef(new Map())
   const notificationTimerRef = useRef(null)
+  const audioContextRef = useRef(null)
+  const audioUnlockedRef = useRef(false)
+  const lastMessageSoundRef = useRef(0)
+  const lastNotificationSoundRef = useRef(0)
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -247,6 +251,34 @@ export default function App() {
         clearTimeout(notificationTimerRef.current)
         notificationTimerRef.current = null
       }
+      if (audioContextRef.current && audioContextRef.current.close) {
+        audioContextRef.current.close().catch(() => {})
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioUnlockedRef.current) return
+      const AudioContext = window.AudioContext || window.webkitAudioContext
+      if (!AudioContext) return
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext()
+      }
+      audioContextRef.current.resume().then(() => {
+        audioUnlockedRef.current = true
+      }).catch(() => {})
+    }
+    const handler = () => {
+      unlockAudio()
+      window.removeEventListener('pointerdown', handler)
+      window.removeEventListener('keydown', handler)
+    }
+    window.addEventListener('pointerdown', handler)
+    window.addEventListener('keydown', handler)
+    return () => {
+      window.removeEventListener('pointerdown', handler)
+      window.removeEventListener('keydown', handler)
     }
   }, [])
 
@@ -268,6 +300,38 @@ export default function App() {
       dismissToast(id)
     }, duration)
     toastTimersRef.current.set(id, timer)
+  }
+
+  const playTone = (frequency, duration, volume, offset = 0) => {
+    if (!audioUnlockedRef.current || !audioContextRef.current) return
+    const ctx = audioContextRef.current
+    const startTime = ctx.currentTime + offset
+    const oscillator = ctx.createOscillator()
+    const gain = ctx.createGain()
+    oscillator.type = 'sine'
+    oscillator.frequency.setValueAtTime(frequency, startTime)
+    gain.gain.setValueAtTime(0.0001, startTime)
+    gain.gain.linearRampToValueAtTime(volume, startTime + 0.015)
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration)
+    oscillator.connect(gain)
+    gain.connect(ctx.destination)
+    oscillator.start(startTime)
+    oscillator.stop(startTime + duration + 0.02)
+  }
+
+  const playMessageSound = () => {
+    const now = Date.now()
+    if (now - lastMessageSoundRef.current < 140) return
+    lastMessageSoundRef.current = now
+    playTone(520, 0.09, 0.05)
+  }
+
+  const playNotificationSound = () => {
+    const now = Date.now()
+    if (now - lastNotificationSoundRef.current < 180) return
+    lastNotificationSoundRef.current = now
+    playTone(440, 0.08, 0.05)
+    playTone(660, 0.1, 0.045, 0.1)
   }
 
   const openNotifications = () => {
@@ -622,6 +686,7 @@ export default function App() {
         })
         if (!isMine) {
           clearConversationUnread(conversationId)
+          playMessageSound()
         }
         return
       }
@@ -638,6 +703,7 @@ export default function App() {
           message: getConversationPreview(message),
           createdAt: message.createdAt
         })
+        playNotificationSound()
         pushToast({
           title: title || 'Новое сообщение',
           message: getConversationPreview(message),
@@ -1567,7 +1633,7 @@ export default function App() {
               onClick={toggleNotifications}
               aria-label="Уведомления"
             >
-              <span className="notify-icon">💬</span>
+              <span className="notify-icon">{icons.chats}</span>
               {totalUnread > 0 && <span className="notify-badge">{totalUnread}</span>}
             </button>
             {notificationsOpen && (
