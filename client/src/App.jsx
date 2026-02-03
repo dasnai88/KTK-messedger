@@ -134,6 +134,8 @@ export default function App() {
   })
   const [status, setStatus] = useState({ type: 'info', message: '' })
   const [toasts, setToasts] = useState([])
+  const [notifications, setNotifications] = useState([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const [conversations, setConversations] = useState([])
@@ -199,6 +201,7 @@ export default function App() {
   const profileViewRef = useRef(profileView)
   const toastIdRef = useRef(0)
   const toastTimersRef = useRef(new Map())
+  const notificationTimerRef = useRef(null)
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -231,11 +234,19 @@ export default function App() {
       : callState.status === 'in-call'
         ? `Звонок ${formatDuration(callDuration)}`
         : ''
+  const totalUnread = useMemo(
+    () => conversations.reduce((sum, item) => sum + Number(item.unreadCount || 0), 0),
+    [conversations]
+  )
 
   useEffect(() => {
     return () => {
       toastTimersRef.current.forEach((timer) => clearTimeout(timer))
       toastTimersRef.current.clear()
+      if (notificationTimerRef.current) {
+        clearTimeout(notificationTimerRef.current)
+        notificationTimerRef.current = null
+      }
     }
   }, [])
 
@@ -259,6 +270,71 @@ export default function App() {
     toastTimersRef.current.set(id, timer)
   }
 
+  const openNotifications = () => {
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current)
+      notificationTimerRef.current = null
+    }
+    setNotificationsOpen(true)
+  }
+
+  const closeNotifications = () => {
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current)
+      notificationTimerRef.current = null
+    }
+    setNotificationsOpen(false)
+  }
+
+  const toggleNotifications = () => {
+    setNotificationsOpen((prev) => {
+      if (prev) {
+        if (notificationTimerRef.current) {
+          clearTimeout(notificationTimerRef.current)
+          notificationTimerRef.current = null
+        }
+      }
+      return !prev
+    })
+  }
+
+  const scheduleNotificationAutoClose = () => {
+    if (notificationTimerRef.current) {
+      clearTimeout(notificationTimerRef.current)
+    }
+    notificationTimerRef.current = setTimeout(() => {
+      setNotificationsOpen(false)
+      notificationTimerRef.current = null
+    }, 5000)
+  }
+
+  const pushNotification = ({ id, conversationId, title, message, createdAt }) => {
+    if (!conversationId) return
+    const item = {
+      id: id || `${conversationId}-${Date.now()}`,
+      conversationId,
+      title,
+      message,
+      createdAt
+    }
+    setNotifications((prev) => {
+      if (id && prev.some((note) => note.id === id)) return prev
+      const filtered = prev.filter((note) => note.conversationId !== conversationId)
+      return [item, ...filtered].slice(0, 20)
+    })
+    setNotificationsOpen(true)
+    scheduleNotificationAutoClose()
+  }
+
+  const clearNotificationsForConversation = (conversationId) => {
+    if (!conversationId) return
+    setNotifications((prev) => prev.filter((note) => note.conversationId !== conversationId))
+  }
+
+  const clearAllNotifications = () => {
+    setNotifications([])
+  }
+
   const bumpConversationUnread = (conversationId) => {
     if (!conversationId) return
     setConversations((prev) => {
@@ -278,6 +354,7 @@ export default function App() {
     setConversations((prev) => prev.map((item) =>
       item.id === conversationId ? { ...item, unreadCount: 0 } : item
     ))
+    clearNotificationsForConversation(conversationId)
     try {
       await markConversationRead(conversationId)
     } catch (err) {
@@ -554,6 +631,13 @@ export default function App() {
         const title = known
           ? (known.isGroup ? known.title : (known.other && (known.other.displayName || known.other.username)))
           : (message.senderDisplayName || message.senderUsername || 'Новое сообщение')
+        pushNotification({
+          id: message.id,
+          conversationId,
+          title: title || 'Новое сообщение',
+          message: getConversationPreview(message),
+          createdAt: message.createdAt
+        })
         pushToast({
           title: title || 'Новое сообщение',
           message: getConversationPreview(message),
@@ -1019,6 +1103,33 @@ export default function App() {
     }
   }
 
+  const openConversationById = async (conversationId) => {
+    if (!conversationId) return
+    const existing = conversationsRef.current.find((item) => item.id === conversationId)
+    if (existing) {
+      setActiveConversation(existing)
+      setView('chats')
+      clearConversationUnread(conversationId)
+      closeNotifications()
+      return
+    }
+    try {
+      const data = await getConversations()
+      const list = data.conversations || []
+      setConversations(list)
+      const found = list.find((item) => item.id === conversationId)
+      if (found) {
+        setActiveConversation(found)
+        setView('chats')
+      }
+    } catch (err) {
+      // ignore load errors
+    } finally {
+      clearConversationUnread(conversationId)
+      closeNotifications()
+    }
+  }
+
   const handleSendMessage = async (event) => {
     event.preventDefault()
     if (!activeConversation) return
@@ -1445,6 +1556,52 @@ export default function App() {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {user && (
+          <div className={`notify-fab ${notificationsOpen ? 'open' : ''}`}>
+            <button
+              type="button"
+              className="notify-button"
+              onClick={toggleNotifications}
+              aria-label="Уведомления"
+            >
+              <span className="notify-icon">💬</span>
+              {totalUnread > 0 && <span className="notify-badge">{totalUnread}</span>}
+            </button>
+            {notificationsOpen && (
+              <div className="notify-panel">
+                <div className="notify-header">
+                  <strong>Сообщения</strong>
+                  {notifications.length > 0 && (
+                    <button type="button" onClick={clearAllNotifications}>
+                      Очистить
+                    </button>
+                  )}
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="notify-empty">Нет новых сообщений</div>
+                ) : (
+                  <div className="notify-list">
+                    {notifications.map((note) => (
+                      <button
+                        type="button"
+                        key={note.id}
+                        className="notify-item"
+                        onClick={() => openConversationById(note.conversationId)}
+                      >
+                        <div className="notify-title">{note.title || 'Сообщение'}</div>
+                        <div className="notify-text">{note.message}</div>
+                        {note.createdAt && (
+                          <div className="notify-time">{formatTime(note.createdAt)}</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
