@@ -130,7 +130,7 @@ export default function App() {
     displayName: '',
     bio: '',
     role: '',
-    themeColor: '#ef4444'
+    themeColor: '#7a1f1d'
   })
   const [status, setStatus] = useState({ type: 'info', message: '' })
   const [theme, setTheme] = useState(() => {
@@ -403,7 +403,7 @@ export default function App() {
           displayName: data.user.displayName || '',
           bio: data.user.bio || '',
           role: data.user.role || '',
-          themeColor: data.user.themeColor || '#ef4444'
+          themeColor: data.user.themeColor || '#7a1f1d'
         })
         setView(readStoredView(Boolean(data.user && data.user.isAdmin)))
       } catch (err) {
@@ -810,7 +810,7 @@ export default function App() {
         displayName: data.user.displayName || '',
         bio: data.user.bio || '',
         role: data.user.role || registerForm.role,
-        themeColor: data.user.themeColor || '#ef4444'
+        themeColor: data.user.themeColor || '#7a1f1d'
       })
       setView('feed')
       setStatus({ type: 'success', message: 'Регистрация завершена.' })
@@ -835,7 +835,7 @@ export default function App() {
         displayName: data.user.displayName || '',
         bio: data.user.bio || '',
         role: data.user.role || '',
-        themeColor: data.user.themeColor || '#ef4444'
+        themeColor: data.user.themeColor || '#7a1f1d'
       })
       setView('feed')
       setStatus({ type: 'success', message: 'С возвращением.' })
@@ -2254,7 +2254,7 @@ export default function App() {
             <div
               className="profile-hero"
               style={{
-                backgroundColor: profileView.themeColor || '#ef4444',
+                backgroundColor: profileView.themeColor || '#7a1f1d',
                 backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
               }}
             >
