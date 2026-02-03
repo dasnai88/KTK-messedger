@@ -994,6 +994,17 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.message-status {
+  font-size: 12px;
+  letter-spacing: -1px;
+  opacity: 0.75;
+}
+
+.message-status.read {
+  opacity: 1;
+  color: #7dd3fc;
+}
+
 .message-menu {
   position: fixed;
   z-index: 80;

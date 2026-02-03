@@ -647,7 +647,25 @@ export default function App() {
       setProfilePosts((prev) => prev.filter((item) => item.id !== payload.postId))
     }
 
+    const handleConversationRead = (payload) => {
+      if (!payload || !payload.conversationId) return
+      const currentActive = activeConversationRef.current
+      if (!currentActive || payload.conversationId !== currentActive.id) return
+      const lastReadAt = payload.lastReadAt ? new Date(payload.lastReadAt) : null
+      if (!lastReadAt || Number.isNaN(lastReadAt.getTime())) return
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.senderId !== user.id || msg.readByOther) return msg
+          if (!msg.createdAt) return msg
+          const msgTime = new Date(msg.createdAt)
+          if (Number.isNaN(msgTime.getTime())) return msg
+          return msgTime <= lastReadAt ? { ...msg, readByOther: true } : msg
+        })
+      )
+    }
+
     socket.on('message', handleIncomingMessage)
+    socket.on('conversation:read', handleConversationRead)
     socket.on('post:new', handlePostNew)
     socket.on('post:delete', handlePostDelete)
 
@@ -716,6 +734,7 @@ export default function App() {
 
     return () => {
       socket.off('message', handleIncomingMessage)
+      socket.off('conversation:read', handleConversationRead)
       socket.off('post:new', handlePostNew)
       socket.off('post:delete', handlePostDelete)
       socket.off('call:offer', handleCallOffer)
@@ -1889,6 +1908,11 @@ export default function App() {
                           <div className="message-meta">
                             {msg.editedAt && <span className="message-edited">изменено</span>}
                             <time className="message-time">{formatTime(msg.createdAt)}</time>
+                            {msg.senderId === user.id && activeConversation && !activeConversation.isGroup && (
+                              <span className={`message-status ${msg.readByOther ? 'read' : ''}`}>
+                                {msg.readByOther ? '✓✓' : '✓'}
+                              </span>
+                            )}
                           </div>
                         </div>
                         {(msg.senderId === user.id || user.isAdmin) && editingMessageId !== msg.id && activeConversation && activeConversation.isGroup && (

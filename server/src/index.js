@@ -823,13 +823,23 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
 
     const result = await pool.query(
       `select m.id, m.body, m.attachment_url, m.created_at,
-              u.id as sender_id, u.username as sender_username, u.display_name as sender_display_name, u.avatar_url as sender_avatar_url
+              u.id as sender_id, u.username as sender_username, u.display_name as sender_display_name, u.avatar_url as sender_avatar_url,
+              c.is_group,
+              (c.is_group = false
+                and m.sender_id = $2
+                and other.last_read_at is not null
+                and m.created_at <= other.last_read_at) as read_by_other
        from messages m
+       join conversations c on c.id = m.conversation_id
        left join users u on u.id = m.sender_id
+       left join conversation_members other
+         on other.conversation_id = c.id
+        and other.user_id <> $2
+        and c.is_group = false
        where m.conversation_id = $1 and m.deleted_at is null
        order by m.created_at asc
        limit 200`,
-      [conversationId]
+      [conversationId, req.userId]
     )
 
     const messages = result.rows.map((row) => ({
@@ -840,7 +850,8 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
       senderId: row.sender_id,
       senderUsername: row.sender_username,
       senderDisplayName: row.sender_display_name,
-      senderAvatarUrl: row.sender_avatar_url
+      senderAvatarUrl: row.sender_avatar_url,
+      readByOther: row.read_by_other === true
     }))
 
     res.json({ messages })
@@ -860,10 +871,28 @@ app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) 
     if (membership.rowCount === 0) {
       return res.status(403).json({ error: 'Access denied' })
     }
-    await pool.query(
-      'update conversation_members set last_read_at = now() where conversation_id = $1 and user_id = $2',
+    const updated = await pool.query(
+      'update conversation_members set last_read_at = now() where conversation_id = $1 and user_id = $2 returning last_read_at',
       [conversationId, req.userId]
     )
+    const convo = await pool.query('select is_group from conversations where id = $1', [conversationId])
+    if (convo.rowCount > 0 && !convo.rows[0].is_group) {
+      const others = await pool.query(
+        'select user_id from conversation_members where conversation_id = $1 and user_id <> $2',
+        [conversationId, req.userId]
+      )
+      const lastReadAt = updated.rows[0] ? updated.rows[0].last_read_at : new Date().toISOString()
+      others.rows.forEach((row) => {
+        const targetSocket = onlineUsers.get(row.user_id)
+        if (targetSocket) {
+          io.to(targetSocket).emit('conversation:read', {
+            conversationId,
+            userId: req.userId,
+            lastReadAt
+          })
+        }
+      })
+    }
     res.json({ ok: true })
   } catch (err) {
     console.error('Read update error', err)
@@ -911,7 +940,8 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
       senderId: req.userId,
       senderUsername: sender.username || null,
       senderDisplayName: sender.display_name || null,
-      senderAvatarUrl: sender.avatar_url || null
+      senderAvatarUrl: sender.avatar_url || null,
+      readByOther: false
     }
 
     io.emit('message', { conversationId, message })
