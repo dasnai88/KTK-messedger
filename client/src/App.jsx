@@ -95,6 +95,19 @@ function formatDuration(ms) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
+
+function resolveMediaUrl(url) {
+  if (!url) return ''
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+    return url
+  }
+  if (url.startsWith('/')) {
+    return mediaBase ? `${mediaBase}${url}` : url
+  }
+  return url
+}
+
 export default function App() {
   const [health, setHealth] = useState(null)
   const [roles, setRoles] = useState([])
@@ -1273,7 +1286,7 @@ export default function App() {
               >
                 <div className="avatar">
                   {user.avatarUrl ? (
-                    <img src={user.avatarUrl} alt="avatar" />
+                    <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
                   ) : (
                     (user.username || 'U')[0].toUpperCase()
                   )}
@@ -1547,7 +1560,7 @@ export default function App() {
                         >
                           <div className="avatar small">
                             {activeConversation.other.avatarUrl ? (
-                              <img src={activeConversation.other.avatarUrl} alt="avatar" />
+                              <img src={resolveMediaUrl(activeConversation.other.avatarUrl)} alt="avatar" />
                             ) : (
                               (activeConversation.other.username || 'U')[0].toUpperCase()
                             )}
@@ -1647,7 +1660,7 @@ export default function App() {
                             title="Открыть профиль"
                           >
                             {msg.senderAvatarUrl ? (
-                              <img src={msg.senderAvatarUrl} alt="avatar" />
+                              <img src={resolveMediaUrl(msg.senderAvatarUrl)} alt="avatar" />
                             ) : (
                               (msg.senderUsername || 'U')[0].toUpperCase()
                             )}
@@ -1656,10 +1669,10 @@ export default function App() {
                         <div className="message-bubble">
                           {msg.attachmentUrl && (
                             <img
-                              src={msg.attachmentUrl}
+                              src={resolveMediaUrl(msg.attachmentUrl)}
                               alt="attachment"
                               className="media-thumb"
-                              onClick={() => setLightboxImage(msg.attachmentUrl)}
+                              onClick={() => setLightboxImage(resolveMediaUrl(msg.attachmentUrl))}
                             />
                           )}
                           {editingMessageId === msg.id ? (
@@ -1718,7 +1731,7 @@ export default function App() {
                             title="Открыть профиль"
                           >
                             {user.avatarUrl ? (
-                              <img src={user.avatarUrl} alt="avatar" />
+                              <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
                             ) : (
                               (user.username || 'U')[0].toUpperCase()
                             )}
@@ -1807,7 +1820,7 @@ export default function App() {
               <div className="feed-header">
                 <div className="avatar small">
                   {user.avatarUrl ? (
-                    <img src={user.avatarUrl} alt="avatar" />
+                    <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
                   ) : (
                     (user.username || 'U')[0].toUpperCase()
                   )}
@@ -1875,7 +1888,7 @@ export default function App() {
                   >
                     <div className="avatar small">
                       {post.author.avatarUrl ? (
-                        <img src={post.author.avatarUrl} alt="avatar" />
+                        <img src={resolveMediaUrl(post.author.avatarUrl)} alt="avatar" />
                       ) : (
                         post.author.username[0].toUpperCase()
                       )}
@@ -1890,9 +1903,9 @@ export default function App() {
                   {post.imageUrl && (
                     <img
                       className="feed-image media-thumb"
-                      src={post.imageUrl}
+                      src={resolveMediaUrl(post.imageUrl)}
                       alt="post"
-                      onClick={() => setLightboxImage(post.imageUrl)}
+                      onClick={() => setLightboxImage(resolveMediaUrl(post.imageUrl))}
                     />
                   )}
                   {post.repostOf && (
@@ -1905,9 +1918,9 @@ export default function App() {
                       {post.repostOf.imageUrl && (
                         <img
                           className="feed-image media-thumb"
-                          src={post.repostOf.imageUrl}
+                          src={resolveMediaUrl(post.repostOf.imageUrl)}
                           alt="repost"
-                          onClick={() => setLightboxImage(post.repostOf.imageUrl)}
+                          onClick={() => setLightboxImage(resolveMediaUrl(post.repostOf.imageUrl))}
                         />
                       )}
                     </div>
@@ -1964,7 +1977,7 @@ export default function App() {
                           <div key={comment.id} className="comment-item">
                             <div className="avatar tiny">
                               {comment.user.avatarUrl ? (
-                                <img src={comment.user.avatarUrl} alt="avatar" />
+                                <img src={resolveMediaUrl(comment.user.avatarUrl)} alt="avatar" />
                               ) : (
                                 comment.user.username[0].toUpperCase()
                               )}
@@ -2004,12 +2017,12 @@ export default function App() {
               className="profile-hero"
               style={{
                 backgroundColor: profileView.themeColor || '#2aa7ff',
-                backgroundImage: profileView.bannerUrl ? `url(${profileView.bannerUrl})` : 'none'
+                backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
               }}
             >
               <div className="avatar large">
                 {profileView.avatarUrl ? (
-                  <img src={profileView.avatarUrl} alt="avatar" />
+                  <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
                 ) : (
                   profileView.username[0].toUpperCase()
                 )}
@@ -2036,7 +2049,7 @@ export default function App() {
                   <div className="feed-header">
                     <div className="avatar small">
                       {profileView.avatarUrl ? (
-                        <img src={profileView.avatarUrl} alt="avatar" />
+                        <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
                       ) : (
                         profileView.username[0].toUpperCase()
                       )}
@@ -2051,9 +2064,9 @@ export default function App() {
                   {post.imageUrl && (
                     <img
                       className="feed-image media-thumb"
-                      src={post.imageUrl}
+                      src={resolveMediaUrl(post.imageUrl)}
                       alt="post"
-                      onClick={() => setLightboxImage(post.imageUrl)}
+                      onClick={() => setLightboxImage(resolveMediaUrl(post.imageUrl))}
                     />
                   )}
                   {post.repostOf && (
@@ -2066,9 +2079,9 @@ export default function App() {
                       {post.repostOf.imageUrl && (
                         <img
                           className="feed-image media-thumb"
-                          src={post.repostOf.imageUrl}
+                          src={resolveMediaUrl(post.repostOf.imageUrl)}
                           alt="repost"
-                          onClick={() => setLightboxImage(post.repostOf.imageUrl)}
+                          onClick={() => setLightboxImage(resolveMediaUrl(post.repostOf.imageUrl))}
                         />
                       )}
                     </div>
@@ -2125,7 +2138,7 @@ export default function App() {
                           <div key={comment.id} className="comment-item">
                             <div className="avatar tiny">
                               {comment.user.avatarUrl ? (
-                                <img src={comment.user.avatarUrl} alt="avatar" />
+                                <img src={resolveMediaUrl(comment.user.avatarUrl)} alt="avatar" />
                               ) : (
                                 comment.user.username[0].toUpperCase()
                               )}
@@ -2254,7 +2267,7 @@ export default function App() {
               className="profile-banner"
               style={{
                 backgroundColor: profileForm.themeColor,
-                backgroundImage: user.bannerUrl ? `url(${user.bannerUrl})` : 'none'
+                backgroundImage: user.bannerUrl ? `url(${resolveMediaUrl(user.bannerUrl)})` : 'none'
               }}
             ></div>
             <label className="file-btn">
@@ -2264,7 +2277,7 @@ export default function App() {
             <div className="profile-avatar">
               <div className="avatar large">
                 {user.avatarUrl ? (
-                  <img src={user.avatarUrl} alt="avatar" />
+                  <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
                 ) : (
                   (user.username || 'U')[0].toUpperCase()
                 )}
@@ -2400,7 +2413,7 @@ export default function App() {
               <div className="call-user">
                 <div className="avatar small">
                   {callUser && callUser.avatarUrl ? (
-                    <img src={callUser.avatarUrl} alt="avatar" />
+                    <img src={resolveMediaUrl(callUser.avatarUrl)} alt="avatar" />
                   ) : (
                     (callTitle || 'U')[0].toUpperCase()
                   )}
@@ -2487,4 +2500,5 @@ export default function App() {
     </div>
   )
 }
+
 
