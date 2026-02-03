@@ -170,6 +170,9 @@ export default function App() {
   const incomingOfferRef = useRef(null)
   const callStateRef = useRef(callState)
   const blockedUsersRef = useRef(blockedUsers)
+  const conversationsRef = useRef(conversations)
+  const activeConversationRef = useRef(activeConversation)
+  const profileViewRef = useRef(profileView)
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -203,6 +206,17 @@ export default function App() {
         ? `Звонок ${formatDuration(callDuration)}`
         : ''
 
+  const readStoredView = (isAdmin) => {
+    try {
+      const stored = localStorage.getItem('ktk_view')
+      const allowed = ['feed', 'chats', 'profile']
+      if (isAdmin) allowed.push('admin')
+      return stored && allowed.includes(stored) ? stored : 'feed'
+    } catch (err) {
+      return 'feed'
+    }
+  }
+
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth({ ok: false }))
     getRoles().then((data) => {
@@ -222,13 +236,26 @@ export default function App() {
           role: data.user.role || '',
           themeColor: data.user.themeColor || '#2aa7ff'
         })
-        setView('feed')
+        setView(readStoredView(Boolean(data.user && data.user.isAdmin)))
       } catch (err) {
         setUser(null)
       }
     }
     loadMe()
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const allowed = ['feed', 'chats', 'profile']
+    if (user.isAdmin) allowed.push('admin')
+    if (allowed.includes(view)) {
+      try {
+        localStorage.setItem('ktk_view', view)
+      } catch (err) {
+        // ignore storage errors
+      }
+    }
+  }, [view, user])
 
   useEffect(() => {
     if (!user) return
@@ -247,9 +274,29 @@ export default function App() {
         const data = await getConversations()
         const list = data.conversations || []
         setConversations(list)
-        if (!activeConversation && list.length > 0) {
-          setActiveConversation(list[0])
+        if (list.length === 0) {
+          setActiveConversation(null)
+          return
         }
+        let nextActive = null
+        if (activeConversation) {
+          nextActive = list.find((item) => item.id === activeConversation.id) || null
+        }
+        if (!nextActive) {
+          let storedId = null
+          try {
+            storedId = localStorage.getItem('ktk_active_conversation')
+          } catch (err) {
+            storedId = null
+          }
+          if (storedId) {
+            nextActive = list.find((item) => item.id === storedId) || null
+          }
+        }
+        if (!nextActive) {
+          nextActive = list[0]
+        }
+        setActiveConversation(nextActive)
       } catch (err) {
         setStatus({ type: 'error', message: err.message })
       }
@@ -284,6 +331,29 @@ export default function App() {
   useEffect(() => {
     blockedUsersRef.current = blockedUsers
   }, [blockedUsers])
+
+  useEffect(() => {
+    conversationsRef.current = conversations
+  }, [conversations])
+
+  useEffect(() => {
+    activeConversationRef.current = activeConversation
+  }, [activeConversation])
+
+  useEffect(() => {
+    profileViewRef.current = profileView
+  }, [profileView])
+
+  useEffect(() => {
+    if (!user) return
+    if (activeConversation && activeConversation.id) {
+      try {
+        localStorage.setItem('ktk_active_conversation', activeConversation.id)
+      } catch (err) {
+        // ignore storage errors
+      }
+    }
+  }, [activeConversation, user])
 
   useEffect(() => {
     callStateRef.current = callState
@@ -349,11 +419,73 @@ export default function App() {
       })
     })
 
-    socket.on('message', (payload) => {
-      if (activeConversation && payload.conversationId === activeConversation.id) {
-        setMessages((prev) => [...prev, payload.message])
+    const getConversationPreview = (message) => {
+      if (message && typeof message.body === 'string' && message.body.trim()) {
+        const text = message.body.trim()
+        return text.length > 120 ? `${text.slice(0, 117)}...` : text
       }
-    })
+      if (message && message.attachmentUrl) return '📎 файл'
+      return 'Сообщение'
+    }
+
+    const updateConversationPreview = (conversationId, message) => {
+      if (!conversationId || !message) return
+      const exists = conversationsRef.current.some((item) => item.id === conversationId)
+      if (!exists) {
+        getConversations()
+          .then((data) => setConversations(data.conversations || []))
+          .catch(() => {})
+        return
+      }
+      setConversations((prev) => {
+        const index = prev.findIndex((item) => item.id === conversationId)
+        if (index === -1) return prev
+        const updated = {
+          ...prev[index],
+          lastMessage: getConversationPreview(message),
+          lastAt: message.createdAt
+        }
+        const next = [...prev]
+        next.splice(index, 1)
+        return [updated, ...next]
+      })
+    }
+
+    const handleIncomingMessage = (payload) => {
+      if (!payload || !payload.message) return
+      updateConversationPreview(payload.conversationId, payload.message)
+      const currentActive = activeConversationRef.current
+      if (currentActive && payload.conversationId === currentActive.id) {
+        setMessages((prev) => {
+          if (prev.some((msg) => msg.id === payload.message.id)) return prev
+          return [...prev, payload.message]
+        })
+      }
+    }
+
+    const handlePostNew = (payload) => {
+      if (!payload || !payload.post) return
+      const { post } = payload
+      setPosts((prev) => (prev.some((item) => item.id === post.id) ? prev : [post, ...prev]))
+      setProfilePosts((prev) => {
+        if (prev.some((item) => item.id === post.id)) return prev
+        const currentProfile = profileViewRef.current
+        if (currentProfile && post.author && post.author.id === currentProfile.id) {
+          return [post, ...prev]
+        }
+        return prev
+      })
+    }
+
+    const handlePostDelete = (payload) => {
+      if (!payload || !payload.postId) return
+      setPosts((prev) => prev.filter((item) => item.id !== payload.postId))
+      setProfilePosts((prev) => prev.filter((item) => item.id !== payload.postId))
+    }
+
+    socket.on('message', handleIncomingMessage)
+    socket.on('post:new', handlePostNew)
+    socket.on('post:delete', handlePostDelete)
 
     const handleCallOffer = ({ fromUserId, offer }) => {
       if (blockedUsersRef.current.includes(fromUserId)) {
@@ -419,6 +551,9 @@ export default function App() {
     socket.on('call:unavailable', handleCallUnavailable)
 
     return () => {
+      socket.off('message', handleIncomingMessage)
+      socket.off('post:new', handlePostNew)
+      socket.off('post:delete', handlePostDelete)
       socket.off('call:offer', handleCallOffer)
       socket.off('call:answer', handleCallAnswer)
       socket.off('call:ice', handleCallIce)
@@ -430,7 +565,7 @@ export default function App() {
         socketRef.current = null
       }
     }
-  }, [user, activeConversation])
+  }, [user])
 
   useEffect(() => {
     if (!contextMenu.open && !postMenu.open && !chatMenu.open) return
@@ -715,6 +850,12 @@ export default function App() {
 
   const handleLogout = () => {
     endCall(false)
+    try {
+      localStorage.removeItem('ktk_view')
+      localStorage.removeItem('ktk_active_conversation')
+    } catch (err) {
+      // ignore storage errors
+    }
     setToken(null)
     setUser(null)
     setView('login')
@@ -791,7 +932,10 @@ export default function App() {
     setLoading(true)
     try {
       const data = await sendMessage(activeConversation.id, text, messageFile)
-      setMessages((prev) => [...prev, data.message])
+      setMessages((prev) => {
+        if (data.message && prev.some((msg) => msg.id === data.message.id)) return prev
+        return [...prev, data.message]
+      })
       setMessageText('')
       setMessageFile(null)
       setMessagePreview('')
@@ -1084,7 +1228,7 @@ export default function App() {
     try {
       const data = await createPost(postText.trim(), postFile)
       if (data.post) {
-        setPosts((prev) => [data.post, ...prev])
+        setPosts((prev) => (prev.some((item) => item.id === data.post.id) ? prev : [data.post, ...prev]))
       }
       setPostText('')
       setPostFile(null)
@@ -2343,4 +2487,3 @@ export default function App() {
     </div>
   )
 }
-

@@ -144,6 +144,10 @@ function isValidMessage(value) {
   return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 1000
 }
 
+function isValidUuid(value) {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
 function signToken(userId) {
   return jwt.sign({ sub: userId }, jwtSecret, { expiresIn: '7d' })
 }
@@ -184,6 +188,13 @@ async function adminOnly(req, res, next) {
     return res.status(500).json({ error: 'Unexpected error' })
   }
 }
+
+app.param('id', (req, res, next, id) => {
+  if (!isValidUuid(id)) {
+    return res.status(400).json({ error: 'Invalid id' })
+  }
+  return next()
+})
 
 function mapUser(row) {
   return {
@@ -819,9 +830,10 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
     )
 
     const senderRow = await pool.query(
-      'select avatar_url from users where id = $1',
+      'select username, display_name, avatar_url from users where id = $1',
       [req.userId]
     )
+    const sender = senderRow.rows[0] || {}
 
     const message = {
       id: result.rows[0].id,
@@ -829,7 +841,9 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
       attachmentUrl: result.rows[0].attachment_url,
       createdAt: result.rows[0].created_at,
       senderId: req.userId,
-      senderAvatarUrl: senderRow.rows[0] ? senderRow.rows[0].avatar_url : null
+      senderUsername: sender.username || null,
+      senderDisplayName: sender.display_name || null,
+      senderAvatarUrl: sender.avatar_url || null
     }
 
     io.emit('message', { conversationId, message })
@@ -901,7 +915,11 @@ app.post('/api/posts', uploadLimiter, auth, ensureNotBanned, upload.single('imag
        where p.id = $1`,
       [result.rows[0].id, req.userId]
     )
-    res.json({ post: postRow.rows[0] ? mapPost(postRow.rows[0]) : null })
+    const post = postRow.rows[0] ? mapPost(postRow.rows[0]) : null
+    if (post) {
+      io.emit('post:new', { post })
+    }
+    res.json({ post })
   } catch (err) {
     console.error('Create post error', err)
     res.status(500).json({ error: 'Unexpected error' })
@@ -945,18 +963,50 @@ app.post('/api/posts/:id/repost', auth, ensureNotBanned, async (req, res) => {
       [postId, req.userId]
     )
 
+    let newPost = null
+    let deletedPostId = null
+
     if (existing.rowCount > 0) {
       await pool.query('delete from post_reposts where post_id = $1 and user_id = $2', [postId, req.userId])
-      await pool.query('delete from posts where repost_of = $1 and author_id = $2', [postId, req.userId])
+      const deleted = await pool.query(
+        'delete from posts where repost_of = $1 and author_id = $2 returning id',
+        [postId, req.userId]
+      )
+      deletedPostId = deleted.rows[0] ? deleted.rows[0].id : null
     } else {
       await pool.query('insert into post_reposts (post_id, user_id) values ($1, $2)', [postId, req.userId])
-      await pool.query(
-        'insert into posts (author_id, body, image_url, repost_of) values ($1, $2, $3, $4)',
+      const created = await pool.query(
+        'insert into posts (author_id, body, image_url, repost_of) values ($1, $2, $3, $4) returning id',
         [req.userId, '', null, postId]
       )
+      const postRow = await pool.query(
+        `select p.id, p.body, p.image_url, p.repost_of, p.created_at,
+                u.id as author_id, u.username as author_username,
+                u.display_name as author_display_name, u.avatar_url as author_avatar_url,
+                ru.username as repost_author_username, ru.display_name as repost_author_display_name,
+                rp.body as repost_body, rp.image_url as repost_image_url, rp.created_at as repost_created_at,
+                (select count(*) from post_likes pl where pl.post_id = p.id) as likes_count,
+                (select count(*) from post_comments pc where pc.post_id = p.id) as comments_count,
+                (select count(*) from post_reposts pr where pr.post_id = p.id) as reposts_count,
+                exists(select 1 from post_likes pl where pl.post_id = p.id and pl.user_id = $2) as liked,
+                exists(select 1 from post_reposts pr where pr.post_id = p.id and pr.user_id = $2) as reposted
+         from posts p
+         join users u on u.id = p.author_id
+         left join posts rp on rp.id = p.repost_of
+         left join users ru on ru.id = rp.author_id
+         where p.id = $1`,
+        [created.rows[0].id, req.userId]
+      )
+      newPost = postRow.rows[0] ? mapPost(postRow.rows[0]) : null
     }
 
     const count = await pool.query('select count(*) from post_reposts where post_id = $1', [postId])
+    if (newPost) {
+      io.emit('post:new', { post: newPost })
+    }
+    if (deletedPostId) {
+      io.emit('post:delete', { postId: deletedPostId })
+    }
     res.json({ reposted: existing.rowCount === 0, repostsCount: Number(count.rows[0].count) })
   } catch (err) {
     console.error('Repost error', err)
@@ -1142,6 +1192,7 @@ app.delete('/api/posts/:id', auth, ensureNotBanned, async (req, res) => {
       'update posts set deleted_at = now(), deleted_by = $2 where id = $1',
       [postId, req.userId]
     )
+    io.emit('post:delete', { postId })
     res.json({ ok: true })
   } catch (err) {
     console.error('Delete post error', err)
