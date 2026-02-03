@@ -103,6 +103,7 @@ class Conversation {
     this.other,
     this.lastMessage,
     this.lastAt,
+    this.unreadCount = 0,
   });
 
   final String id;
@@ -111,6 +112,7 @@ class Conversation {
   UserSummary? other;
   String? lastMessage;
   DateTime? lastAt;
+  int unreadCount;
 
   String get displayTitle {
     if (isGroup) {
@@ -128,6 +130,7 @@ class Conversation {
       other: other is Map<String, dynamic> ? UserSummary.fromOtherJson(other) : null,
       lastMessage: json['lastMessage']?.toString(),
       lastAt: _toDate(json['lastAt']),
+      unreadCount: _toInt(json['unreadCount'] ?? json['unread_count']),
     );
   }
 }

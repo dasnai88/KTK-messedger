@@ -39,11 +39,13 @@ class _ChatScreenState extends State<ChatScreen> {
       });
       return;
     }
+    context.read<ChatsController>().setActiveConversation(widget.conversation.id);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadMessages());
   }
 
   @override
   void dispose() {
+    context.read<ChatsController>().setActiveConversation(null);
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();

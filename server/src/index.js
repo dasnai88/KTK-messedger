@@ -26,16 +26,21 @@ const roles = [
 ]
 
 const jwtSecret = process.env.JWT_SECRET || 'change_me'
-const uploadDir = path.join(__dirname, '..', 'uploads')
+const uploadStorage = String(process.env.UPLOAD_STORAGE || 'disk').toLowerCase()
+const useDbStorage = uploadStorage === 'db'
+const defaultUploadDir = path.join(__dirname, '..', 'uploads')
+const uploadDir = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : defaultUploadDir
 
 if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'change_me')) {
   console.error('JWT_SECRET must be set to a strong value in production.')
   process.exit(1)
 }
 
-fs.mkdirSync(uploadDir, { recursive: true })
+if (!useDbStorage) {
+  fs.mkdirSync(uploadDir, { recursive: true })
+}
 
-const storage = multer.diskStorage({
+const diskStorage = multer.diskStorage({
   destination: uploadDir,
   filename: (req, file, cb) => {
     const safeName = `${Date.now()}-${Math.random().toString(16).slice(2)}${path.extname(file.originalname)}`
@@ -47,7 +52,7 @@ const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const allowedExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 
 const upload = multer({
-  storage,
+  storage: useDbStorage ? multer.memoryStorage() : diskStorage,
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase()
@@ -122,7 +127,9 @@ app.use(express.json({ limit: '200kb' }))
 app.use(express.urlencoded({ extended: false, limit: '50kb' }))
 app.use('/api', apiLimiter)
 app.use('/api/auth', authLimiter)
-app.use('/uploads', express.static(uploadDir))
+if (!useDbStorage) {
+  app.use('/uploads', express.static(uploadDir))
+}
 
 function normalizeLogin(value) {
   return String(value || '').trim().toLowerCase()
@@ -146,6 +153,37 @@ function isValidMessage(value) {
 
 function isValidUuid(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+async function storeUpload(file) {
+  if (!file) return null
+  if (!useDbStorage) {
+    return `/uploads/${file.filename}`
+  }
+  const result = await pool.query(
+    'insert into uploads (mime_type, data) values ($1, $2) returning id',
+    [file.mimetype || 'application/octet-stream', file.buffer]
+  )
+  return `/uploads/${result.rows[0].id}`
+}
+
+if (useDbStorage) {
+  app.get('/uploads/:id', async (req, res) => {
+    try {
+      const id = req.params.id
+      if (!isValidUuid(id)) {
+        return res.status(400).end()
+      }
+      const result = await pool.query('select mime_type, data from uploads where id = $1', [id])
+      if (result.rowCount === 0) return res.status(404).end()
+      res.setHeader('Content-Type', result.rows[0].mime_type || 'application/octet-stream')
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      return res.send(result.rows[0].data)
+    } catch (err) {
+      console.error('Upload fetch error', err)
+      return res.status(500).end()
+    }
+  })
 }
 
 function signToken(userId) {
@@ -232,7 +270,8 @@ function mapConversation(row) {
     isGroup: row.is_group,
     other: row.other_id ? mapOtherUser(row) : null,
     lastMessage: row.last_body,
-    lastAt: row.last_at
+    lastAt: row.last_at,
+    unreadCount: Number(row.unread_count || 0)
   }
 }
 
@@ -277,7 +316,15 @@ async function getUserConversations(userId) {
             u.role as other_role,
             u.avatar_url as other_avatar_url,
             lm.body as last_body,
-            lm.created_at as last_at
+            lm.created_at as last_at,
+            (
+              select count(*)
+              from messages m
+              where m.conversation_id = c.id
+                and m.deleted_at is null
+                and m.sender_id <> $1
+                and (me.last_read_at is null or m.created_at > me.last_read_at)
+            ) as unread_count
      from conversations c
      join conversation_members me on me.conversation_id = c.id and me.user_id = $1
      left join conversation_members other on other.conversation_id = c.id and other.user_id <> $1 and c.is_group = false
@@ -505,7 +552,7 @@ app.post('/api/me/avatar', uploadLimiter, auth, ensureNotBanned, upload.single('
     if (!req.file) {
       return res.status(400).json({ error: 'Файл не загружен' })
     }
-    const avatarUrl = `/uploads/${req.file.filename}`
+    const avatarUrl = await storeUpload(req.file)
     const result = await pool.query(
       'update users set avatar_url = $1 where id = $2 returning *',
       [avatarUrl, req.userId]
@@ -523,7 +570,7 @@ app.post('/api/me/banner', uploadLimiter, auth, ensureNotBanned, upload.single('
     if (!req.file) {
       return res.status(400).json({ error: 'Файл не загружен' })
     }
-    const bannerUrl = `/uploads/${req.file.filename}`
+    const bannerUrl = await storeUpload(req.file)
     const result = await pool.query(
       'update users set banner_url = $1 where id = $2 returning *',
       [bannerUrl, req.userId]
@@ -803,6 +850,27 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
   }
 })
 
+app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const conversationId = req.params.id
+    const membership = await pool.query(
+      'select 1 from conversation_members where conversation_id = $1 and user_id = $2',
+      [conversationId, req.userId]
+    )
+    if (membership.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+    await pool.query(
+      'update conversation_members set last_read_at = now() where conversation_id = $1 and user_id = $2',
+      [conversationId, req.userId]
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Read update error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanned, upload.single('file'), async (req, res) => {
   try {
     const conversationId = req.params.id
@@ -820,7 +888,7 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
       return res.status(403).json({ error: 'Access denied' })
     }
 
-    const attachmentUrl = req.file ? `/uploads/${req.file.filename}` : null
+    const attachmentUrl = req.file ? await storeUpload(req.file) : null
 
     const result = await pool.query(
       `insert into messages (conversation_id, sender_id, body, attachment_url)
@@ -890,7 +958,7 @@ app.post('/api/posts', uploadLimiter, auth, ensureNotBanned, upload.single('imag
     if (!req.file && !isValidMessage(body)) {
       return res.status(400).json({ error: 'Пустой пост' })
     }
-    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null
+    const imageUrl = req.file ? await storeUpload(req.file) : null
     const result = await pool.query(
       `insert into posts (author_id, body, image_url)
        values ($1, $2, $3)

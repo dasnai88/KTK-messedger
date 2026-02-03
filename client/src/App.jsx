@@ -7,6 +7,7 @@ import {
   getHealth,
   getMe,
   getMessages,
+  markConversationRead,
   getProfile,
   getProfilePosts,
   getPosts,
@@ -95,7 +96,10 @@ function formatDuration(ms) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
-const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '')
+const rawApiBase = import.meta.env.VITE_API_BASE || ''
+const apiBase = rawApiBase.replace(/\/$/, '')
+const apiOrigin = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : ''
+const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKET_URL || apiOrigin || '').replace(/\/$/, '')
 const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 
@@ -129,6 +133,7 @@ export default function App() {
     themeColor: '#2aa7ff'
   })
   const [status, setStatus] = useState({ type: 'info', message: '' })
+  const [toasts, setToasts] = useState([])
   const [loading, setLoading] = useState(false)
 
   const [conversations, setConversations] = useState([])
@@ -192,6 +197,8 @@ export default function App() {
   const conversationsRef = useRef(conversations)
   const activeConversationRef = useRef(activeConversation)
   const profileViewRef = useRef(profileView)
+  const toastIdRef = useRef(0)
+  const toastTimersRef = useRef(new Map())
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -224,6 +231,59 @@ export default function App() {
       : callState.status === 'in-call'
         ? `Звонок ${formatDuration(callDuration)}`
         : ''
+
+  useEffect(() => {
+    return () => {
+      toastTimersRef.current.forEach((timer) => clearTimeout(timer))
+      toastTimersRef.current.clear()
+    }
+  }, [])
+
+  const dismissToast = (id) => {
+    const timer = toastTimersRef.current.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      toastTimersRef.current.delete(id)
+    }
+    setToasts((prev) => prev.filter((toast) => toast.id !== id))
+  }
+
+  const pushToast = ({ title, message, type = 'info', duration = 4200 }) => {
+    if (!title && !message) return
+    const id = toastIdRef.current + 1
+    toastIdRef.current = id
+    setToasts((prev) => [...prev, { id, title, message, type }])
+    const timer = setTimeout(() => {
+      dismissToast(id)
+    }, duration)
+    toastTimersRef.current.set(id, timer)
+  }
+
+  const bumpConversationUnread = (conversationId) => {
+    if (!conversationId) return
+    setConversations((prev) => {
+      const index = prev.findIndex((item) => item.id === conversationId)
+      if (index === -1) return prev
+      const current = prev[index]
+      const nextUnread = Number(current.unreadCount || 0) + 1
+      const updated = { ...current, unreadCount: nextUnread }
+      const next = [...prev]
+      next[index] = updated
+      return next
+    })
+  }
+
+  const clearConversationUnread = async (conversationId) => {
+    if (!conversationId) return
+    setConversations((prev) => prev.map((item) =>
+      item.id === conversationId ? { ...item, unreadCount: 0 } : item
+    ))
+    try {
+      await markConversationRead(conversationId)
+    } catch (err) {
+      // ignore read errors
+    }
+  }
 
   const readStoredView = (isAdmin) => {
     try {
@@ -332,6 +392,7 @@ export default function App() {
       try {
         const data = await getMessages(activeConversation.id)
         setMessages(data.messages || [])
+        await clearConversationUnread(activeConversation.id)
       } catch (err) {
         setStatus({ type: 'error', message: err.message })
       }
@@ -472,12 +533,31 @@ export default function App() {
 
     const handleIncomingMessage = (payload) => {
       if (!payload || !payload.message) return
-      updateConversationPreview(payload.conversationId, payload.message)
+      const { message } = payload
+      const conversationId = payload.conversationId
+      updateConversationPreview(conversationId, message)
       const currentActive = activeConversationRef.current
-      if (currentActive && payload.conversationId === currentActive.id) {
+      const isMine = message.senderId && user && message.senderId === user.id
+      if (currentActive && conversationId === currentActive.id) {
         setMessages((prev) => {
-          if (prev.some((msg) => msg.id === payload.message.id)) return prev
-          return [...prev, payload.message]
+          if (prev.some((msg) => msg.id === message.id)) return prev
+          return [...prev, message]
+        })
+        if (!isMine) {
+          clearConversationUnread(conversationId)
+        }
+        return
+      }
+      if (!isMine) {
+        bumpConversationUnread(conversationId)
+        const known = conversationsRef.current.find((item) => item.id === conversationId)
+        const title = known
+          ? (known.isGroup ? known.title : (known.other && (known.other.displayName || known.other.username)))
+          : (message.senderDisplayName || message.senderUsername || 'Новое сообщение')
+        pushToast({
+          title: title || 'Новое сообщение',
+          message: getConversationPreview(message),
+          type: 'message'
         })
       }
     }
@@ -1352,6 +1432,22 @@ export default function App() {
           <div className={`alert ${status.type}`}>{status.message}</div>
         ) : null}
 
+        {toasts.length > 0 && (
+          <div className="toast-stack">
+            {toasts.map((toast) => (
+              <div key={toast.id} className={`toast ${toast.type || ''}`}>
+                <div>
+                  {toast.title && <strong>{toast.title}</strong>}
+                  {toast.message && <span>{toast.message}</span>}
+                </div>
+                <button type="button" onClick={() => dismissToast(toast.id)} aria-label="Закрыть">
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {!user && (
           <div className="auth-toggle">
             <button
@@ -1519,27 +1615,36 @@ export default function App() {
                 {conversations.length === 0 && (
                   <div className="empty">Пока нет диалогов. Найди пользователя по username.</div>
                 )}
-                {conversations.map((conv) => (
-                  <button
-                    type="button"
-                    key={conv.id}
-                    className={`chat-item ${activeConversation && conv.id === activeConversation.id ? 'active' : ''}`}
-                    onClick={() => setActiveConversation(conv)}
-                  >
-                    <span className="avatar">
-                      {conv.isGroup
-                        ? (conv.title || 'G')[0].toUpperCase()
-                        : conv.other.username[0].toUpperCase()}
-                    </span>
-                    <div className="chat-meta">
-                      <div className="chat-title">
-                        {conv.isGroup ? conv.title : (conv.other.displayName || conv.other.username)}
+                {conversations.map((conv) => {
+                  const unreadCount = Number(conv.unreadCount || 0)
+                  const isActive = activeConversation && conv.id === activeConversation.id
+                  return (
+                    <button
+                      type="button"
+                      key={conv.id}
+                      className={`chat-item ${isActive ? 'active' : ''} ${!isActive && unreadCount > 0 ? 'unread' : ''}`}
+                      onClick={() => setActiveConversation(conv)}
+                    >
+                      <span className="avatar">
+                        {conv.isGroup
+                          ? (conv.title || 'G')[0].toUpperCase()
+                          : (conv.other?.username || 'U')[0].toUpperCase()}
+                      </span>
+                      <div className="chat-meta">
+                        <div className="chat-title">
+                          {conv.isGroup ? conv.title : (conv.other?.displayName || conv.other?.username || 'Пользователь')}
+                        </div>
+                        <div className="chat-preview">{conv.lastMessage || 'Нет сообщений'}</div>
                       </div>
-                      <div className="chat-preview">{conv.lastMessage || 'Нет сообщений'}</div>
-                    </div>
-                    <div className="chat-time">{formatTime(conv.lastAt)}</div>
-                  </button>
-                ))}
+                      <div className="chat-side">
+                        <div className="chat-time">{formatTime(conv.lastAt)}</div>
+                        {!isActive && unreadCount > 0 && (
+                          <span className="chat-unread">{unreadCount}</span>
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
             </section>
 

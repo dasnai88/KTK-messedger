@@ -25,6 +25,7 @@ class ChatsController extends ChangeNotifier {
   final Set<String> onlineUsers = {};
   bool isLoading = false;
   String? _bootstrappedUserId;
+  String? _activeConversationId;
   io.Socket? _socket;
 
   final Set<String> _blockedUsers = {};
@@ -37,6 +38,10 @@ class ChatsController extends ChangeNotifier {
   bool isBlocked(String userId) => _blockedUsers.contains(userId);
 
   Message? pinnedFor(String conversationId) => _pinnedMessages[conversationId];
+
+  void setActiveConversation(String? conversationId) {
+    _activeConversationId = conversationId;
+  }
 
   Future<void> bootstrap(String? token, String? userId) async {
     if (token == null || token.isEmpty || userId == null) return;
@@ -93,11 +98,22 @@ class ChatsController extends ChangeNotifier {
       final raw = data['messages'] as List<dynamic>? ?? [];
       final list = raw.map((item) => Message.fromJson(item as Map<String, dynamic>)).toList();
       _messages[conversationId] = list;
+      await markConversationRead(conversationId);
       notifyListeners();
       return list;
     } on ApiException {
       return _messages[conversationId] ?? [];
     }
+  }
+
+  Future<void> markConversationRead(String conversationId) async {
+    if (conversationId.isEmpty) return;
+    try {
+      await _api.postJson('/conversations/$conversationId/read', {});
+    } on ApiException {
+      // ignore read errors
+    }
+    _setUnreadCount(conversationId, 0);
   }
 
   Future<Message?> sendMessage({
@@ -259,6 +275,7 @@ class ChatsController extends ChangeNotifier {
     _messages.clear();
     onlineUsers.clear();
     _bootstrappedUserId = null;
+    _activeConversationId = null;
     disposeSocket();
     notifyListeners();
   }
@@ -300,6 +317,14 @@ class ChatsController extends ChangeNotifier {
         final list = _messages.putIfAbsent(conversationId, () => []);
         list.add(message);
         _touchConversation(conversationId, _previewFor(message), message.createdAt);
+        final isMine = message.senderId == _bootstrappedUserId;
+        if (!isMine) {
+          if (_activeConversationId == conversationId) {
+            markConversationRead(conversationId);
+          } else {
+            _incrementUnread(conversationId);
+          }
+        }
         notifyListeners();
       }
     });
@@ -314,6 +339,22 @@ class ChatsController extends ChangeNotifier {
       conversations[index].lastMessage = body;
       conversations[index].lastAt = at ?? DateTime.now();
       _sortConversations();
+    }
+  }
+
+  void _setUnreadCount(String conversationId, int count) {
+    final index = conversations.indexWhere((item) => item.id == conversationId);
+    if (index >= 0) {
+      conversations[index].unreadCount = count;
+      notifyListeners();
+    }
+  }
+
+  void _incrementUnread(String conversationId) {
+    final index = conversations.indexWhere((item) => item.id == conversationId);
+    if (index >= 0) {
+      conversations[index].unreadCount = conversations[index].unreadCount + 1;
+      notifyListeners();
     }
   }
 

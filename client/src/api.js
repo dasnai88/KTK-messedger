@@ -99,6 +99,10 @@ export async function getMessages(conversationId) {
   return request(`/conversations/${conversationId}/messages`)
 }
 
+export async function markConversationRead(conversationId) {
+  return request(`/conversations/${conversationId}/read`, { method: 'POST' })
+}
+
 export async function sendMessage(conversationId, body, file) {
   if (file) {
     const token = getToken()

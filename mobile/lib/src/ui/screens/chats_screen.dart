@@ -234,6 +234,7 @@ class _ConversationTile extends StatelessWidget {
     final online = !conversation.isGroup && conversation.other != null
         ? chats.onlineUsers.contains(conversation.other!.id)
         : false;
+    final unread = conversation.unreadCount;
 
     return Card(
       margin: const EdgeInsets.only(top: 10),
@@ -261,13 +262,37 @@ class _ConversationTile extends StatelessWidget {
               ),
           ],
         ),
-        title: Text(conversation.displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: Text(
+          conversation.displayTitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontWeight: unread > 0 ? FontWeight.w600 : FontWeight.normal),
+        ),
         subtitle: Text(
           conversation.lastMessage ?? 'No messages yet',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        trailing: Text(_formatTime(conversation.lastAt)),
+        trailing: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(_formatTime(conversation.lastAt)),
+            if (unread > 0)
+              Container(
+                margin: const EdgeInsets.only(top: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  unread.toString(),
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -1,5 +1,12 @@
 create extension if not exists pgcrypto;
 
+create table if not exists uploads (
+  id uuid primary key default gen_random_uuid(),
+  mime_type text not null,
+  data bytea not null,
+  created_at timestamptz default now()
+);
+
 create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   login text unique not null,
@@ -37,6 +44,7 @@ create table if not exists conversation_members (
   user_id uuid references users(id) on delete cascade,
   role text default 'member',
   joined_at timestamptz default now(),
+  last_read_at timestamptz default now(),
   primary key (conversation_id, user_id)
 );
 
@@ -164,3 +172,9 @@ EXCEPTION WHEN duplicate_column THEN END $$;
 DO $$ BEGIN
   ALTER TABLE posts ADD COLUMN deleted_by uuid;
 EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE conversation_members ADD COLUMN last_read_at timestamptz default now();
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+UPDATE conversation_members SET last_read_at = now() WHERE last_read_at IS NULL;
