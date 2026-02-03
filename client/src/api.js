@@ -1,4 +1,4 @@
-﻿const API_BASE = '/api'
+const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
 function getToken() {
   return localStorage.getItem('ktk_token')
@@ -224,3 +224,4 @@ export async function adminSetModerator(userId, makeModerator) {
 export async function adminClearWarnings(userId) {
   return request('/admin/clear-warnings', { method: 'POST', body: { userId } })
 }
+

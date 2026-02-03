@@ -404,7 +404,7 @@ export default function App() {
 
     const token = getTokenValue()
     if (!token) return
-    const socket = io('/', { auth: { token } })
+    const socket = io(import.meta.env.VITE_SOCKET_URL || '/', { auth: { token } })
     socketRef.current = socket
 
     socket.on('presence', (payload) => {
@@ -2487,3 +2487,4 @@ export default function App() {
     </div>
   )
 }
+
