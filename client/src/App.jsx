@@ -130,9 +130,22 @@ export default function App() {
     displayName: '',
     bio: '',
     role: '',
-    themeColor: '#2aa7ff'
+    themeColor: '#ef4444'
   })
   const [status, setStatus] = useState({ type: 'info', message: '' })
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'dark'
+    try {
+      const stored = localStorage.getItem('ktk_theme')
+      if (stored === 'light' || stored === 'dark') return stored
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        return 'light'
+      }
+    } catch (err) {
+      // ignore storage errors
+    }
+    return 'dark'
+  })
   const [toasts, setToasts] = useState([])
   const [loading, setLoading] = useState(false)
 
@@ -244,6 +257,20 @@ export default function App() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    document.documentElement.dataset.theme = theme
+    try {
+      localStorage.setItem('ktk_theme', theme)
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [theme])
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
+  }
 
   useEffect(() => {
     const unlockAudio = () => {
@@ -376,7 +403,7 @@ export default function App() {
           displayName: data.user.displayName || '',
           bio: data.user.bio || '',
           role: data.user.role || '',
-          themeColor: data.user.themeColor || '#2aa7ff'
+          themeColor: data.user.themeColor || '#ef4444'
         })
         setView(readStoredView(Boolean(data.user && data.user.isAdmin)))
       } catch (err) {
@@ -783,7 +810,7 @@ export default function App() {
         displayName: data.user.displayName || '',
         bio: data.user.bio || '',
         role: data.user.role || registerForm.role,
-        themeColor: data.user.themeColor || '#2aa7ff'
+        themeColor: data.user.themeColor || '#ef4444'
       })
       setView('feed')
       setStatus({ type: 'success', message: 'Регистрация завершена.' })
@@ -808,7 +835,7 @@ export default function App() {
         displayName: data.user.displayName || '',
         bio: data.user.bio || '',
         role: data.user.role || '',
-        themeColor: data.user.themeColor || '#2aa7ff'
+        themeColor: data.user.themeColor || '#ef4444'
       })
       setView('feed')
       setStatus({ type: 'success', message: 'С возвращением.' })
@@ -1437,8 +1464,18 @@ export default function App() {
               <p>Современный чат колледжа.</p>
             </div>
           </div>
-          {user ? (
-            <div className="top-actions">
+          <div className="top-actions">
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggleTheme}
+              title="Сменить тему"
+            >
+              <span>{theme === 'dark' ? '🌙' : '☀️'}</span>
+              {theme === 'dark' ? 'Тёмная' : 'Светлая'}
+            </button>
+            {user ? (
+              <>
               <button
                 type="button"
                 className="logout-btn"
@@ -1466,8 +1503,9 @@ export default function App() {
                   <span>@{user.username}</span>
                 </div>
               </button>
-            </div>
-          ) : null}
+              </>
+            ) : null}
+          </div>
         </div>
 
         {user && (
@@ -2216,7 +2254,7 @@ export default function App() {
             <div
               className="profile-hero"
               style={{
-                backgroundColor: profileView.themeColor || '#2aa7ff',
+                backgroundColor: profileView.themeColor || '#ef4444',
                 backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
               }}
             >
