@@ -103,6 +103,7 @@ const rawApiBase = import.meta.env.VITE_API_BASE || ''
 const apiBase = rawApiBase.replace(/\/$/, '')
 const apiOrigin = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : ''
 const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKET_URL || apiOrigin || '').replace(/\/$/, '')
+const webPushFeatureEnabled = String(import.meta.env.VITE_ENABLE_WEB_PUSH || '').toLowerCase() === 'true'
 const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
@@ -403,6 +404,7 @@ export default function App() {
   }
 
   const isPushSupported = () => (
+    webPushFeatureEnabled &&
     typeof window !== 'undefined' &&
     window.isSecureContext === true &&
     'serviceWorker' in navigator &&
@@ -608,6 +610,10 @@ export default function App() {
   }
 
   const handlePushToggle = () => {
+    if (!webPushFeatureEnabled) {
+      setStatus({ type: 'info', message: 'Push-уведомления отключены для этого окружения.' })
+      return
+    }
     if (!pushState.supported) {
       setStatus({ type: 'info', message: 'Для системных уведомлений нужен HTTPS с валидным SSL-сертификатом.' })
       return

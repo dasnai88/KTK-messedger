@@ -231,6 +231,12 @@ npm run dev
 2) Нажмите кнопку `Enable notifications` в верхней панели  
 3) Разрешите уведомления в браузере
 
+Для production-сборки также включите флаг клиента:
+
+```env
+VITE_ENABLE_WEB_PUSH=true
+```
+
 ### Важно
 
 - В production нужен HTTPS (на `localhost` push тоже работает).
