@@ -281,6 +281,29 @@ body {
   background: rgba(var(--accent-rgb), 0.2);
 }
 
+.chat-connection {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.chat-connection.connecting {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.chat-connection.disconnected {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.chat-connection.offline {
+  opacity: 0.78;
+}
+
 .toast-stack {
   position: fixed;
   top: 20px;
@@ -565,6 +588,11 @@ body {
   text-overflow: ellipsis;
 }
 
+.chat-preview.draft {
+  color: var(--accent-soft);
+  font-weight: 600;
+}
+
 .group-create {
   display: grid;
   gap: 10px;
@@ -775,6 +803,20 @@ body {
   padding: 6px 10px;
   cursor: pointer;
   font-weight: 600;
+}
+
+.chat-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .call-modal {

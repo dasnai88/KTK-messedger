@@ -128,6 +128,27 @@ const onlineUsers = new Map() // userId => Set(socketId)
 const socketState = new Map() // socketId => { userId, focused, activeConversationId }
 
 app.disable('x-powered-by')
+const trustProxyRaw = typeof process.env.TRUST_PROXY === 'string' ? process.env.TRUST_PROXY.trim() : ''
+const hostedBehindProxy = Boolean(
+  process.env.RENDER ||
+  process.env.RAILWAY_STATIC_URL ||
+  process.env.HEROKU ||
+  process.env.FLY_APP_NAME
+)
+if (trustProxyRaw) {
+  const lower = trustProxyRaw.toLowerCase()
+  if (lower === 'true') {
+    app.set('trust proxy', 1)
+  } else if (lower === 'false') {
+    app.set('trust proxy', false)
+  } else if (/^\d+$/.test(trustProxyRaw)) {
+    app.set('trust proxy', Number(trustProxyRaw))
+  } else {
+    app.set('trust proxy', trustProxyRaw)
+  }
+} else if (process.env.NODE_ENV === 'production' || hostedBehindProxy) {
+  app.set('trust proxy', 1)
+}
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   crossOriginEmbedderPolicy: false
@@ -394,6 +415,14 @@ function emitToUser(userId, eventName, payload) {
   })
 }
 
+async function getConversationMemberIds(conversationId) {
+  const result = await pool.query(
+    'select user_id from conversation_members where conversation_id = $1',
+    [conversationId]
+  )
+  return result.rows.map((row) => row.user_id)
+}
+
 function parsePushSubscriptionPayload(payload) {
   if (!payload || typeof payload !== 'object') return null
   const endpoint = typeof payload.endpoint === 'string' ? payload.endpoint.trim() : ''
@@ -513,6 +542,40 @@ io.on('connection', (socket) => {
       focused,
       activeConversationId
     })
+  })
+
+  socket.on('typing:start', async ({ conversationId }) => {
+    try {
+      if (!isValidUuid(conversationId)) return
+      const memberIds = await getConversationMemberIds(conversationId)
+      if (!memberIds.includes(socket.userId)) return
+      memberIds.forEach((memberId) => {
+        if (memberId === socket.userId) return
+        emitToUser(memberId, 'typing:start', {
+          conversationId,
+          userId: socket.userId
+        })
+      })
+    } catch (err) {
+      // ignore typing errors
+    }
+  })
+
+  socket.on('typing:stop', async ({ conversationId }) => {
+    try {
+      if (!isValidUuid(conversationId)) return
+      const memberIds = await getConversationMemberIds(conversationId)
+      if (!memberIds.includes(socket.userId)) return
+      memberIds.forEach((memberId) => {
+        if (memberId === socket.userId) return
+        emitToUser(memberId, 'typing:stop', {
+          conversationId,
+          userId: socket.userId
+        })
+      })
+    } catch (err) {
+      // ignore typing errors
+    }
   })
 
   socket.on('call:offer', ({ toUserId, offer }) => {

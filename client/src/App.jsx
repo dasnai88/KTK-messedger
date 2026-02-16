@@ -107,6 +107,7 @@ const webPushFeatureEnabled = String(import.meta.env.VITE_ENABLE_WEB_PUSH || '')
 const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
+const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
 
 function urlBase64ToUint8Array(value) {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
@@ -117,6 +118,34 @@ function urlBase64ToUint8Array(value) {
     outputArray[i] = rawData.charCodeAt(i)
   }
   return outputArray
+}
+
+function getPushErrorFeedback(err) {
+  const rawMessage = err && typeof err.message === 'string' ? err.message.trim() : ''
+  const lower = rawMessage.toLowerCase()
+  const hasCertificateError = (
+    lower.includes('ssl') ||
+    lower.includes('certificate') ||
+    lower.includes('net::err_cert') ||
+    lower.includes('cert_authority_invalid') ||
+    lower.includes('securityerror')
+  )
+  if (hasCertificateError) {
+    return {
+      supported: false,
+      message: 'System notifications are unavailable: invalid HTTPS certificate on this domain.'
+    }
+  }
+  if (lower.includes('failed to register a serviceworker') || lower.includes('serviceworker')) {
+    return {
+      supported: false,
+      message: 'System notifications are unavailable: failed to register service worker.'
+    }
+  }
+  return {
+    supported: true,
+    message: rawMessage || 'Failed to configure notifications.'
+  }
 }
 
 function resolveMediaUrl(url) {
@@ -171,9 +200,19 @@ export default function App() {
   const [messageText, setMessageText] = useState('')
   const [messageFile, setMessageFile] = useState(null)
   const [messagePreview, setMessagePreview] = useState('')
+  const [draftsByConversation, setDraftsByConversation] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}')
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (err) {
+      return {}
+    }
+  })
+  const [typingByConversation, setTypingByConversation] = useState({})
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [onlineUsers, setOnlineUsers] = useState([])
+  const [socketConnection, setSocketConnection] = useState('offline')
   const [groupTitle, setGroupTitle] = useState('')
   const [groupMembers, setGroupMembers] = useState('')
   const [groupOpen, setGroupOpen] = useState(false)
@@ -244,6 +283,9 @@ export default function App() {
   const serviceWorkerRegistrationRef = useRef(null)
   const pushPublicKeyRef = useRef('')
   const lastPresenceStateRef = useRef({ focused: null, activeConversationId: null })
+  const typingStateRef = useRef({ conversationId: null, isTyping: false, timer: null })
+  const draftsRef = useRef(draftsByConversation)
+  const socketConnectionRef = useRef(socketConnection)
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -259,6 +301,18 @@ export default function App() {
     if (!query) return messages
     return messages.filter((msg) => (msg.body || '').toLowerCase().includes(query))
   }, [messages, chatSearchQuery])
+  const typingLabel = useMemo(() => {
+    if (!activeConversation || !user) return ''
+    const rawUserIds = typingByConversation[activeConversation.id] || []
+    const userIds = rawUserIds.filter((userId) => userId && userId !== user.id)
+    if (userIds.length === 0) return ''
+    if (!activeConversation.isGroup && activeConversation.other) {
+      const name = activeConversation.other.displayName || activeConversation.other.username || 'User'
+      return `${name} is typing...`
+    }
+    if (userIds.length === 1) return 'Someone is typing...'
+    return `${userIds.length} people are typing...`
+  }, [typingByConversation, activeConversation, user])
   const callUser = useMemo(() => {
     if (!callState.withUserId) return null
     if (activeConversation && !activeConversation.isGroup && activeConversation.other.id === callState.withUserId) {
@@ -403,6 +457,85 @@ export default function App() {
     }
   }
 
+  const removeTypingUser = (conversationId, userId) => {
+    if (!conversationId || !userId) return
+    setTypingByConversation((prev) => {
+      const current = prev[conversationId]
+      if (!current || !current.includes(userId)) return prev
+      const nextList = current.filter((id) => id !== userId)
+      if (nextList.length === 0) {
+        const next = { ...prev }
+        delete next[conversationId]
+        return next
+      }
+      return { ...prev, [conversationId]: nextList }
+    })
+  }
+
+  const stopTyping = (conversationId = null) => {
+    const state = typingStateRef.current
+    const targetConversationId = conversationId || state.conversationId
+    if (state.timer) {
+      clearTimeout(state.timer)
+      state.timer = null
+    }
+    if (!state.isTyping || !state.conversationId) {
+      state.conversationId = null
+      state.isTyping = false
+      return
+    }
+    if (targetConversationId && state.conversationId !== targetConversationId) return
+    const socket = socketRef.current
+    if (socket && socket.connected) {
+      socket.emit('typing:stop', { conversationId: state.conversationId })
+    }
+    state.conversationId = null
+    state.isTyping = false
+  }
+
+  const handleMessageInputChange = (event) => {
+    const value = event.target.value
+    setMessageText(value)
+
+    if (!activeConversation || isChatBlocked) {
+      if (!value.trim()) stopTyping()
+      return
+    }
+    const socket = socketRef.current
+    if (!socket || !socket.connected) return
+
+    const conversationId = activeConversation.id
+    const state = typingStateRef.current
+    const hasText = value.trim().length > 0
+
+    if (!hasText) {
+      stopTyping(conversationId)
+      return
+    }
+
+    if (!state.isTyping || state.conversationId !== conversationId) {
+      if (state.isTyping && state.conversationId && state.conversationId !== conversationId) {
+        socket.emit('typing:stop', { conversationId: state.conversationId })
+      }
+      socket.emit('typing:start', { conversationId })
+      state.isTyping = true
+      state.conversationId = conversationId
+    }
+
+    if (state.timer) clearTimeout(state.timer)
+    state.timer = setTimeout(() => {
+      const nextSocket = socketRef.current
+      if (nextSocket && nextSocket.connected && state.isTyping && state.conversationId === conversationId) {
+        nextSocket.emit('typing:stop', { conversationId })
+      }
+      if (state.conversationId === conversationId) {
+        state.isTyping = false
+        state.conversationId = null
+      }
+      state.timer = null
+    }, 1600)
+  }
+
   const isPushSupported = () => (
     webPushFeatureEnabled &&
     typeof window !== 'undefined' &&
@@ -495,12 +628,13 @@ export default function App() {
         error: keepError ? prev.error : ''
       }))
     } catch (err) {
+      const feedback = getPushErrorFeedback(err)
       setPushState((prev) => ({
-        supported: true,
+        supported: feedback.supported,
         permission,
         enabled: false,
         loading: false,
-        error: keepError ? (err.message || prev.error || 'Push setup failed') : ''
+        error: keepError ? (feedback.message || prev.error || 'Push setup failed') : ''
       }))
     }
   }
@@ -552,13 +686,14 @@ export default function App() {
         type: 'info'
       })
     } catch (err) {
+      const feedback = getPushErrorFeedback(err)
       setPushState((prev) => ({
         ...prev,
+        supported: feedback.supported,
         loading: false,
         enabled: false,
-        error: err.message || 'Failed to enable notifications'
+        error: feedback.message || 'Failed to enable notifications'
       }))
-      setStatus({ type: 'error', message: err.message || 'Failed to enable notifications.' })
     }
   }
 
@@ -575,7 +710,19 @@ export default function App() {
         })
         return
       }
-      const registration = await ensureServiceWorkerRegistration()
+      const registration = serviceWorkerRegistrationRef.current ||
+        await navigator.serviceWorker.getRegistration('/sw.js') ||
+        await navigator.serviceWorker.getRegistration()
+      if (!registration) {
+        setPushState({
+          supported: true,
+          permission: Notification.permission,
+          enabled: false,
+          loading: false,
+          error: ''
+        })
+        return
+      }
       const subscription = await registration.pushManager.getSubscription()
       if (subscription) {
         if (subscription.endpoint) {
@@ -598,13 +745,15 @@ export default function App() {
         })
       }
     } catch (err) {
+      const feedback = getPushErrorFeedback(err)
       setPushState((prev) => ({
         ...prev,
+        supported: feedback.supported,
         loading: false,
-        error: err.message || 'Failed to disable notifications'
+        error: feedback.message || 'Failed to disable notifications'
       }))
-      if (!silent) {
-        setStatus({ type: 'error', message: err.message || 'Failed to disable notifications.' })
+      if (!silent && feedback.supported) {
+        setStatus({ type: 'error', message: feedback.message || 'Failed to disable notifications.' })
       }
     }
   }
@@ -842,6 +991,56 @@ export default function App() {
   }, [activeConversation])
 
   useEffect(() => {
+    draftsRef.current = draftsByConversation
+    try {
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draftsByConversation))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [draftsByConversation])
+
+  useEffect(() => {
+    socketConnectionRef.current = socketConnection
+  }, [socketConnection])
+
+  useEffect(() => {
+    if (user) return
+    stopTyping()
+    setSocketConnection('offline')
+    setTypingByConversation({})
+  }, [user])
+
+  useEffect(() => {
+    stopTyping()
+    if (!activeConversation) {
+      setMessageText('')
+      setMessageFile(null)
+      setMessagePreview('')
+      return
+    }
+    const draft = draftsRef.current[activeConversation.id]
+    setMessageText(typeof draft === 'string' ? draft : '')
+    setMessageFile(null)
+    setMessagePreview('')
+  }, [activeConversation ? activeConversation.id : null])
+
+  useEffect(() => {
+    if (!activeConversation) return
+    const conversationId = activeConversation.id
+    setDraftsByConversation((prev) => {
+      const current = prev[conversationId] || ''
+      if (messageText.trim()) {
+        if (current === messageText) return prev
+        return { ...prev, [conversationId]: messageText }
+      }
+      if (!Object.prototype.hasOwnProperty.call(prev, conversationId)) return prev
+      const next = { ...prev }
+      delete next[conversationId]
+      return next
+    })
+  }, [messageText, activeConversation ? activeConversation.id : null])
+
+  useEffect(() => {
     try {
       localStorage.setItem('ktk_blocked_users', JSON.stringify(blockedUsers))
     } catch (err) {
@@ -925,17 +1124,34 @@ export default function App() {
     loadPresence()
 
     const token = getTokenValue()
-    if (!token) return
+    if (!token) {
+      setSocketConnection('offline')
+      return
+    }
+    setSocketConnection('connecting')
     const socket = io(import.meta.env.VITE_SOCKET_URL || '/', { auth: { token } })
     socketRef.current = socket
 
     lastPresenceStateRef.current = { focused: null, activeConversationId: null }
     const handleSocketConnect = () => {
+      const previous = socketConnectionRef.current
+      setSocketConnection('connected')
       lastPresenceStateRef.current = { focused: null, activeConversationId: null }
       emitPresenceState()
+      if (previous === 'disconnected') {
+        pushToast({
+          title: 'Connection restored',
+          message: 'Realtime sync is active again.',
+          type: 'info',
+          duration: 2600
+        })
+      }
     }
     const handleSocketDisconnect = () => {
+      setSocketConnection('disconnected')
       lastPresenceStateRef.current = { focused: null, activeConversationId: null }
+      setTypingByConversation({})
+      stopTyping()
     }
     socket.on('connect', handleSocketConnect)
     socket.on('disconnect', handleSocketDisconnect)
@@ -999,6 +1215,9 @@ export default function App() {
       const { message } = payload
       const conversationId = payload.conversationId
       updateConversationPreview(conversationId, message)
+      if (message.senderId) {
+        removeTypingUser(conversationId, message.senderId)
+      }
       const currentActive = activeConversationRef.current
       const isMine = message.senderId && user && message.senderId === user.id
       const isConversationOpen = viewRef.current === 'chats' && currentActive && conversationId === currentActive.id
@@ -1068,10 +1287,27 @@ export default function App() {
       )
     }
 
+    const handleTypingStart = (payload) => {
+      if (!payload || !payload.conversationId || !payload.userId) return
+      if (user && payload.userId === user.id) return
+      setTypingByConversation((prev) => {
+        const current = prev[payload.conversationId] || []
+        if (current.includes(payload.userId)) return prev
+        return { ...prev, [payload.conversationId]: [...current, payload.userId] }
+      })
+    }
+
+    const handleTypingStop = (payload) => {
+      if (!payload || !payload.conversationId || !payload.userId) return
+      removeTypingUser(payload.conversationId, payload.userId)
+    }
+
     socket.on('message', handleIncomingMessage)
     socket.on('conversation:read', handleConversationRead)
     socket.on('post:new', handlePostNew)
     socket.on('post:delete', handlePostDelete)
+    socket.on('typing:start', handleTypingStart)
+    socket.on('typing:stop', handleTypingStop)
 
     const handleCallOffer = ({ fromUserId, offer }) => {
       if (blockedUsersRef.current.includes(fromUserId)) {
@@ -1146,6 +1382,8 @@ export default function App() {
       socket.off('conversation:read', handleConversationRead)
       socket.off('post:new', handlePostNew)
       socket.off('post:delete', handlePostDelete)
+      socket.off('typing:start', handleTypingStart)
+      socket.off('typing:stop', handleTypingStop)
       socket.off('call:offer', handleCallOffer)
       socket.off('call:answer', handleCallAnswer)
       socket.off('call:ice', handleCallIce)
@@ -1156,6 +1394,7 @@ export default function App() {
       if (socketRef.current === socket) {
         socketRef.current = null
       }
+      setSocketConnection('offline')
     }
   }, [user])
 
@@ -1441,6 +1680,7 @@ export default function App() {
   }
 
   const handleLogout = async () => {
+    stopTyping()
     endCall(false)
     await detachPushSubscriptionFromCurrentUser()
     try {
@@ -1528,6 +1768,7 @@ export default function App() {
     }
     const text = messageText.trim()
     if (!text && !messageFile) return
+    stopTyping(activeConversation.id)
     setLoading(true)
     try {
       const data = await sendMessage(activeConversation.id, text, messageFile)
@@ -1538,6 +1779,12 @@ export default function App() {
       setMessageText('')
       setMessageFile(null)
       setMessagePreview('')
+      setDraftsByConversation((prev) => {
+        if (!Object.prototype.hasOwnProperty.call(prev, activeConversation.id)) return prev
+        const next = { ...prev }
+        delete next[activeConversation.id]
+        return next
+      })
       const list = await getConversations()
       setConversations(list.conversations || [])
     } catch (err) {
@@ -1841,6 +2088,18 @@ export default function App() {
   }
 
   const isOnline = (userId) => onlineUsers.includes(userId)
+  const socketStatusText = socketConnection === 'connecting'
+    ? 'Connecting to chat server...'
+    : socketConnection === 'disconnected'
+      ? 'Connection lost. Reconnecting...'
+      : socketConnection === 'offline'
+        ? 'Realtime connection is offline.'
+        : ''
+  const socketStatusClass = socketConnection === 'connecting'
+    ? 'chat-connection connecting'
+    : socketConnection === 'disconnected'
+      ? 'chat-connection disconnected'
+      : 'chat-connection offline'
   const pushButtonLabel = !pushState.supported
     ? 'Push unsupported'
     : pushState.loading
@@ -1965,6 +2224,9 @@ export default function App() {
 
         {status.message ? (
           <div className={`alert ${status.type}`}>{status.message}</div>
+        ) : null}
+        {user && socketConnection !== 'connected' && socketStatusText ? (
+          <div className={socketStatusClass}>{socketStatusText}</div>
         ) : null}
 
         {toasts.length > 0 && (
@@ -2153,6 +2415,11 @@ export default function App() {
                 {conversations.map((conv) => {
                   const unreadCount = Number(conv.unreadCount || 0)
                   const isActive = activeConversation && conv.id === activeConversation.id
+                  const draftText = typeof draftsByConversation[conv.id] === 'string' ? draftsByConversation[conv.id].trim() : ''
+                  const hasDraft = draftText.length > 0
+                  const draftPreview = hasDraft
+                    ? `Draft: ${draftText.length > 80 ? `${draftText.slice(0, 77)}...` : draftText}`
+                    : ''
                   return (
                     <button
                       type="button"
@@ -2169,7 +2436,9 @@ export default function App() {
                         <div className="chat-title">
                           {conv.isGroup ? conv.title : (conv.other?.displayName || conv.other?.username || 'Пользователь')}
                         </div>
-                        <div className="chat-preview">{conv.lastMessage || 'Нет сообщений'}</div>
+                        <div className={`chat-preview ${hasDraft ? 'draft' : ''}`}>
+                          {hasDraft ? draftPreview : (conv.lastMessage || 'Нет сообщений')}
+                        </div>
                       </div>
                       <div className="chat-side">
                         <div className="chat-time">{formatTime(conv.lastAt)}</div>
@@ -2284,6 +2553,9 @@ export default function App() {
                         <span>Вы заблокировали пользователя.</span>
                         <button type="button" onClick={toggleChatBlock}>Разблокировать</button>
                       </div>
+                    )}
+                    {typingLabel && (
+                      <div className="chat-typing">{typingLabel}</div>
                     )}
                   </div>
                   <div className="chat-messages">
@@ -2420,7 +2692,7 @@ export default function App() {
                     <input
                       type="text"
                       value={messageText}
-                      onChange={(event) => setMessageText(event.target.value)}
+                      onChange={handleMessageInputChange}
                       placeholder="Сообщение..."
                       disabled={isChatBlocked}
                     />
