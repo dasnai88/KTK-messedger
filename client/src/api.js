@@ -127,6 +127,24 @@ export async function getPresence() {
   return request('/presence')
 }
 
+export async function getPushPublicKey() {
+  return request('/notifications/vapid-public-key')
+}
+
+export async function savePushSubscription(subscription) {
+  return request('/notifications/push-subscription', {
+    method: 'PUT',
+    body: { subscription }
+  })
+}
+
+export async function deletePushSubscription(endpoint) {
+  return request('/notifications/push-subscription', {
+    method: 'DELETE',
+    body: { endpoint }
+  })
+}
+
 export async function getPosts() {
   return request('/posts')
 }

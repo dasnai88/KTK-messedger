@@ -11,6 +11,7 @@ const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const multer = require('multer')
 const { Server } = require('socket.io')
+const webpush = require('web-push')
 const { pool } = require('./db')
 
 const app = express()
@@ -30,6 +31,14 @@ const uploadStorage = String(process.env.UPLOAD_STORAGE || 'disk').toLowerCase()
 const useDbStorage = uploadStorage === 'db'
 const defaultUploadDir = path.join(__dirname, '..', 'uploads')
 const uploadDir = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : defaultUploadDir
+const webPushSubject = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@example.com'
+const webPushPublicKey = process.env.WEB_PUSH_PUBLIC_KEY || ''
+const webPushPrivateKey = process.env.WEB_PUSH_PRIVATE_KEY || ''
+const webPushEnabled = Boolean(webPushPublicKey && webPushPrivateKey)
+
+if (webPushEnabled) {
+  webpush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey)
+}
 
 if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'change_me')) {
   console.error('JWT_SECRET must be set to a strong value in production.')
@@ -115,7 +124,8 @@ const io = new Server(server, {
   }
 })
 
-const onlineUsers = new Map()
+const onlineUsers = new Map() // userId => Set(socketId)
+const socketState = new Map() // socketId => { userId, focused, activeConversationId }
 
 app.disable('x-powered-by')
 app.use(helmet({
@@ -153,6 +163,15 @@ function isValidMessage(value) {
 
 function isValidUuid(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+function getMessagePreviewText(body, attachmentUrl) {
+  const text = typeof body === 'string' ? body.trim() : ''
+  if (text) {
+    return text.length > 120 ? `${text.slice(0, 117)}...` : text
+  }
+  if (attachmentUrl) return 'Attachment'
+  return 'New message'
 }
 
 async function storeUpload(file) {
@@ -343,6 +362,118 @@ async function getUserConversations(userId) {
   return result.rows.map(mapConversation)
 }
 
+function getSocketIdsForUser(userId) {
+  const sockets = onlineUsers.get(userId)
+  if (!sockets || sockets.size === 0) return []
+  return Array.from(sockets)
+}
+
+function addOnlineSocket(userId, socketId) {
+  const sockets = onlineUsers.get(userId) || new Set()
+  const wasOffline = sockets.size === 0
+  sockets.add(socketId)
+  onlineUsers.set(userId, sockets)
+  return wasOffline
+}
+
+function removeOnlineSocket(userId, socketId) {
+  const sockets = onlineUsers.get(userId)
+  if (!sockets) return false
+  sockets.delete(socketId)
+  if (sockets.size === 0) {
+    onlineUsers.delete(userId)
+    return true
+  }
+  return false
+}
+
+function emitToUser(userId, eventName, payload) {
+  const socketIds = getSocketIdsForUser(userId)
+  socketIds.forEach((socketId) => {
+    io.to(socketId).emit(eventName, payload)
+  })
+}
+
+function parsePushSubscriptionPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null
+  const endpoint = typeof payload.endpoint === 'string' ? payload.endpoint.trim() : ''
+  const keys = payload.keys && typeof payload.keys === 'object' ? payload.keys : {}
+  const p256dh = typeof keys.p256dh === 'string' ? keys.p256dh.trim() : ''
+  const auth = typeof keys.auth === 'string' ? keys.auth.trim() : ''
+  if (!endpoint || !p256dh || !auth) return null
+  return {
+    endpoint,
+    keys: { p256dh, auth }
+  }
+}
+
+async function upsertPushSubscription(userId, subscription, userAgent) {
+  await pool.query(
+    `insert into push_subscriptions (user_id, endpoint, p256dh, auth, user_agent, last_seen_at)
+     values ($1, $2, $3, $4, $5, now())
+     on conflict (endpoint) do update
+       set user_id = excluded.user_id,
+           p256dh = excluded.p256dh,
+           auth = excluded.auth,
+           user_agent = excluded.user_agent,
+           last_seen_at = now()`,
+    [userId, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth, userAgent || null]
+  )
+}
+
+async function removePushSubscription(userId, endpoint) {
+  await pool.query(
+    'delete from push_subscriptions where user_id = $1 and endpoint = $2',
+    [userId, endpoint]
+  )
+}
+
+function shouldSendPushToUser(userId, conversationId) {
+  const socketIds = getSocketIdsForUser(userId)
+  if (socketIds.length === 0) return true
+  return !socketIds.some((socketId) => {
+    const state = socketState.get(socketId)
+    if (!state) return false
+    return state.focused === true && state.activeConversationId === conversationId
+  })
+}
+
+async function sendPushToUsers(userIds, payload) {
+  if (!webPushEnabled) return
+  const targets = Array.from(new Set((userIds || []).filter((id) => typeof id === 'string')))
+  if (targets.length === 0) return
+
+  const subscriptions = await pool.query(
+    `select user_id, endpoint, p256dh, auth
+     from push_subscriptions
+     where user_id = any($1::uuid[])`,
+    [targets]
+  )
+  if (subscriptions.rowCount === 0) return
+
+  const body = JSON.stringify(payload)
+  await Promise.all(subscriptions.rows.map(async (row) => {
+    if (!shouldSendPushToUser(row.user_id, payload.conversationId || null)) return
+    try {
+      await webpush.sendNotification({
+        endpoint: row.endpoint,
+        keys: {
+          p256dh: row.p256dh,
+          auth: row.auth
+        }
+      }, body, {
+        TTL: 60,
+        urgency: 'high',
+        topic: payload.tag || undefined
+      })
+    } catch (err) {
+      if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+        await pool.query('delete from push_subscriptions where endpoint = $1', [row.endpoint]).catch(() => {})
+      }
+    }
+  }))
+}
+
 io.use((socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token
   if (!token) return next(new Error('No token'))
@@ -356,45 +487,67 @@ io.use((socket, next) => {
 })
 
 io.on('connection', (socket) => {
-  onlineUsers.set(socket.userId, socket.id)
-  io.emit('presence', { userId: socket.userId, online: true })
+  const becameOnline = addOnlineSocket(socket.userId, socket.id)
+  socketState.set(socket.id, {
+    userId: socket.userId,
+    focused: false,
+    activeConversationId: null
+  })
+
+  if (becameOnline) {
+    io.emit('presence', { userId: socket.userId, online: true })
+  }
+
+  socket.on('presence:state', (payload) => {
+    const current = socketState.get(socket.id) || {
+      userId: socket.userId,
+      focused: false,
+      activeConversationId: null
+    }
+    const focused = payload && typeof payload.focused === 'boolean' ? payload.focused : current.focused
+    const activeConversationId = payload && (typeof payload.activeConversationId === 'string' || payload.activeConversationId === null)
+      ? payload.activeConversationId
+      : current.activeConversationId
+    socketState.set(socket.id, {
+      userId: socket.userId,
+      focused,
+      activeConversationId
+    })
+  })
 
   socket.on('call:offer', ({ toUserId, offer }) => {
-    const targetSocket = onlineUsers.get(toUserId)
-    if (!targetSocket) {
+    const targetSockets = getSocketIdsForUser(toUserId)
+    if (targetSockets.length === 0) {
       socket.emit('call:unavailable', { toUserId })
       return
     }
-    io.to(targetSocket).emit('call:offer', { fromUserId: socket.userId, offer })
+    targetSockets.forEach((socketId) => {
+      io.to(socketId).emit('call:offer', { fromUserId: socket.userId, offer })
+    })
   })
 
   socket.on('call:answer', ({ toUserId, answer }) => {
-    const targetSocket = onlineUsers.get(toUserId)
-    if (!targetSocket) return
-    io.to(targetSocket).emit('call:answer', { fromUserId: socket.userId, answer })
+    emitToUser(toUserId, 'call:answer', { fromUserId: socket.userId, answer })
   })
 
   socket.on('call:ice', ({ toUserId, candidate }) => {
-    const targetSocket = onlineUsers.get(toUserId)
-    if (!targetSocket) return
-    io.to(targetSocket).emit('call:ice', { fromUserId: socket.userId, candidate })
+    emitToUser(toUserId, 'call:ice', { fromUserId: socket.userId, candidate })
   })
 
   socket.on('call:decline', ({ toUserId, reason }) => {
-    const targetSocket = onlineUsers.get(toUserId)
-    if (!targetSocket) return
-    io.to(targetSocket).emit('call:decline', { fromUserId: socket.userId, reason })
+    emitToUser(toUserId, 'call:decline', { fromUserId: socket.userId, reason })
   })
 
   socket.on('call:end', ({ toUserId }) => {
-    const targetSocket = onlineUsers.get(toUserId)
-    if (!targetSocket) return
-    io.to(targetSocket).emit('call:end', { fromUserId: socket.userId })
+    emitToUser(toUserId, 'call:end', { fromUserId: socket.userId })
   })
 
   socket.on('disconnect', () => {
-    onlineUsers.delete(socket.userId)
-    io.emit('presence', { userId: socket.userId, online: false })
+    socketState.delete(socket.id)
+    const becameOffline = removeOnlineSocket(socket.userId, socket.id)
+    if (becameOffline) {
+      io.emit('presence', { userId: socket.userId, online: false })
+    }
   })
 })
 
@@ -543,6 +696,44 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
       return res.status(409).json({ error: 'Username already taken' })
     }
     console.error('Update error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.get('/api/notifications/vapid-public-key', auth, ensureNotBanned, (req, res) => {
+  if (!webPushEnabled) {
+    return res.status(503).json({ error: 'Web push is not configured on the server' })
+  }
+  res.json({ publicKey: webPushPublicKey })
+})
+
+app.put('/api/notifications/push-subscription', auth, ensureNotBanned, async (req, res) => {
+  try {
+    if (!webPushEnabled) {
+      return res.status(503).json({ error: 'Web push is not configured on the server' })
+    }
+    const subscription = parsePushSubscriptionPayload(req.body.subscription)
+    if (!subscription) {
+      return res.status(400).json({ error: 'Invalid push subscription payload' })
+    }
+    await upsertPushSubscription(req.userId, subscription, req.headers['user-agent'] || null)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Upsert push subscription error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.delete('/api/notifications/push-subscription', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const endpoint = typeof req.body.endpoint === 'string' ? req.body.endpoint.trim() : ''
+    if (!endpoint) {
+      return res.status(400).json({ error: 'Endpoint is required' })
+    }
+    await removePushSubscription(req.userId, endpoint)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Delete push subscription error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
@@ -883,14 +1074,11 @@ app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) 
       )
       const lastReadAt = updated.rows[0] ? updated.rows[0].last_read_at : new Date().toISOString()
       others.rows.forEach((row) => {
-        const targetSocket = onlineUsers.get(row.user_id)
-        if (targetSocket) {
-          io.to(targetSocket).emit('conversation:read', {
-            conversationId,
-            userId: req.userId,
-            lastReadAt
-          })
-        }
+        emitToUser(row.user_id, 'conversation:read', {
+          conversationId,
+          userId: req.userId,
+          lastReadAt
+        })
       })
     }
     res.json({ ok: true })
@@ -916,6 +1104,22 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
     if (membership.rowCount === 0) {
       return res.status(403).json({ error: 'Access denied' })
     }
+
+    const conversationResult = await pool.query(
+      'select is_group, title from conversations where id = $1',
+      [conversationId]
+    )
+    if (conversationResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Conversation not found' })
+    }
+
+    const membersResult = await pool.query(
+      `select cm.user_id, u.username, u.display_name
+       from conversation_members cm
+       join users u on u.id = cm.user_id
+       where cm.conversation_id = $1`,
+      [conversationId]
+    )
 
     const attachmentUrl = req.file ? await storeUpload(req.file) : null
 
@@ -944,7 +1148,35 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
       readByOther: false
     }
 
-    io.emit('message', { conversationId, message })
+    membersResult.rows.forEach((member) => {
+      emitToUser(member.user_id, 'message', { conversationId, message })
+    })
+
+    const recipients = membersResult.rows
+      .map((member) => member.user_id)
+      .filter((memberId) => memberId !== req.userId)
+
+    if (recipients.length > 0) {
+      const isGroup = conversationResult.rows[0].is_group === true
+      const senderName = sender.display_name || sender.username || 'New message'
+      const pushTitle = isGroup
+        ? (conversationResult.rows[0].title || 'New message in group')
+        : senderName
+      const pushPayload = {
+        title: pushTitle,
+        body: getMessagePreviewText(message.body, message.attachmentUrl),
+        conversationId,
+        url: `/?conversation=${conversationId}`,
+        tag: `conversation-${conversationId}`,
+        senderId: req.userId,
+        messageId: message.id,
+        createdAt: message.createdAt,
+        skipWhenVisible: true
+      }
+      void sendPushToUsers(recipients, pushPayload).catch((err) => {
+        console.error('Push send error', err)
+      })
+    }
 
     res.json({ message })
   } catch (err) {

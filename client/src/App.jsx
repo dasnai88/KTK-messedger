@@ -12,6 +12,7 @@ import {
   getProfilePosts,
   getPosts,
   getPresence,
+  getPushPublicKey,
   getRoles,
   getTokenValue,
   getComments,
@@ -36,7 +37,9 @@ import {
   adminUnbanUser,
   adminWarnUser,
   adminSetModerator,
-  adminClearWarnings
+  adminClearWarnings,
+  savePushSubscription,
+  deletePushSubscription
 } from './api.js'
 
 const icons = {
@@ -102,6 +105,18 @@ const apiOrigin = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : ''
 const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKET_URL || apiOrigin || '').replace(/\/$/, '')
 const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
+const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
+
+function urlBase64ToUint8Array(value) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = `${base64}${'='.repeat((4 - (base64.length % 4)) % 4)}`
+  const rawData = window.atob(padded)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; i += 1) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+  return outputArray
+}
 
 function resolveMediaUrl(url) {
   if (!url) return ''
@@ -199,6 +214,14 @@ export default function App() {
   const [adminUsers, setAdminUsers] = useState([])
   const [adminWarnReason, setAdminWarnReason] = useState({})
   const [lightboxImage, setLightboxImage] = useState('')
+  const [pushState, setPushState] = useState({
+    supported: false,
+    permission: 'default',
+    enabled: false,
+    loading: false,
+    error: ''
+  })
+  const [pendingPushConversationId, setPendingPushConversationId] = useState(null)
 
   const socketRef = useRef(null)
   const pcRef = useRef(null)
@@ -209,6 +232,7 @@ export default function App() {
   const blockedUsersRef = useRef(blockedUsers)
   const conversationsRef = useRef(conversations)
   const activeConversationRef = useRef(activeConversation)
+  const viewRef = useRef(view)
   const profileViewRef = useRef(profileView)
   const toastIdRef = useRef(0)
   const toastTimersRef = useRef(new Map())
@@ -216,6 +240,9 @@ export default function App() {
   const audioUnlockedRef = useRef(false)
   const lastMessageSoundRef = useRef(0)
   const lastNotificationSoundRef = useRef(0)
+  const serviceWorkerRegistrationRef = useRef(null)
+  const pushPublicKeyRef = useRef('')
+  const lastPresenceStateRef = useRef({ focused: null, activeConversationId: null })
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -375,6 +402,246 @@ export default function App() {
     }
   }
 
+  const isPushSupported = () => (
+    typeof window !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    'Notification' in window
+  )
+
+  const ensureServiceWorkerRegistration = async () => {
+    if (!isPushSupported()) {
+      throw new Error('Push notifications are not supported in this browser.')
+    }
+    if (serviceWorkerRegistrationRef.current) {
+      return serviceWorkerRegistrationRef.current
+    }
+    const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+    const readyRegistration = await navigator.serviceWorker.ready
+    serviceWorkerRegistrationRef.current = readyRegistration || registration
+    return serviceWorkerRegistrationRef.current
+  }
+
+  const fetchPushPublicKey = async () => {
+    if (pushPublicKeyRef.current) return pushPublicKeyRef.current
+    const data = await getPushPublicKey()
+    if (!data || !data.publicKey) {
+      throw new Error('Web push is not configured on the server.')
+    }
+    pushPublicKeyRef.current = data.publicKey
+    return pushPublicKeyRef.current
+  }
+
+  const attachPushSubscriptionToUser = async () => {
+    const registration = await ensureServiceWorkerRegistration()
+    const publicKey = await fetchPushPublicKey()
+    let subscription = await registration.pushManager.getSubscription()
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey)
+      })
+    }
+    await savePushSubscription(subscription.toJSON())
+    setPushState({
+      supported: true,
+      permission: Notification.permission,
+      enabled: true,
+      loading: false,
+      error: ''
+    })
+    return subscription
+  }
+
+  const syncPushState = async ({ keepError = false } = {}) => {
+    const supported = isPushSupported()
+    if (!supported) {
+      setPushState({
+        supported: false,
+        permission: 'unsupported',
+        enabled: false,
+        loading: false,
+        error: ''
+      })
+      return
+    }
+
+    const permission = Notification.permission
+    if (!user || permission !== 'granted') {
+      setPushState((prev) => ({
+        supported: true,
+        permission,
+        enabled: false,
+        loading: false,
+        error: keepError ? prev.error : ''
+      }))
+      return
+    }
+
+    try {
+      const registration = await ensureServiceWorkerRegistration()
+      const subscription = await registration.pushManager.getSubscription()
+      if (subscription) {
+        await savePushSubscription(subscription.toJSON())
+      }
+      setPushState((prev) => ({
+        supported: true,
+        permission,
+        enabled: Boolean(subscription),
+        loading: false,
+        error: keepError ? prev.error : ''
+      }))
+    } catch (err) {
+      setPushState({
+        supported: true,
+        permission,
+        enabled: false,
+        loading: false,
+        error: err.message || 'Push setup failed'
+      })
+    }
+  }
+
+  const detachPushSubscriptionFromCurrentUser = async () => {
+    if (!isPushSupported()) return
+    try {
+      const registration = serviceWorkerRegistrationRef.current || await navigator.serviceWorker.getRegistration('/sw.js')
+      if (!registration) return
+      const subscription = await registration.pushManager.getSubscription()
+      if (!subscription || !subscription.endpoint) return
+      await deletePushSubscription(subscription.endpoint)
+    } catch (err) {
+      // ignore cleanup errors
+    }
+  }
+
+  const enablePushNotifications = async () => {
+    if (!user) {
+      setStatus({ type: 'info', message: 'Sign in first to enable notifications.' })
+      return
+    }
+    setPushState((prev) => ({ ...prev, loading: true, error: '' }))
+    try {
+      if (!isPushSupported()) {
+        throw new Error('Push notifications are not supported in this browser.')
+      }
+      await ensureServiceWorkerRegistration()
+      let permission = Notification.permission
+      if (permission !== 'granted') {
+        permission = await Notification.requestPermission()
+      }
+      if (permission !== 'granted') {
+        setPushState({
+          supported: true,
+          permission,
+          enabled: false,
+          loading: false,
+          error: permission === 'denied'
+            ? 'Notification permission is blocked in browser settings.'
+            : ''
+        })
+        return
+      }
+      await attachPushSubscriptionToUser()
+      pushToast({
+        title: 'Notifications enabled',
+        message: 'You will receive messages on this device.',
+        type: 'info'
+      })
+    } catch (err) {
+      setPushState((prev) => ({
+        ...prev,
+        loading: false,
+        enabled: false,
+        error: err.message || 'Failed to enable notifications'
+      }))
+      setStatus({ type: 'error', message: err.message || 'Failed to enable notifications.' })
+    }
+  }
+
+  const disablePushNotifications = async ({ silent = false } = {}) => {
+    setPushState((prev) => ({ ...prev, loading: true, error: '' }))
+    try {
+      if (!isPushSupported()) {
+        setPushState({
+          supported: false,
+          permission: 'unsupported',
+          enabled: false,
+          loading: false,
+          error: ''
+        })
+        return
+      }
+      const registration = await ensureServiceWorkerRegistration()
+      const subscription = await registration.pushManager.getSubscription()
+      if (subscription) {
+        if (subscription.endpoint) {
+          await deletePushSubscription(subscription.endpoint).catch(() => {})
+        }
+        await subscription.unsubscribe().catch(() => {})
+      }
+      setPushState({
+        supported: true,
+        permission: Notification.permission,
+        enabled: false,
+        loading: false,
+        error: ''
+      })
+      if (!silent) {
+        pushToast({
+          title: 'Notifications disabled',
+          message: 'System notifications are off for this browser.',
+          type: 'info'
+        })
+      }
+    } catch (err) {
+      setPushState((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.message || 'Failed to disable notifications'
+      }))
+      if (!silent) {
+        setStatus({ type: 'error', message: err.message || 'Failed to disable notifications.' })
+      }
+    }
+  }
+
+  const handlePushToggle = () => {
+    if (!pushState.supported) return
+    if (pushState.enabled) {
+      disablePushNotifications()
+      return
+    }
+    if (pushState.permission === 'denied') {
+      setStatus({ type: 'info', message: 'Allow notifications for this site in browser settings, then refresh the page.' })
+      return
+    }
+    enablePushNotifications()
+  }
+
+  const handlePushConversationIntent = (conversationId) => {
+    if (!conversationId || typeof conversationId !== 'string') return
+    setPendingPushConversationId(conversationId)
+    try {
+      localStorage.setItem(PUSH_OPEN_STORAGE_KEY, conversationId)
+    } catch (err) {
+      // ignore storage errors
+    }
+  }
+
+  const emitPresenceState = () => {
+    const socket = socketRef.current
+    if (!socket || !socket.connected || typeof document === 'undefined') return
+    const focused = document.visibilityState === 'visible' && document.hasFocus()
+    const activeConversationId = focused && viewRef.current === 'chats' && activeConversationRef.current
+      ? activeConversationRef.current.id
+      : null
+    const previous = lastPresenceStateRef.current
+    if (previous.focused === focused && previous.activeConversationId === activeConversationId) return
+    lastPresenceStateRef.current = { focused, activeConversationId }
+    socket.emit('presence:state', { focused, activeConversationId })
+  }
+
   const readStoredView = (isAdmin) => {
     try {
       const stored = localStorage.getItem('ktk_view')
@@ -425,6 +692,82 @@ export default function App() {
       }
     }
   }, [view, user])
+
+  useEffect(() => {
+    viewRef.current = view
+    emitPresenceState()
+  }, [view])
+
+  useEffect(() => {
+    if (!isPushSupported()) {
+      setPushState({
+        supported: false,
+        permission: 'unsupported',
+        enabled: false,
+        loading: false,
+        error: ''
+      })
+      return
+    }
+
+    setPushState((prev) => ({
+      ...prev,
+      supported: true,
+      permission: Notification.permission
+    }))
+
+    ensureServiceWorkerRegistration().catch(() => {})
+
+    try {
+      const params = new URLSearchParams(window.location.search)
+      const fromUrl = params.get('conversation')
+      if (fromUrl) {
+        handlePushConversationIntent(fromUrl)
+        params.delete('conversation')
+        const query = params.toString()
+        const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`
+        window.history.replaceState({}, '', nextUrl)
+      } else {
+        const stored = localStorage.getItem(PUSH_OPEN_STORAGE_KEY)
+        if (stored) {
+          handlePushConversationIntent(stored)
+        }
+      }
+    } catch (err) {
+      // ignore url/storage errors
+    }
+
+    const handleServiceWorkerMessage = (event) => {
+      const payload = event && event.data ? event.data : null
+      if (!payload || payload.type !== 'push-open') return
+      if (payload.conversationId) {
+        handlePushConversationIntent(payload.conversationId)
+      }
+    }
+
+    navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage)
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage)
+    }
+  }, [])
+
+  useEffect(() => {
+    syncPushState().catch(() => {})
+  }, [user])
+
+  useEffect(() => {
+    if (!pendingPushConversationId || conversations.length === 0) return
+    const targetConversation = conversations.find((item) => item.id === pendingPushConversationId)
+    if (!targetConversation) return
+    setActiveConversation(targetConversation)
+    setView('chats')
+    setPendingPushConversationId(null)
+    try {
+      localStorage.removeItem(PUSH_OPEN_STORAGE_KEY)
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [pendingPushConversationId, conversations])
 
   useEffect(() => {
     if (!user) return
@@ -508,6 +851,7 @@ export default function App() {
 
   useEffect(() => {
     activeConversationRef.current = activeConversation
+    emitPresenceState()
   }, [activeConversation])
 
   useEffect(() => {
@@ -577,6 +921,27 @@ export default function App() {
     const socket = io(import.meta.env.VITE_SOCKET_URL || '/', { auth: { token } })
     socketRef.current = socket
 
+    lastPresenceStateRef.current = { focused: null, activeConversationId: null }
+    const handleSocketConnect = () => {
+      lastPresenceStateRef.current = { focused: null, activeConversationId: null }
+      emitPresenceState()
+    }
+    const handleSocketDisconnect = () => {
+      lastPresenceStateRef.current = { focused: null, activeConversationId: null }
+    }
+    socket.on('connect', handleSocketConnect)
+    socket.on('disconnect', handleSocketDisconnect)
+    if (socket.connected) {
+      handleSocketConnect()
+    }
+
+    const handleWindowPresence = () => {
+      emitPresenceState()
+    }
+    window.addEventListener('focus', handleWindowPresence)
+    window.addEventListener('blur', handleWindowPresence)
+    document.addEventListener('visibilitychange', handleWindowPresence)
+
     socket.on('presence', (payload) => {
       setOnlineUsers((prev) => {
         const set = new Set(prev)
@@ -628,7 +993,8 @@ export default function App() {
       updateConversationPreview(conversationId, message)
       const currentActive = activeConversationRef.current
       const isMine = message.senderId && user && message.senderId === user.id
-      if (currentActive && conversationId === currentActive.id) {
+      const isConversationOpen = viewRef.current === 'chats' && currentActive && conversationId === currentActive.id
+      if (isConversationOpen) {
         setMessages((prev) => {
           if (prev.some((msg) => msg.id === message.id)) return prev
           return [...prev, message]
@@ -645,12 +1011,15 @@ export default function App() {
         const title = known
           ? (known.isGroup ? known.title : (known.other && (known.other.displayName || known.other.username)))
           : (message.senderDisplayName || message.senderUsername || 'Новое сообщение')
-        playNotificationSound()
-        pushToast({
-          title: title || 'Новое сообщение',
-          message: getConversationPreview(message),
-          type: 'message'
-        })
+        const isPageVisible = typeof document !== 'undefined' && document.visibilityState === 'visible'
+        if (isPageVisible) {
+          playNotificationSound()
+          pushToast({
+            title: title || message.senderDisplayName || message.senderUsername || 'New message',
+            message: getConversationPreview(message),
+            type: 'message'
+          })
+        }
       }
     }
 
@@ -760,6 +1129,11 @@ export default function App() {
     socket.on('call:unavailable', handleCallUnavailable)
 
     return () => {
+      window.removeEventListener('focus', handleWindowPresence)
+      window.removeEventListener('blur', handleWindowPresence)
+      document.removeEventListener('visibilitychange', handleWindowPresence)
+      socket.off('connect', handleSocketConnect)
+      socket.off('disconnect', handleSocketDisconnect)
       socket.off('message', handleIncomingMessage)
       socket.off('conversation:read', handleConversationRead)
       socket.off('post:new', handlePostNew)
@@ -1058,8 +1432,9 @@ export default function App() {
     }
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     endCall(false)
+    await detachPushSubscriptionFromCurrentUser()
     try {
       localStorage.removeItem('ktk_view')
       localStorage.removeItem('ktk_active_conversation')
@@ -1072,7 +1447,13 @@ export default function App() {
     setActiveConversation(null)
     setMessages([])
     setConversations([])
-    setStatus({ type: 'info', message: 'Вы вышли из аккаунта.' })
+    setPushState((prev) => ({
+      ...prev,
+      enabled: false,
+      loading: false,
+      error: ''
+    }))
+    setStatus({ type: 'info', message: 'Signed out.' })
   }
 
   const handleSearch = async (value) => {
@@ -1452,6 +1833,17 @@ export default function App() {
   }
 
   const isOnline = (userId) => onlineUsers.includes(userId)
+  const pushButtonLabel = !pushState.supported
+    ? 'Push unsupported'
+    : pushState.loading
+      ? 'Updating...'
+      : pushState.enabled
+        ? 'Notifications on'
+        : pushState.permission === 'denied'
+          ? 'Notifications blocked'
+          : 'Enable notifications'
+  const pushButtonClass = `push-toggle ${pushState.enabled ? 'enabled' : ''}`.trim()
+  const pushButtonDisabled = !user || !pushState.supported || pushState.loading
 
   return (
     <div className="page">
@@ -1473,6 +1865,15 @@ export default function App() {
             >
               <span>{theme === 'dark' ? '🌙' : '☀️'}</span>
               {theme === 'dark' ? 'Тёмная' : 'Светлая'}
+            </button>
+            <button
+              type="button"
+              className={pushButtonClass}
+              onClick={handlePushToggle}
+              disabled={pushButtonDisabled}
+              title={pushState.permission === 'denied' ? 'Allow notifications in browser settings' : 'Manage notifications'}
+            >
+              {pushButtonLabel}
             </button>
             {user ? (
               <>
@@ -1549,6 +1950,10 @@ export default function App() {
             </button>
           </div>
         )}
+
+        {pushState.error ? (
+          <div className="alert error">{pushState.error}</div>
+        ) : null}
 
         {status.message ? (
           <div className={`alert ${status.type}`}>{status.message}</div>
@@ -2735,6 +3140,5 @@ export default function App() {
       )}
     </div>
   )
-}
-
+}
 

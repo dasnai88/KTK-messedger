@@ -48,6 +48,17 @@ create table if not exists conversation_members (
   primary key (conversation_id, user_id)
 );
 
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade,
+  endpoint text unique not null,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  created_at timestamptz default now(),
+  last_seen_at timestamptz default now()
+);
+
 create table if not exists messages (
   id uuid primary key default gen_random_uuid(),
   conversation_id uuid references conversations(id) on delete cascade,
@@ -104,6 +115,7 @@ create table if not exists post_reposts (
 
 create index if not exists idx_users_username on users (username);
 create index if not exists idx_members_user on conversation_members (user_id);
+create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
 create index if not exists idx_messages_conversation on messages (conversation_id, created_at);
 create index if not exists idx_posts_created on posts (created_at desc);
 create index if not exists idx_post_comments_post on post_comments (post_id, created_at);
@@ -176,5 +188,10 @@ EXCEPTION WHEN duplicate_column THEN END $$;
 DO $$ BEGIN
   ALTER TABLE conversation_members ADD COLUMN last_read_at timestamptz default now();
 EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE push_subscriptions ADD COLUMN last_seen_at timestamptz default now();
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
 
 UPDATE conversation_members SET last_read_at = now() WHERE last_read_at IS NULL;
