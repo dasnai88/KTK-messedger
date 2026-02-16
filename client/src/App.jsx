@@ -404,6 +404,7 @@ export default function App() {
 
   const isPushSupported = () => (
     typeof window !== 'undefined' &&
+    window.isSecureContext === true &&
     'serviceWorker' in navigator &&
     'PushManager' in window &&
     'Notification' in window
@@ -492,13 +493,13 @@ export default function App() {
         error: keepError ? prev.error : ''
       }))
     } catch (err) {
-      setPushState({
+      setPushState((prev) => ({
         supported: true,
         permission,
         enabled: false,
         loading: false,
-        error: err.message || 'Push setup failed'
-      })
+        error: keepError ? (err.message || prev.error || 'Push setup failed') : ''
+      }))
     }
   }
 
@@ -607,7 +608,10 @@ export default function App() {
   }
 
   const handlePushToggle = () => {
-    if (!pushState.supported) return
+    if (!pushState.supported) {
+      setStatus({ type: 'info', message: 'Для системных уведомлений нужен HTTPS с валидным SSL-сертификатом.' })
+      return
+    }
     if (pushState.enabled) {
       disablePushNotifications()
       return
@@ -715,8 +719,6 @@ export default function App() {
       supported: true,
       permission: Notification.permission
     }))
-
-    ensureServiceWorkerRegistration().catch(() => {})
 
     try {
       const params = new URLSearchParams(window.location.search)
