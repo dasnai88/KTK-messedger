@@ -22,6 +22,7 @@
 - [Запуск проекта (macOS/Linux + Docker)](#запуск-проекта-macoslinux--docker)
 - [Без Docker (локальная PostgreSQL)](#без-docker-локальная-postgresql)
 - [Мобильное приложение (Flutter)](#мобильное-приложение-flutter)
+- [Web Push Notifications (Phone + PC)](#web-push-notifications-phone--pc)
 - [Адреса](#адреса)
 - [Скриншоты / Превью](#скриншоты--превью)
 - [Структура проекта](#структура-проекта)
@@ -37,6 +38,7 @@
 - Группы и групповые чаты
 - Мобильный клиент (Flutter)
 - real-time сообщения (socket.io)
+- Web Push уведомления на ПК и телефоны (через браузер)
 
 ---
 
@@ -46,6 +48,7 @@
 - Backend: Node.js + Express
 - Database: PostgreSQL
 - Mobile: Flutter
+- Notifications: Web Push + Service Worker + VAPID (`web-push`)
 
 ---
 
@@ -189,6 +192,53 @@ flutter run --dart-define API_BASE_URL=http://YOUR_PC_IP:4000/api --dart-define 
 
 ---
 
+## Web Push Notifications (Phone + PC)
+
+Новая версия веб-клиента поддерживает push-уведомления на телефоне и ПК через браузер.
+
+### 1) Установить переменные в `server/.env`
+
+```env
+WEB_PUSH_SUBJECT=mailto:admin@example.com
+WEB_PUSH_PUBLIC_KEY=YOUR_PUBLIC_KEY
+WEB_PUSH_PRIVATE_KEY=YOUR_PRIVATE_KEY
+```
+
+Сгенерировать ключи можно так:
+
+```powershell
+npx web-push generate-vapid-keys
+```
+
+### 2) Обновить схему БД
+
+В БД добавлена таблица `push_subscriptions`.
+
+```powershell
+psql -h localhost -U elia -d elia_messenger -f server/src/schema.sql
+```
+
+### 3) Перезапустить backend
+
+```powershell
+cd server
+npm run dev
+```
+
+### 4) Включить уведомления в web-клиенте
+
+1) Войдите в аккаунт в web-версии  
+2) Нажмите кнопку `Enable notifications` в верхней панели  
+3) Разрешите уведомления в браузере
+
+### Важно
+
+- В production нужен HTTPS (на `localhost` push тоже работает).
+- Подписка на push делается отдельно для каждого браузера/устройства.
+- Если вкладка активна и открыт нужный чат, система не дублирует push.
+
+---
+
 ## Адреса
 
 - Web: http://localhost:5173
@@ -233,6 +283,12 @@ KTK-messedger/
 - Эмулятор: 10.0.2.2
 - Телефон: IP вашего ПК
 - Проверьте `API_BASE_URL` и `SOCKET_URL`
+
+**Почему push-уведомления не приходят в web-версии?**
+- Проверьте, что в `server/.env` заполнены `WEB_PUSH_PUBLIC_KEY` и `WEB_PUSH_PRIVATE_KEY`.
+- Убедитесь, что применена схема БД (`server/src/schema.sql`) и backend перезапущен.
+- Проверьте разрешение уведомлений в браузере для сайта.
+- В production проверьте, что сайт открыт по HTTPS.
 
 **Android SDK / лицензии**
 
