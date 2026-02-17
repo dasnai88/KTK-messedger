@@ -87,6 +87,21 @@ const audioUpload = createUpload({
   errorMessage: 'Only audio files are allowed'
 })
 
+const messageUpload = createUpload({
+  mimeTypes: [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'video/mp4',
+    'video/webm',
+    'video/ogg',
+    'video/quicktime'
+  ],
+  extensions: ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.webm', '.ogv', '.ogg', '.mov', '.m4v'],
+  maxFileSizeMb: 30,
+  errorMessage: 'Only image or video attachments are allowed'
+})
+
 const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:5173'
 const allowedOrigins = rawOrigins
   .split(',')
@@ -201,13 +216,28 @@ function isValidUuid(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
-function getMessagePreviewText(body, attachmentUrl) {
+function getMessagePreviewText(body, attachmentUrl, attachmentKind) {
   const text = typeof body === 'string' ? body.trim() : ''
   if (text) {
     return text.length > 120 ? `${text.slice(0, 117)}...` : text
   }
-  if (attachmentUrl) return 'Attachment'
+  if (attachmentUrl) {
+    if (attachmentKind === 'video-note') return 'Video note'
+    if (attachmentKind === 'video') return 'Video'
+    return 'Photo'
+  }
   return 'New message'
+}
+
+function normalizeMessageAttachmentKind(file, requestedKind) {
+  if (!file) return null
+  const mime = String(file.mimetype || '').toLowerCase()
+  const requested = typeof requestedKind === 'string' ? requestedKind.trim().toLowerCase() : ''
+  if (mime.startsWith('video/')) {
+    return requested === 'video-note' ? 'video-note' : 'video'
+  }
+  if (mime.startsWith('image/')) return 'image'
+  return null
 }
 
 async function storeUpload(file) {
@@ -416,7 +446,7 @@ function mapConversation(row) {
     title: row.title,
     isGroup: row.is_group,
     other: row.other_id ? mapOtherUser(row) : null,
-    lastMessage: row.last_body,
+    lastMessage: getMessagePreviewText(row.last_body, row.last_attachment_url, row.last_attachment_kind),
     lastAt: row.last_at,
     unreadCount: Number(row.unread_count || 0)
   }
@@ -463,6 +493,8 @@ async function getUserConversations(userId) {
             u.role as other_role,
             u.avatar_url as other_avatar_url,
             lm.body as last_body,
+            lm.attachment_url as last_attachment_url,
+            lm.attachment_kind as last_attachment_kind,
             lm.created_at as last_at,
             (
               select count(*)
@@ -477,12 +509,12 @@ async function getUserConversations(userId) {
      left join conversation_members other on other.conversation_id = c.id and other.user_id <> $1 and c.is_group = false
      left join users u on u.id = other.user_id
      left join lateral (
-       select m.body, m.created_at, m.sender_id
-       from messages m
-       where m.conversation_id = c.id
-       order by m.created_at desc
-       limit 1
-     ) lm on true
+        select m.body, m.attachment_url, m.attachment_kind, m.created_at, m.sender_id
+        from messages m
+        where m.conversation_id = c.id and m.deleted_at is null
+        order by m.created_at desc
+        limit 1
+      ) lm on true
      order by lm.created_at desc nulls last, c.created_at desc`,
     [userId]
   )
@@ -1294,7 +1326,7 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
     }
 
     const result = await pool.query(
-      `select m.id, m.body, m.attachment_url, m.created_at,
+      `select m.id, m.body, m.attachment_url, m.attachment_mime, m.attachment_kind, m.created_at,
               u.id as sender_id, u.username as sender_username, u.display_name as sender_display_name, u.avatar_url as sender_avatar_url,
               c.is_group,
               (c.is_group = false
@@ -1318,6 +1350,8 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
       id: row.id,
       body: row.body,
       attachmentUrl: row.attachment_url,
+      attachmentMime: row.attachment_mime,
+      attachmentKind: row.attachment_kind,
       createdAt: row.created_at,
       senderId: row.sender_id,
       senderUsername: row.sender_username,
@@ -1369,7 +1403,7 @@ app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) 
   }
 })
 
-app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanned, imageUpload.single('file'), async (req, res) => {
+app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanned, messageUpload.single('file'), async (req, res) => {
   try {
     const conversationId = req.params.id
     const body = req.body.body || ''
@@ -1403,12 +1437,14 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
     )
 
     const attachmentUrl = req.file ? await storeUpload(req.file) : null
+    const attachmentMime = req.file ? (req.file.mimetype || null) : null
+    const attachmentKind = normalizeMessageAttachmentKind(req.file, req.body.attachmentKind)
 
     const result = await pool.query(
-      `insert into messages (conversation_id, sender_id, body, attachment_url)
-       values ($1, $2, $3, $4)
-       returning id, body, attachment_url, created_at`,
-      [conversationId, req.userId, body.trim(), attachmentUrl]
+      `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind)
+       values ($1, $2, $3, $4, $5, $6)
+       returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
+      [conversationId, req.userId, body.trim(), attachmentUrl, attachmentMime, attachmentKind]
     )
 
     const senderRow = await pool.query(
@@ -1421,6 +1457,8 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
       id: result.rows[0].id,
       body: result.rows[0].body,
       attachmentUrl: result.rows[0].attachment_url,
+      attachmentMime: result.rows[0].attachment_mime,
+      attachmentKind: result.rows[0].attachment_kind,
       createdAt: result.rows[0].created_at,
       senderId: req.userId,
       senderUsername: sender.username || null,
@@ -1445,7 +1483,7 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
         : senderName
       const pushPayload = {
         title: pushTitle,
-        body: getMessagePreviewText(message.body, message.attachmentUrl),
+        body: getMessagePreviewText(message.body, message.attachmentUrl, message.attachmentKind),
         conversationId,
         url: `/?conversation=${conversationId}`,
         tag: `conversation-${conversationId}`,
@@ -1713,7 +1751,7 @@ app.patch('/api/messages/:id', auth, ensureNotBanned, async (req, res) => {
       `update messages
        set body = $1, edited_at = now()
        where id = $2
-       returning id, body, attachment_url, edited_at, created_at, sender_id`,
+       returning id, body, attachment_url, attachment_mime, attachment_kind, edited_at, created_at, sender_id`,
       [body, messageId]
     )
 
@@ -1722,6 +1760,8 @@ app.patch('/api/messages/:id', auth, ensureNotBanned, async (req, res) => {
         id: updated.rows[0].id,
         body: updated.rows[0].body,
         attachmentUrl: updated.rows[0].attachment_url,
+        attachmentMime: updated.rows[0].attachment_mime,
+        attachmentKind: updated.rows[0].attachment_kind,
         editedAt: updated.rows[0].edited_at,
         createdAt: updated.rows[0].created_at,
         senderId: updated.rows[0].sender_id
@@ -1898,6 +1938,9 @@ app.get('/api/presence', auth, async (req, res) => {
 app.use((err, req, res, next) => {
   if (err && err.message && err.message.includes('Only images')) {
     return res.status(400).json({ error: 'Разрешены только изображения (jpg, png, webp)' })
+  }
+  if (err && err.message && err.message.includes('Only image or video attachments')) {
+    return res.status(400).json({ error: 'Разрешены только изображения и видео (jpg, png, webp, mp4, webm, mov, ogg)' })
   }
   if (err && err.message && err.message.includes('Only audio files')) {
     return res.status(400).json({ error: 'Разрешены только аудио файлы (mp3, wav, ogg, webm, m4a, aac)' })

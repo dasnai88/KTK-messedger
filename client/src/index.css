@@ -1168,18 +1168,35 @@ body {
 }
 
 .message-bubble img,
+.message-bubble video,
 .feed-image {
   max-width: 100%;
   border-radius: 16px;
 }
 
-.message-bubble img {
+.message-bubble img,
+.message-bubble video {
   max-width: 220px;
-  max-height: 180px;
+  max-height: 220px;
   width: auto;
   height: auto;
-  object-fit: contain;
+  object-fit: cover;
   border-radius: 14px;
+}
+
+.message-bubble video {
+  cursor: default;
+  background: #000;
+}
+
+.video-note-player {
+  width: 180px;
+  height: 180px;
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 999px !important;
+  object-fit: cover !important;
+  border: 1px solid var(--line);
 }
 
 .feed-image {
@@ -1192,6 +1209,10 @@ body {
 
 .media-thumb {
   cursor: zoom-in;
+}
+
+.message-bubble video.media-thumb {
+  cursor: default;
 }
 
 .lightbox {
@@ -1212,7 +1233,7 @@ body {
 
 .composer {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto auto auto;
   gap: 12px;
   align-items: center;
   padding-top: 6px;
@@ -1224,11 +1245,13 @@ body {
 }
 
 .composer.disabled input,
-.composer.disabled .file-btn {
+.composer.disabled .file-btn,
+.composer.disabled .record-btn {
   cursor: not-allowed;
 }
 
-.composer.disabled .file-btn {
+.composer.disabled .file-btn,
+.composer.disabled .record-btn {
   pointer-events: none;
   opacity: 0.6;
 }
@@ -1249,6 +1272,43 @@ body {
 
 .file-btn input {
   display: none;
+}
+
+.record-btn {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 14px;
+  height: 44px;
+  padding: 0 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.record-btn.recording {
+  border-color: rgba(239, 68, 68, 0.55);
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.video-note-live {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.12);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.video-note-live video {
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  object-fit: cover;
+  background: #000;
 }
 
 .profile-avatar {
@@ -1391,7 +1451,8 @@ body {
   border: 1px solid var(--line);
 }
 
-.upload-preview img {
+.upload-preview img,
+.upload-preview video {
   width: 72px;
   height: 72px;
   object-fit: cover;
@@ -1700,7 +1761,8 @@ body {
     max-width: 90%;
   }
 
-  .message-bubble img {
+  .message-bubble img,
+  .message-bubble video {
     max-width: 70vw;
   }
 

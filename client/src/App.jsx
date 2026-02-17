@@ -118,6 +118,36 @@ const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
 const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
+const VIDEO_NOTE_KIND = 'video-note'
+const VIDEO_NOTE_MAX_SECONDS = 60
+const DEFAULT_ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+  { urls: 'stun:global.stun.twilio.com:3478' }
+]
+
+function normalizeIceServer(value) {
+  if (!value || typeof value !== 'object') return null
+  if (!value.urls || (typeof value.urls !== 'string' && !Array.isArray(value.urls))) return null
+  const normalized = { urls: value.urls }
+  if (typeof value.username === 'string') normalized.username = value.username
+  if (typeof value.credential === 'string') normalized.credential = value.credential
+  return normalized
+}
+
+function parseIceServers(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    const list = Array.isArray(parsed) ? parsed : [parsed]
+    return list.map(normalizeIceServer).filter(Boolean)
+  } catch (err) {
+    return []
+  }
+}
+
+const configuredIceServers = parseIceServers(import.meta.env.VITE_ICE_SERVERS)
+const rtcIceServers = configuredIceServers.length > 0 ? configuredIceServers : DEFAULT_ICE_SERVERS
 
 function urlBase64ToUint8Array(value) {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
@@ -173,6 +203,52 @@ function clampAvatarZoom(value) {
   return Math.min(AVATAR_ZOOM_MAX, Math.max(AVATAR_ZOOM_MIN, value))
 }
 
+function getSupportedVideoNoteMimeType() {
+  if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') return ''
+  const candidates = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+    'video/mp4'
+  ]
+  const supported = candidates.find((mimeType) => {
+    try {
+      return window.MediaRecorder.isTypeSupported(mimeType)
+    } catch (err) {
+      return false
+    }
+  })
+  return supported || ''
+}
+
+function getVideoExtensionFromMime(mimeType) {
+  const normalized = String(mimeType || '').toLowerCase()
+  if (normalized.includes('mp4')) return 'mp4'
+  if (normalized.includes('ogg')) return 'ogv'
+  return 'webm'
+}
+
+function isVideoMessageAttachment(message) {
+  if (!message || !message.attachmentUrl) return false
+  if (message.attachmentKind === 'video' || message.attachmentKind === VIDEO_NOTE_KIND) return true
+  const mime = String(message.attachmentMime || '').toLowerCase()
+  if (mime.startsWith('video/')) return true
+  return /\.(mp4|webm|ogv|ogg|mov|m4v)(\?|$)/i.test(message.attachmentUrl)
+}
+
+function getMessagePreviewLabel(message, emptyText = 'Message') {
+  if (message && typeof message.body === 'string' && message.body.trim()) {
+    const text = message.body.trim()
+    return text.length > 120 ? `${text.slice(0, 117)}...` : text
+  }
+  if (message && message.attachmentUrl) {
+    if (message.attachmentKind === VIDEO_NOTE_KIND) return 'Video note'
+    if (isVideoMessageAttachment(message)) return 'Video'
+    return 'Photo'
+  }
+  return emptyText
+}
+
 export default function App() {
   const [health, setHealth] = useState(null)
   const [roles, setRoles] = useState([])
@@ -210,6 +286,10 @@ export default function App() {
   const [messageText, setMessageText] = useState('')
   const [messageFile, setMessageFile] = useState(null)
   const [messagePreview, setMessagePreview] = useState('')
+  const [messagePreviewType, setMessagePreviewType] = useState('')
+  const [messageAttachmentKind, setMessageAttachmentKind] = useState('')
+  const [videoNoteRecording, setVideoNoteRecording] = useState(false)
+  const [videoNoteDuration, setVideoNoteDuration] = useState(0)
   const [draftsByConversation, setDraftsByConversation] = useState(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}')
@@ -287,6 +367,15 @@ export default function App() {
   const localStreamRef = useRef(null)
   const remoteAudioRef = useRef(null)
   const incomingOfferRef = useRef(null)
+  const pendingIceCandidatesRef = useRef([])
+  const callDisconnectTimerRef = useRef(null)
+  const videoRecorderRef = useRef(null)
+  const videoStreamRef = useRef(null)
+  const videoChunksRef = useRef([])
+  const videoNoteTimerRef = useRef(null)
+  const videoNoteDiscardRef = useRef(false)
+  const videoNotePreviewRef = useRef(null)
+  const messagePreviewUrlRef = useRef('')
   const callStateRef = useRef(callState)
   const blockedUsersRef = useRef(blockedUsers)
   const conversationsRef = useRef(conversations)
@@ -353,10 +442,187 @@ export default function App() {
       : callState.status === 'in-call'
         ? `Р—РІРѕРЅРѕРє ${formatDuration(callDuration)}`
         : ''
+  const clearCallDisconnectTimer = () => {
+    if (!callDisconnectTimerRef.current) return
+    clearTimeout(callDisconnectTimerRef.current)
+    callDisconnectTimerRef.current = null
+  }
+
+  const clearVideoNoteTimer = () => {
+    if (!videoNoteTimerRef.current) return
+    clearInterval(videoNoteTimerRef.current)
+    videoNoteTimerRef.current = null
+  }
+
+  const stopVideoNoteStream = () => {
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach((track) => track.stop())
+      videoStreamRef.current = null
+    }
+    if (videoNotePreviewRef.current) {
+      videoNotePreviewRef.current.srcObject = null
+    }
+  }
+
+  const revokeComposerPreviewUrl = () => {
+    const previous = messagePreviewUrlRef.current
+    if (previous && previous.startsWith('blob:')) {
+      URL.revokeObjectURL(previous)
+    }
+    messagePreviewUrlRef.current = ''
+  }
+
+  const setComposerPreviewUrl = (url) => {
+    revokeComposerPreviewUrl()
+    if (url && url.startsWith('blob:')) {
+      messagePreviewUrlRef.current = url
+    }
+    setMessagePreview(url || '')
+  }
+
+  const stopVideoNoteRecording = (discard = false) => {
+    videoNoteDiscardRef.current = discard
+    const recorder = videoRecorderRef.current
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop()
+      } catch (err) {
+        // ignore recorder stop errors
+      }
+      return
+    }
+    clearVideoNoteTimer()
+    stopVideoNoteStream()
+    videoRecorderRef.current = null
+    videoChunksRef.current = []
+    setVideoNoteRecording(false)
+    setVideoNoteDuration(0)
+  }
+
+  const clearMessageAttachment = (stopRecorder = true) => {
+    if (stopRecorder) {
+      stopVideoNoteRecording(true)
+    }
+    revokeComposerPreviewUrl()
+    setMessageFile(null)
+    setMessagePreview('')
+    setMessagePreviewType('')
+    setMessageAttachmentKind('')
+  }
+
+  const startVideoNoteRecording = async () => {
+    if (!activeConversation || isChatBlocked) return
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof window.MediaRecorder === 'undefined') {
+      setStatus({ type: 'error', message: 'Video note recording is not supported on this device.' })
+      return
+    }
+    const preferredMimeType = getSupportedVideoNoteMimeType()
+    clearMessageAttachment(false)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: {
+          facingMode: 'user',
+          width: { ideal: 480 },
+          height: { ideal: 480 }
+        }
+      })
+      const recorder = preferredMimeType
+        ? new window.MediaRecorder(stream, { mimeType: preferredMimeType })
+        : new window.MediaRecorder(stream)
+      videoNoteDiscardRef.current = false
+      videoStreamRef.current = stream
+      videoRecorderRef.current = recorder
+      videoChunksRef.current = []
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          videoChunksRef.current.push(event.data)
+        }
+      }
+      recorder.onerror = () => {
+        setStatus({ type: 'error', message: 'Unable to record video note.' })
+        stopVideoNoteRecording(true)
+      }
+      recorder.onstop = () => {
+        const shouldDiscard = videoNoteDiscardRef.current
+        const firstChunk = videoChunksRef.current[0]
+        const mimeType = (firstChunk && firstChunk.type) || recorder.mimeType || preferredMimeType || 'video/webm'
+        const blob = new Blob(videoChunksRef.current, { type: mimeType })
+        clearVideoNoteTimer()
+        stopVideoNoteStream()
+        videoRecorderRef.current = null
+        videoChunksRef.current = []
+        setVideoNoteRecording(false)
+        setVideoNoteDuration(0)
+        if (shouldDiscard) return
+        if (blob.size === 0) {
+          setStatus({ type: 'error', message: 'Video note is empty. Record again.' })
+          return
+        }
+        const extension = getVideoExtensionFromMime(blob.type || mimeType)
+        const file = new File([blob], `video-note-${Date.now()}.${extension}`, { type: blob.type || mimeType })
+        const previewUrl = URL.createObjectURL(blob)
+        setMessageFile(file)
+        setMessageAttachmentKind(VIDEO_NOTE_KIND)
+        setMessagePreviewType('video')
+        setComposerPreviewUrl(previewUrl)
+      }
+
+      if (videoNotePreviewRef.current) {
+        videoNotePreviewRef.current.srcObject = stream
+        videoNotePreviewRef.current.muted = true
+        void videoNotePreviewRef.current.play().catch(() => {})
+      }
+
+      recorder.start(250)
+      setVideoNoteDuration(0)
+      setVideoNoteRecording(true)
+      clearVideoNoteTimer()
+      videoNoteTimerRef.current = setInterval(() => {
+        setVideoNoteDuration((prev) => {
+          const next = prev + 1
+          if (next >= VIDEO_NOTE_MAX_SECONDS) {
+            stopVideoNoteRecording(false)
+          }
+          return next
+        })
+      }, 1000)
+    } catch (err) {
+      stopVideoNoteRecording(true)
+      setStatus({ type: 'error', message: 'Cannot access camera or microphone.' })
+    }
+  }
+
+  const toggleVideoNoteRecording = async () => {
+    if (videoNoteRecording) {
+      stopVideoNoteRecording(false)
+      return
+    }
+    await startVideoNoteRecording()
+  }
+
+  const flushPendingIceCandidates = async () => {
+    if (!pcRef.current || !pcRef.current.remoteDescription) return
+    const pending = pendingIceCandidatesRef.current
+    if (!pending.length) return
+    pendingIceCandidatesRef.current = []
+    for (const candidate of pending) {
+      try {
+        await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate))
+      } catch (err) {
+        // ignore ICE errors
+      }
+    }
+  }
+
   useEffect(() => {
     return () => {
       toastTimersRef.current.forEach((timer) => clearTimeout(timer))
       toastTimersRef.current.clear()
+      clearVideoNoteTimer()
+      stopVideoNoteStream()
+      clearCallDisconnectTimer()
+      revokeComposerPreviewUrl()
       if (audioContextRef.current && audioContextRef.current.close) {
         audioContextRef.current.close().catch(() => {})
       }
@@ -1061,14 +1327,12 @@ export default function App() {
     stopTyping()
     if (!activeConversation) {
       setMessageText('')
-      setMessageFile(null)
-      setMessagePreview('')
+      clearMessageAttachment()
       return
     }
     const draft = draftsRef.current[activeConversation.id]
     setMessageText(typeof draft === 'string' ? draft : '')
-    setMessageFile(null)
-    setMessagePreview('')
+    clearMessageAttachment()
   }, [activeConversation ? activeConversation.id : null])
 
   useEffect(() => {
@@ -1212,6 +1476,7 @@ export default function App() {
       lastPresenceStateRef.current = { focused: null, activeConversationId: null }
       setTypingByConversation({})
       stopTyping()
+      cleanupCall()
     }
     socket.on('connect', handleSocketConnect)
     socket.on('disconnect', handleSocketDisconnect)
@@ -1238,14 +1503,7 @@ export default function App() {
       })
     })
 
-    const getConversationPreview = (message) => {
-      if (message && typeof message.body === 'string' && message.body.trim()) {
-        const text = message.body.trim()
-        return text.length > 120 ? `${text.slice(0, 117)}...` : text
-      }
-      if (message && message.attachmentUrl) return 'рџ“Ћ С„Р°Р№Р»'
-      return 'РЎРѕРѕР±С‰РµРЅРёРµ'
-    }
+    const getConversationPreview = (message) => getMessagePreviewLabel(message, 'Message')
 
     const updateConversationPreview = (conversationId, message) => {
       if (!conversationId || !message) return
@@ -1261,7 +1519,7 @@ export default function App() {
         if (index === -1) return prev
         const updated = {
           ...prev[index],
-          lastMessage: getConversationPreview(message),
+          lastMessage: getMessagePreviewLabel(message, 'Message'),
           lastAt: message.createdAt
         }
         const next = [...prev]
@@ -1379,6 +1637,7 @@ export default function App() {
         return
       }
       incomingOfferRef.current = offer
+      pendingIceCandidatesRef.current = []
       setCallState({ status: 'incoming', withUserId: fromUserId, direction: 'incoming', startedAt: null })
     }
 
@@ -1386,6 +1645,7 @@ export default function App() {
       if (callStateRef.current.withUserId !== fromUserId || !pcRef.current) return
       try {
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer))
+        await flushPendingIceCandidates()
         setCallState({ status: 'in-call', withUserId: fromUserId, direction: 'outgoing', startedAt: Date.now() })
       } catch (err) {
         setStatus({ type: 'error', message: 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓСЃС‚Р°РЅРѕРІРёС‚СЊ СЃРѕРµРґРёРЅРµРЅРёРµ.' })
@@ -1394,7 +1654,11 @@ export default function App() {
     }
 
     const handleCallIce = async ({ fromUserId, candidate }) => {
-      if (callStateRef.current.withUserId !== fromUserId || !pcRef.current) return
+      if (callStateRef.current.withUserId !== fromUserId || !candidate) return
+      if (!pcRef.current || !pcRef.current.remoteDescription) {
+        pendingIceCandidatesRef.current.push(candidate)
+        return
+      }
       try {
         await pcRef.current.addIceCandidate(new RTCIceCandidate(candidate))
       } catch (err) {
@@ -1852,6 +2116,7 @@ export default function App() {
 
   const handleLogout = async () => {
     stopTyping()
+    clearMessageAttachment()
     endCall(false)
     await detachPushSubscriptionFromCurrentUser()
     try {
@@ -1951,14 +2216,15 @@ export default function App() {
     stopTyping(activeConversation.id)
     setLoading(true)
     try {
-      const data = await sendMessage(activeConversation.id, text, messageFile)
+      const data = await sendMessage(activeConversation.id, text, messageFile, {
+        attachmentKind: messageAttachmentKind
+      })
       setMessages((prev) => {
         if (data.message && prev.some((msg) => msg.id === data.message.id)) return prev
         return [...prev, data.message]
       })
       setMessageText('')
-      setMessageFile(null)
-      setMessagePreview('')
+      clearMessageAttachment()
       setDraftsByConversation((prev) => {
         if (!Object.prototype.hasOwnProperty.call(prev, activeConversation.id)) return prev
         const next = { ...prev }
@@ -2051,7 +2317,7 @@ export default function App() {
 
   const createPeerConnection = (targetUserId) => {
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: rtcIceServers
     })
     pc.onicecandidate = (event) => {
       if (!event.candidate || !socketRef.current) return
@@ -2061,8 +2327,31 @@ export default function App() {
       const [stream] = event.streams
       if (stream) setRemoteStream(stream)
     }
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        clearCallDisconnectTimer()
+        return
+      }
+      if (pc.iceConnectionState === 'disconnected') {
+        clearCallDisconnectTimer()
+        callDisconnectTimerRef.current = setTimeout(() => {
+          if (pcRef.current !== pc) return
+          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+            cleanupCall()
+          }
+        }, 8000)
+        return
+      }
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+        cleanupCall()
+      }
+    }
     pc.onconnectionstatechange = () => {
-      if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+      if (pc.connectionState === 'connected') {
+        clearCallDisconnectTimer()
+        return
+      }
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         cleanupCall()
       }
     }
@@ -2071,9 +2360,11 @@ export default function App() {
   }
 
   const cleanupCall = () => {
+    clearCallDisconnectTimer()
     if (pcRef.current) {
       pcRef.current.onicecandidate = null
       pcRef.current.ontrack = null
+      pcRef.current.oniceconnectionstatechange = null
       pcRef.current.onconnectionstatechange = null
       pcRef.current.close()
       pcRef.current = null
@@ -2083,6 +2374,7 @@ export default function App() {
       localStreamRef.current = null
     }
     incomingOfferRef.current = null
+    pendingIceCandidatesRef.current = []
     setRemoteStream(null)
     setCallState({ status: 'idle', withUserId: null, direction: null, startedAt: null })
   }
@@ -2115,6 +2407,7 @@ export default function App() {
       const pc = createPeerConnection(fromUserId)
       stream.getTracks().forEach((track) => pc.addTrack(track, stream))
       await pc.setRemoteDescription(new RTCSessionDescription(incomingOfferRef.current))
+      await flushPendingIceCandidates()
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       socketRef.current.emit('call:answer', { toUserId: fromUserId, answer })
@@ -2158,6 +2451,7 @@ export default function App() {
     }
     try {
       setCallState({ status: 'calling', withUserId: targetId, direction: 'outgoing', startedAt: null })
+      pendingIceCandidatesRef.current = []
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       localStreamRef.current = stream
       const pc = createPeerConnection(targetId)
@@ -2196,14 +2490,7 @@ export default function App() {
     setChatMenu({ open: false, x: 0, y: 0 })
   }
 
-  const getMessagePreview = (msg) => {
-    if (msg.body && msg.body.trim()) {
-      const text = msg.body.trim()
-      return text.length > 120 ? `${text.slice(0, 117)}...` : text
-    }
-    if (msg.attachmentUrl) return 'рџ“· РР·РѕР±СЂР°Р¶РµРЅРёРµ'
-    return 'РЎРѕРѕР±С‰РµРЅРёРµ'
-  }
+  const getMessagePreview = (msg) => getMessagePreviewLabel(msg, 'Message')
 
   const togglePinMessage = (msg) => {
     if (!activeConversation) return
@@ -2771,12 +3058,22 @@ export default function App() {
                         )}
                         <div className="message-bubble">
                           {msg.attachmentUrl && (
-                            <img
-                              src={resolveMediaUrl(msg.attachmentUrl)}
-                              alt="attachment"
-                              className="media-thumb"
-                              onClick={() => setLightboxImage(resolveMediaUrl(msg.attachmentUrl))}
-                            />
+                            isVideoMessageAttachment(msg) ? (
+                              <video
+                                src={resolveMediaUrl(msg.attachmentUrl)}
+                                className={`media-thumb ${msg.attachmentKind === VIDEO_NOTE_KIND ? 'video-note-player' : ''}`.trim()}
+                                controls
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : (
+                              <img
+                                src={resolveMediaUrl(msg.attachmentUrl)}
+                                alt="attachment"
+                                className="media-thumb"
+                                onClick={() => setLightboxImage(resolveMediaUrl(msg.attachmentUrl))}
+                              />
+                            )
                           )}
                           {editingMessageId === msg.id ? (
                             <div className="comment-input">
@@ -2878,36 +3175,65 @@ export default function App() {
                       type="text"
                       value={messageText}
                       onChange={handleMessageInputChange}
-                      placeholder="РЎРѕРѕР±С‰РµРЅРёРµ..."
+                      placeholder="Message..."
                       disabled={isChatBlocked}
                     />
                     <label className="file-btn">
-                      рџ“·
+                      File
                       <input
                         type="file"
-                        accept="image/png,image/jpeg,image/webp"
+                        accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.webm,.mov,.ogv,.ogg,.m4v"
                         disabled={isChatBlocked}
                         onChange={(event) => {
-                          const file = event.target.files[0]
+                          const file = event.target.files && event.target.files[0] ? event.target.files[0] : null
+                          if (!file) {
+                            clearMessageAttachment()
+                            return
+                          }
+                          stopVideoNoteRecording(true)
+                          const isVideo = String(file.type || '').toLowerCase().startsWith('video/')
                           setMessageFile(file)
-                          setMessagePreview(file ? URL.createObjectURL(file) : '')
+                          setMessageAttachmentKind(isVideo ? 'video' : 'image')
+                          setMessagePreviewType(isVideo ? 'video' : 'image')
+                          setComposerPreviewUrl(URL.createObjectURL(file))
                         }}
                       />
                     </label>
-                    <button className="primary" type="submit" disabled={loading || isChatBlocked}>РћС‚РїСЂР°РІРёС‚СЊ</button>
+                    <button
+                      type="button"
+                      className={`record-btn ${videoNoteRecording ? 'recording' : ''}`}
+                      onClick={toggleVideoNoteRecording}
+                      disabled={isChatBlocked}
+                    >
+                      {videoNoteRecording ? `Stop ${videoNoteDuration}s` : 'Video note'}
+                    </button>
+                    <button className="primary" type="submit" disabled={loading || isChatBlocked}>Send</button>
                   </form>
+                  {videoNoteRecording && (
+                    <div className="video-note-live">
+                      <video ref={videoNotePreviewRef} autoPlay muted playsInline />
+                      <span>Recording {videoNoteDuration}s / {VIDEO_NOTE_MAX_SECONDS}s</span>
+                    </div>
+                  )}
                   {messagePreview && (
                     <div className="upload-preview">
-                      <img src={messagePreview} alt="preview" />
+                      {messagePreviewType === 'video' ? (
+                        <video
+                          src={messagePreview}
+                          className={messageAttachmentKind === VIDEO_NOTE_KIND ? 'video-note-player' : ''}
+                          controls
+                          playsInline
+                          preload="metadata"
+                        />
+                      ) : (
+                        <img src={messagePreview} alt="preview" />
+                      )}
                       <button
                         type="button"
                         className="ghost"
-                        onClick={() => {
-                          setMessageFile(null)
-                          setMessagePreview('')
-                        }}
+                        onClick={() => clearMessageAttachment()}
                       >
-                        РЈРґР°Р»РёС‚СЊ
+                        Remove
                       </button>
                     </div>
                   )}
@@ -3439,9 +3765,9 @@ export default function App() {
                 type="button"
                 className="ghost"
                 onClick={() => openProfile(user.username)}
-                title="Открыть мой публичный профиль"
+                title="Open my public profile"
               >
-                Открыть мой профиль
+                Open my profile
               </button>
             </div>
             <div

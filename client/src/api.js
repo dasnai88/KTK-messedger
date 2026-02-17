@@ -103,12 +103,16 @@ export async function markConversationRead(conversationId) {
   return request(`/conversations/${conversationId}/read`, { method: 'POST' })
 }
 
-export async function sendMessage(conversationId, body, file) {
+export async function sendMessage(conversationId, body, file, options = {}) {
+  const attachmentKind = typeof options.attachmentKind === 'string' ? options.attachmentKind.trim() : ''
   if (file) {
     const token = getToken()
     const formData = new FormData()
     formData.append('body', body || '')
     formData.append('file', file)
+    if (attachmentKind) {
+      formData.append('attachmentKind', attachmentKind)
+    }
     const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},

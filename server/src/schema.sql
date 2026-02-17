@@ -82,6 +82,8 @@ create table if not exists messages (
   sender_id uuid references users(id) on delete set null,
   body text not null,
   attachment_url text,
+  attachment_mime text,
+  attachment_kind text check (attachment_kind in ('image', 'video', 'video-note')),
   edited_at timestamptz,
   deleted_at timestamptz,
   deleted_by uuid references users(id) on delete set null,
@@ -148,6 +150,20 @@ EXCEPTION WHEN duplicate_column THEN END $$;
 DO $$ BEGIN
   ALTER TABLE messages ADD COLUMN attachment_url text;
 EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN attachment_mime text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN attachment_kind text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages
+    ADD CONSTRAINT chk_messages_attachment_kind
+    CHECK (attachment_kind in ('image', 'video', 'video-note'));
+EXCEPTION WHEN duplicate_object THEN END $$;
 
 DO $$ BEGIN
   ALTER TABLE posts ADD COLUMN image_url text;
