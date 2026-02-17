@@ -3435,6 +3435,14 @@ export default function App() {
                 <h2>РџСЂРѕС„РёР»СЊ</h2>
                 <p className="subtitle">РќР°СЃС‚СЂРѕР№ РїСЂРѕС„РёР»СЊ РєР°Рє РІ Telegram.</p>
               </div>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => openProfile(user.username)}
+                title="Открыть мой публичный профиль"
+              >
+                Открыть мой профиль
+              </button>
             </div>
             <div
               className="profile-banner"
