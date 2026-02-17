@@ -32,6 +32,23 @@ create table if not exists users (
   created_at timestamptz default now()
 );
 
+create table if not exists user_subscriptions (
+  subscriber_id uuid references users(id) on delete cascade,
+  target_user_id uuid references users(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (subscriber_id, target_user_id),
+  constraint chk_no_self_subscription check (subscriber_id <> target_user_id)
+);
+
+create table if not exists profile_tracks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade,
+  title text,
+  artist text,
+  audio_url text not null,
+  created_at timestamptz default now()
+);
+
 create table if not exists conversations (
   id uuid primary key default gen_random_uuid(),
   title text,
@@ -114,6 +131,9 @@ create table if not exists post_reposts (
 );
 
 create index if not exists idx_users_username on users (username);
+create index if not exists idx_subscriptions_target on user_subscriptions (target_user_id);
+create index if not exists idx_subscriptions_subscriber on user_subscriptions (subscriber_id);
+create index if not exists idx_profile_tracks_user on profile_tracks (user_id, created_at desc);
 create index if not exists idx_members_user on conversation_members (user_id);
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
 create index if not exists idx_messages_conversation on messages (conversation_id, created_at);

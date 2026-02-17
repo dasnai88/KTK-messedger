@@ -57,19 +57,34 @@ const diskStorage = multer.diskStorage({
   }
 })
 
-const allowedMimeTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
-const allowedExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp'])
-
-const upload = multer({
-  storage: useDbStorage ? multer.memoryStorage() : diskStorage,
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase()
-    if (!allowedMimeTypes.has(file.mimetype) || !allowedExtensions.has(ext)) {
-      return cb(new Error('Only images are allowed'))
+function createUpload({ mimeTypes, extensions, maxFileSizeMb, errorMessage }) {
+  const allowedMimeTypes = new Set(mimeTypes)
+  const allowedExtensions = new Set(extensions)
+  return multer({
+    storage: useDbStorage ? multer.memoryStorage() : diskStorage,
+    limits: { fileSize: maxFileSizeMb * 1024 * 1024, files: 1 },
+    fileFilter: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase()
+      if (!allowedMimeTypes.has(file.mimetype) || !allowedExtensions.has(ext)) {
+        return cb(new Error(errorMessage))
+      }
+      cb(null, true)
     }
-    cb(null, true)
-  }
+  })
+}
+
+const imageUpload = createUpload({
+  mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  extensions: ['.jpg', '.jpeg', '.png', '.webp'],
+  maxFileSizeMb: 5,
+  errorMessage: 'Only images are allowed'
+})
+
+const audioUpload = createUpload({
+  mimeTypes: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm', 'audio/mp4', 'audio/aac'],
+  extensions: ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.aac'],
+  maxFileSizeMb: 20,
+  errorMessage: 'Only audio files are allowed'
 })
 
 const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:5173'
@@ -289,8 +304,61 @@ function mapUser(row) {
     isModerator: row.is_moderator,
     isBanned: row.is_banned,
     warningsCount: row.warnings_count,
+    subscribersCount: Number(row.subscribers_count || 0),
+    subscriptionsCount: Number(row.subscriptions_count || 0),
+    tracksCount: Number(row.tracks_count || 0),
+    isSubscribed: row.is_subscribed === true,
     createdAt: row.created_at
   }
+}
+
+function mapProfileTrack(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    artist: row.artist,
+    audioUrl: row.audio_url,
+    createdAt: row.created_at
+  }
+}
+
+async function getUserByIdWithStats(userId, viewerId) {
+  const result = await pool.query(
+    `select u.*,
+            (select count(*) from user_subscriptions s where s.target_user_id = u.id) as subscribers_count,
+            (select count(*) from user_subscriptions s where s.subscriber_id = u.id) as subscriptions_count,
+            (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
+            exists(
+              select 1
+              from user_subscriptions s
+              where s.subscriber_id = $2 and s.target_user_id = u.id
+            ) as is_subscribed
+     from users u
+     where u.id = $1`,
+    [userId, viewerId || null]
+  )
+  if (result.rowCount === 0) return null
+  return mapUser(result.rows[0])
+}
+
+async function getUserByUsernameWithStats(username, viewerId) {
+  const result = await pool.query(
+    `select u.*,
+            (select count(*) from user_subscriptions s where s.target_user_id = u.id) as subscribers_count,
+            (select count(*) from user_subscriptions s where s.subscriber_id = u.id) as subscriptions_count,
+            (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
+            exists(
+              select 1
+              from user_subscriptions s
+              where s.subscriber_id = $2 and s.target_user_id = u.id
+            ) as is_subscribed
+     from users u
+     where u.username = $1`,
+    [username, viewerId || null]
+  )
+  if (result.rowCount === 0) return null
+  return mapUser(result.rows[0])
 }
 
 function mapOtherUser(row) {
@@ -656,7 +724,7 @@ app.post('/api/auth/register', async (req, res) => {
       [login, username, passwordHash, role]
     )
 
-    const user = mapUser(result.rows[0])
+    const user = await getUserByIdWithStats(result.rows[0].id, result.rows[0].id) || mapUser(result.rows[0])
     const token = signToken(user.id)
 
     res.json({ token, user })
@@ -700,7 +768,7 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid login or password' })
     }
 
-    const user = mapUser(userRow)
+    const user = await getUserByIdWithStats(userRow.id, userRow.id) || mapUser(userRow)
     const token = signToken(user.id)
 
     res.json({ token, user })
@@ -712,9 +780,9 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/me', auth, ensureNotBanned, async (req, res) => {
   try {
-    const result = await pool.query('select * from users where id = $1', [req.userId])
-    if (result.rowCount === 0) return res.status(404).json({ error: 'User not found' })
-    res.json({ user: mapUser(result.rows[0]) })
+    const user = await getUserByIdWithStats(req.userId, req.userId)
+    if (!user) return res.status(404).json({ error: 'User not found' })
+    res.json({ user })
   } catch (err) {
     console.error('Me error', err)
     res.status(500).json({ error: 'Unexpected error' })
@@ -753,7 +821,8 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
 
     if (result.rowCount === 0) return res.status(404).json({ error: 'User not found' })
 
-    res.json({ user: mapUser(result.rows[0]) })
+    const user = await getUserByIdWithStats(req.userId, req.userId)
+    res.json({ user })
   } catch (err) {
     if (err && err.code === '23505') {
       return res.status(409).json({ error: 'Username already taken' })
@@ -801,7 +870,7 @@ app.delete('/api/notifications/push-subscription', auth, ensureNotBanned, async 
   }
 })
 
-app.post('/api/me/avatar', uploadLimiter, auth, ensureNotBanned, upload.single('avatar'), async (req, res) => {
+app.post('/api/me/avatar', uploadLimiter, auth, ensureNotBanned, imageUpload.single('avatar'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Файл не загружен' })
@@ -812,14 +881,15 @@ app.post('/api/me/avatar', uploadLimiter, auth, ensureNotBanned, upload.single('
       [avatarUrl, req.userId]
     )
     if (result.rowCount === 0) return res.status(404).json({ error: 'User not found' })
-    res.json({ user: mapUser(result.rows[0]) })
+    const user = await getUserByIdWithStats(req.userId, req.userId)
+    res.json({ user })
   } catch (err) {
     console.error('Avatar upload error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
 
-app.post('/api/me/banner', uploadLimiter, auth, ensureNotBanned, upload.single('banner'), async (req, res) => {
+app.post('/api/me/banner', uploadLimiter, auth, ensureNotBanned, imageUpload.single('banner'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Файл не загружен' })
@@ -830,7 +900,8 @@ app.post('/api/me/banner', uploadLimiter, auth, ensureNotBanned, upload.single('
       [bannerUrl, req.userId]
     )
     if (result.rowCount === 0) return res.status(404).json({ error: 'User not found' })
-    res.json({ user: mapUser(result.rows[0]) })
+    const user = await getUserByIdWithStats(req.userId, req.userId)
+    res.json({ user })
   } catch (err) {
     console.error('Banner upload error', err)
     res.status(500).json({ error: 'Unexpected error' })
@@ -868,15 +939,10 @@ app.get('/api/users/search', auth, ensureNotBanned, async (req, res) => {
 app.get('/api/users/:username', auth, ensureNotBanned, async (req, res) => {
   try {
     const username = normalizeUsername(req.params.username)
-    const result = await pool.query(
-      `select id, username, display_name, role, bio, avatar_url, banner_url, theme_color, created_at
-       from users
-       where username = $1`,
-      [username]
-    )
-    if (result.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+    const user = await getUserByUsernameWithStats(username, req.userId)
+    if (!user) return res.status(404).json({ error: 'User not found' })
     res.json({
-      user: mapUser(result.rows[0])
+      user
     })
   } catch (err) {
     console.error('Profile error', err)
@@ -913,6 +979,107 @@ app.get('/api/users/:username/posts', auth, ensureNotBanned, async (req, res) =>
     res.json({ posts: result.rows.map(mapPost) })
   } catch (err) {
     console.error('Profile posts error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.get('/api/users/:username/tracks', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.params.username)
+    const userResult = await pool.query('select id from users where username = $1', [username])
+    if (userResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+
+    const tracksResult = await pool.query(
+      `select id, user_id, title, artist, audio_url, created_at
+       from profile_tracks
+       where user_id = $1
+       order by created_at desc
+       limit 100`,
+      [userResult.rows[0].id]
+    )
+    res.json({ tracks: tracksResult.rows.map(mapProfileTrack) })
+  } catch (err) {
+    console.error('Profile tracks error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/users/:username/subscribe', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.params.username)
+    const targetResult = await pool.query('select id from users where username = $1', [username])
+    if (targetResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+
+    const targetId = targetResult.rows[0].id
+    if (targetId === req.userId) {
+      return res.status(400).json({ error: 'Cannot subscribe to yourself' })
+    }
+
+    const existing = await pool.query(
+      'select 1 from user_subscriptions where subscriber_id = $1 and target_user_id = $2',
+      [req.userId, targetId]
+    )
+
+    let subscribed = false
+    if (existing.rowCount > 0) {
+      await pool.query(
+        'delete from user_subscriptions where subscriber_id = $1 and target_user_id = $2',
+        [req.userId, targetId]
+      )
+      subscribed = false
+    } else {
+      await pool.query(
+        'insert into user_subscriptions (subscriber_id, target_user_id) values ($1, $2)',
+        [req.userId, targetId]
+      )
+      subscribed = true
+    }
+
+    const user = await getUserByIdWithStats(targetId, req.userId)
+    res.json({ subscribed, user })
+  } catch (err) {
+    console.error('Subscribe error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/tracks', uploadLimiter, auth, ensureNotBanned, audioUpload.single('track'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Audio file is required' })
+    }
+    const titleRaw = typeof req.body.title === 'string' ? req.body.title.trim() : ''
+    const artistRaw = typeof req.body.artist === 'string' ? req.body.artist.trim() : ''
+    const title = titleRaw.slice(0, 120) || null
+    const artist = artistRaw.slice(0, 120) || null
+    const audioUrl = await storeUpload(req.file)
+
+    const result = await pool.query(
+      `insert into profile_tracks (user_id, title, artist, audio_url)
+       values ($1, $2, $3, $4)
+       returning id, user_id, title, artist, audio_url, created_at`,
+      [req.userId, title, artist, audioUrl]
+    )
+    res.json({ track: mapProfileTrack(result.rows[0]) })
+  } catch (err) {
+    console.error('Track upload error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.delete('/api/me/tracks/:id', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const trackId = req.params.id
+    const deleted = await pool.query(
+      'delete from profile_tracks where id = $1 and user_id = $2 returning id',
+      [trackId, req.userId]
+    )
+    if (deleted.rowCount === 0) {
+      return res.status(404).json({ error: 'Track not found' })
+    }
+    res.json({ ok: true, trackId })
+  } catch (err) {
+    console.error('Delete track error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
@@ -1151,7 +1318,7 @@ app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) 
   }
 })
 
-app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanned, upload.single('file'), async (req, res) => {
+app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanned, imageUpload.single('file'), async (req, res) => {
   try {
     const conversationId = req.params.id
     const body = req.body.body || ''
@@ -1277,7 +1444,7 @@ app.get('/api/posts', auth, ensureNotBanned, async (req, res) => {
   }
 })
 
-app.post('/api/posts', uploadLimiter, auth, ensureNotBanned, upload.single('image'), async (req, res) => {
+app.post('/api/posts', uploadLimiter, auth, ensureNotBanned, imageUpload.single('image'), async (req, res) => {
   try {
     const body = req.body.body || ''
     if (!req.file && !isValidMessage(body)) {
@@ -1680,6 +1847,9 @@ app.get('/api/presence', auth, async (req, res) => {
 app.use((err, req, res, next) => {
   if (err && err.message && err.message.includes('Only images')) {
     return res.status(400).json({ error: 'Разрешены только изображения (jpg, png, webp)' })
+  }
+  if (err && err.message && err.message.includes('Only audio files')) {
+    return res.status(400).json({ error: 'Разрешены только аудио файлы (mp3, wav, ogg, webm, m4a, aac)' })
   }
   console.error('Unhandled error', err)
   res.status(500).json({ error: 'Unexpected error' })

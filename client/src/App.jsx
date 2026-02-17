@@ -10,6 +10,7 @@ import {
   markConversationRead,
   getProfile,
   getProfilePosts,
+  getProfileTracks,
   getPosts,
   getPresence,
   getPushPublicKey,
@@ -26,6 +27,7 @@ import {
   setToken,
   uploadAvatar,
   uploadBanner,
+  uploadProfileTrack,
   updateMe,
   addComment,
   editMessage,
@@ -38,6 +40,8 @@ import {
   adminWarnUser,
   adminSetModerator,
   adminClearWarnings,
+  toggleSubscription,
+  deleteProfileTrack,
   savePushSubscription,
   deletePushSubscription
 } from './api.js'
@@ -90,6 +94,12 @@ function formatTime(value) {
   if (!value) return ''
   const date = new Date(value)
   return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatDate(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
 }
 
 function formatDuration(ms) {
@@ -226,7 +236,16 @@ export default function App() {
   const [avatarOffset, setAvatarOffset] = useState({ x: 0, y: 0 })
   const [dragStart, setDragStart] = useState(null)
   const [profileView, setProfileView] = useState(null)
+  const [profileBackView, setProfileBackView] = useState('feed')
   const [profilePosts, setProfilePosts] = useState([])
+  const [profileTracks, setProfileTracks] = useState([])
+  const [myTracks, setMyTracks] = useState([])
+  const [trackTitle, setTrackTitle] = useState('')
+  const [trackArtist, setTrackArtist] = useState('')
+  const [trackFile, setTrackFile] = useState(null)
+  const [activeTrackId, setActiveTrackId] = useState(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [musicUploadLoading, setMusicUploadLoading] = useState(false)
   const [commentsByPost, setCommentsByPost] = useState({})
   const [commentDraft, setCommentDraft] = useState({})
   const [openComments, setOpenComments] = useState(null)
@@ -301,6 +320,10 @@ export default function App() {
     if (!query) return messages
     return messages.filter((msg) => (msg.body || '').toLowerCase().includes(query))
   }, [messages, chatSearchQuery])
+  const activeProfileTrack = useMemo(() => {
+    if (!activeTrackId) return null
+    return profileTracks.find((track) => track.id === activeTrackId) || null
+  }, [profileTracks, activeTrackId])
   const typingLabel = useMemo(() => {
     if (!activeConversation || !user) return ''
     const rawUserIds = typingByConversation[activeConversation.id] || []
@@ -840,6 +863,30 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!user || !user.username) {
+      setMyTracks([])
+      return
+    }
+    let cancelled = false
+    const loadMyTracks = async () => {
+      try {
+        const data = await getProfileTracks(user.username)
+        if (!cancelled) {
+          setMyTracks(data.tracks || [])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setMyTracks([])
+        }
+      }
+    }
+    loadMyTracks()
+    return () => {
+      cancelled = true
+    }
+  }, [user ? user.username : null])
+
+  useEffect(() => {
     if (!user) return
     const allowed = ['feed', 'chats', 'profile']
     if (user.isAdmin) allowed.push('admin')
@@ -1064,6 +1111,19 @@ export default function App() {
   useEffect(() => {
     profileViewRef.current = profileView
   }, [profileView])
+
+  useEffect(() => {
+    if (!activeTrackId) return
+    if (!profileTracks.some((track) => track.id === activeTrackId)) {
+      setActiveTrackId(null)
+    }
+  }, [activeTrackId, profileTracks])
+
+  useEffect(() => {
+    if (view !== 'profile-view' && activeTrackId) {
+      setActiveTrackId(null)
+    }
+  }, [view, activeTrackId])
 
   useEffect(() => {
     if (!user) return
@@ -1572,12 +1632,123 @@ export default function App() {
   }
 
   const openProfile = async (username) => {
+    if (!username) return
+    const previousView = viewRef.current
+    if (previousView && previousView !== 'profile-view') {
+      setProfileBackView(previousView)
+    }
+    setProfileView(null)
+    setProfilePosts([])
+    setProfileTracks([])
+    setActiveTrackId(null)
+    setView('profile-view')
+    setProfileLoading(true)
     try {
-      const data = await getProfile(username)
-      const postsData = await getProfilePosts(username)
+      const [data, postsData, tracksData] = await Promise.all([
+        getProfile(username),
+        getProfilePosts(username),
+        getProfileTracks(username)
+      ])
       setProfileView(data.user)
       setProfilePosts(postsData.posts || [])
-      setView('profile-view')
+      setProfileTracks(tracksData.tracks || [])
+      setActiveTrackId(null)
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setProfileLoading(false)
+    }
+  }
+
+  const handleToggleSubscription = async () => {
+    if (!user || !profileView || profileView.id === user.id) return
+    setLoading(true)
+    try {
+      const data = await toggleSubscription(profileView.username)
+      if (data.user) {
+        setProfileView(data.user)
+      }
+      setUser((prev) => {
+        if (!prev) return prev
+        const delta = data.subscribed ? 1 : -1
+        return {
+          ...prev,
+          subscriptionsCount: Math.max(0, Number(prev.subscriptionsCount || 0) + delta)
+        }
+      })
+      setStatus({
+        type: 'success',
+        message: data.subscribed ? 'Подписка оформлена.' : 'Подписка отменена.'
+      })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleTrackSelect = (trackId) => {
+    setActiveTrackId((prev) => (prev === trackId ? null : trackId))
+  }
+
+  const handleProfileTrackUpload = async (event) => {
+    if (event && event.preventDefault) {
+      event.preventDefault()
+    }
+    if (!trackFile) {
+      setStatus({ type: 'error', message: 'Выберите аудио файл.' })
+      return
+    }
+    setMusicUploadLoading(true)
+    try {
+      const data = await uploadProfileTrack(trackFile, {
+        title: trackTitle.trim(),
+        artist: trackArtist.trim()
+      })
+      if (data.track) {
+        setMyTracks((prev) => [data.track, ...prev])
+        setUser((prev) => (prev ? { ...prev, tracksCount: Number(prev.tracksCount || 0) + 1 } : prev))
+        if (profileView && user && profileView.id === user.id) {
+          setProfileTracks((prev) => [data.track, ...prev])
+          setProfileView((prev) => (prev ? { ...prev, tracksCount: Number(prev.tracksCount || 0) + 1 } : prev))
+        }
+      }
+      setTrackTitle('')
+      setTrackArtist('')
+      setTrackFile(null)
+      setStatus({ type: 'success', message: 'Музыка добавлена в профиль.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setMusicUploadLoading(false)
+    }
+  }
+
+  const handleDeleteTrack = async (trackId) => {
+    if (!trackId) return
+    try {
+      await deleteProfileTrack(trackId)
+      setMyTracks((prev) => prev.filter((track) => track.id !== trackId))
+      setUser((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          tracksCount: Math.max(0, Number(prev.tracksCount || 0) - 1)
+        }
+      })
+      setProfileTracks((prev) => prev.filter((track) => track.id !== trackId))
+      setProfileView((prev) => {
+        if (!prev) return prev
+        if (!user || prev.id !== user.id) return prev
+        return {
+          ...prev,
+          tracksCount: Math.max(0, Number(prev.tracksCount || 0) - 1)
+        }
+      })
+      if (activeTrackId === trackId) {
+        setActiveTrackId(null)
+      }
+      setStatus({ type: 'success', message: 'Трек удален.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     }
@@ -1695,6 +1866,15 @@ export default function App() {
     setActiveConversation(null)
     setMessages([])
     setConversations([])
+    setProfileView(null)
+    setProfilePosts([])
+    setProfileTracks([])
+    setMyTracks([])
+    setActiveTrackId(null)
+    setProfileBackView('feed')
+    setTrackTitle('')
+    setTrackArtist('')
+    setTrackFile(null)
     setPushState((prev) => ({
       ...prev,
       enabled: false,
@@ -2111,6 +2291,11 @@ export default function App() {
           : 'Enable notifications'
   const pushButtonClass = `push-toggle ${pushState.enabled ? 'enabled' : ''}`.trim()
   const pushButtonDisabled = !user || !pushState.supported || pushState.loading
+  const canSubscribeProfile = Boolean(user && profileView && user.id !== profileView.id)
+  const profileFollowers = Number(profileView && profileView.subscribersCount ? profileView.subscribersCount : 0)
+  const profileFollowing = Number(profileView && profileView.subscriptionsCount ? profileView.subscriptionsCount : 0)
+  const profileTracksCount = Number(profileView && profileView.tracksCount ? profileView.tracksCount : profileTracks.length)
+  const profileJoinedAt = profileView ? formatDate(profileView.createdAt) : ''
 
   return (
     <div className="page">
@@ -2932,169 +3117,234 @@ export default function App() {
             </div>
           </div>
         )}
-
-        {view === 'profile-view' && profileView && (
+        {view === 'profile-view' && (
           <div className="profile-page">
-            <button type="button" className="ghost" onClick={() => setView('feed')}>Назад</button>
-            <div
-              className="profile-hero"
-              style={{
-                backgroundColor: profileView.themeColor || '#7a1f1d',
-                backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
-              }}
-            >
-              <div className="avatar large">
-                {profileView.avatarUrl ? (
-                  <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
-                ) : (
-                  profileView.username[0].toUpperCase()
-                )}
+            <button type="button" className="ghost" onClick={() => setView(profileBackView || 'feed')}>Back</button>
+            {profileLoading && !profileView && (
+              <div className="panel">
+                <div className="empty">Loading profile...</div>
               </div>
-              <div>
-                <h2>{profileView.displayName || profileView.username}</h2>
-                <span>@{profileView.username}</span>
-                {profileView.bio && <p>{profileView.bio}</p>}
-              </div>
-            </div>
-            <div className="feed-list">
-              {profilePosts.length === 0 && (
-                <div className="empty">Постов пока нет.</div>
-              )}
-              {profilePosts.map((post) => (
-                <article
-                  key={post.id}
-                  className="feed-card"
-                  onContextMenu={(event) => openPostMenu(event, post)}
+            )}
+            {profileView && (
+              <>
+                <div
+                  className="profile-hero profile-hero-expanded"
+                  style={{
+                    backgroundColor: profileView.themeColor || '#7a1f1d',
+                    backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
+                  }}
                 >
-                  {post.repostOf && (
-                    <div className="repost-badge">? Репост</div>
-                  )}
-                  <div className="feed-header">
-                    <div className="avatar small">
-                      {profileView.avatarUrl ? (
-                        <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
-                      ) : (
-                        profileView.username[0].toUpperCase()
-                      )}
-                    </div>
+                  <div className="avatar large">
+                    {profileView.avatarUrl ? (
+                      <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
+                    ) : (
+                      profileView.username[0].toUpperCase()
+                    )}
+                  </div>
+                  <div className="profile-hero-main">
                     <div>
-                      <strong>{profileView.displayName || profileView.username}</strong>
+                      <h2>{profileView.displayName || profileView.username}</h2>
                       <span>@{profileView.username}</span>
                     </div>
-                    <time>{formatTime(post.createdAt)}</time>
+                    {profileView.bio && <p>{profileView.bio}</p>}
+                    <div className="profile-stats">
+                      <span><strong>{profileFollowers}</strong> followers</span>
+                      <span><strong>{profileFollowing}</strong> following</span>
+                      <span><strong>{profileTracksCount}</strong> tracks</span>
+                      {profileJoinedAt && <span>since {profileJoinedAt}</span>}
+                    </div>
                   </div>
-                  {post.body && <p>{post.body}</p>}
-                  {post.imageUrl && (
-                    <img
-                      className="feed-image media-thumb"
-                      src={resolveMediaUrl(post.imageUrl)}
-                      alt="post"
-                      onClick={() => setLightboxImage(resolveMediaUrl(post.imageUrl))}
+                  <div className="profile-actions-row">
+                    {canSubscribeProfile ? (
+                      <button
+                        type="button"
+                        className={`primary profile-subscribe ${profileView.isSubscribed ? 'subscribed' : ''}`.trim()}
+                        onClick={handleToggleSubscription}
+                        disabled={loading}
+                      >
+                        {profileView.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+                      </button>
+                    ) : (
+                      <button type="button" className="ghost" onClick={() => setView('profile')}>
+                        Edit profile
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <section className="music-panel">
+                  <div className="music-panel-head">
+                    <h3>Music</h3>
+                    <span>{profileTracks.length}</span>
+                  </div>
+                  {profileTracks.length === 0 ? (
+                    <div className="empty">No music added yet.</div>
+                  ) : (
+                    <div className="track-list">
+                      {profileTracks.map((track) => (
+                        <button
+                          key={track.id}
+                          type="button"
+                          className={`track-item ${activeTrackId === track.id ? 'active' : ''}`.trim()}
+                          onClick={() => handleTrackSelect(track.id)}
+                        >
+                          <div>
+                            <strong>{track.title || 'Untitled'}</strong>
+                            <span>{track.artist || `Added ${formatDate(track.createdAt)}`}</span>
+                          </div>
+                          <span>{activeTrackId === track.id ? 'Hide' : 'Play'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {activeProfileTrack && (
+                    <audio
+                      key={activeProfileTrack.id}
+                      controls
+                      autoPlay
+                      className="profile-audio-player"
+                      src={resolveMediaUrl(activeProfileTrack.audioUrl)}
                     />
                   )}
-                  {post.repostOf && (
-                    <div className="repost-card">
-                      <div className="repost-label">? Репост</div>
-                      <div className="repost-meta">
-                        @{post.repostOf.authorUsername}
+                </section>
+                <div className="feed-list">
+                  {profilePosts.length === 0 && (
+                    <div className="empty">No posts yet.</div>
+                  )}
+                  {profilePosts.map((post) => (
+                    <article
+                      key={post.id}
+                      className="feed-card"
+                      onContextMenu={(event) => openPostMenu(event, post)}
+                    >
+                      {post.repostOf && (
+                        <div className="repost-badge">Repost</div>
+                      )}
+                      <div className="feed-header">
+                        <div className="avatar small">
+                          {profileView.avatarUrl ? (
+                            <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
+                          ) : (
+                            profileView.username[0].toUpperCase()
+                          )}
+                        </div>
+                        <div>
+                          <strong>{profileView.displayName || profileView.username}</strong>
+                          <span>@{profileView.username}</span>
+                        </div>
+                        <time>{formatTime(post.createdAt)}</time>
                       </div>
-                      {post.repostOf.body && <p>{post.repostOf.body}</p>}
-                      {post.repostOf.imageUrl && (
+                      {post.body && <p>{post.body}</p>}
+                      {post.imageUrl && (
                         <img
                           className="feed-image media-thumb"
-                          src={resolveMediaUrl(post.repostOf.imageUrl)}
-                          alt="repost"
-                          onClick={() => setLightboxImage(resolveMediaUrl(post.repostOf.imageUrl))}
+                          src={resolveMediaUrl(post.imageUrl)}
+                          alt="post"
+                          onClick={() => setLightboxImage(resolveMediaUrl(post.imageUrl))}
                         />
                       )}
-                    </div>
-                  )}
-                  <div className="post-actions">
-                    <button
-                      type="button"
-                      className={post.liked ? 'active' : ''}
-                      onClick={() => handleLikePost(post.id)}
-                    >
-                      ❤️ {post.likesCount}
-                    </button>
-                    <button type="button" onClick={() => handleToggleComments(post.id)}>
-                      💬 {post.commentsCount}
-                    </button>
-                    <button
-                      type="button"
-                      className={`${post.reposted ? 'active' : ''} ${isOwnRepostPost(post) ? 'disabled' : ''}`.trim()}
-                      onClick={() => handleRepostPost(post.id)}
-                      disabled={isOwnRepostPost(post)}
-                      title={isOwnRepostPost(post) ? 'Нельзя репостить свой репост' : 'Репост'}
-                    >
-                      🔁 {post.repostsCount}
-                    </button>
-                  </div>
-                  {editingPostId === post.id && (
-                    <div className="comment-input">
-                      <input
-                        type="text"
-                        value={editingPostText}
-                        onChange={(event) => setEditingPostText(event.target.value)}
-                      />
-                      <button type="button" className="primary" onClick={() => {
-                        editPost(post.id, editingPostText)
-                          .then(() => {
-                            setProfilePosts((prev) =>
-                              prev.map((p) => (p.id === post.id ? { ...p, body: editingPostText } : p))
-                            )
-                            setPosts((prev) =>
-                              prev.map((p) => (p.id === post.id ? { ...p, body: editingPostText } : p))
-                            )
-                            setEditingPostId(null)
-                          })
-                          .catch((err) => setStatus({ type: 'error', message: err.message }))
-                      }}>
-                        Сохранить
-                      </button>
-                    </div>
-                  )}
-                  {openComments === post.id && (
-                    <div className="comment-box">
-                      <div className="comment-list">
-                        {(commentsByPost[post.id] || []).map((comment) => (
-                          <div key={comment.id} className="comment-item">
-                            <div className="avatar tiny">
-                              {comment.user.avatarUrl ? (
-                                <img src={resolveMediaUrl(comment.user.avatarUrl)} alt="avatar" />
-                              ) : (
-                                comment.user.username[0].toUpperCase()
-                              )}
-                            </div>
-                            <div>
-                              <strong>{comment.user.displayName || comment.user.username}</strong>
-                              <p>{comment.body}</p>
-                            </div>
+                      {post.repostOf && (
+                        <div className="repost-card">
+                          <div className="repost-label">Repost</div>
+                          <div className="repost-meta">
+                            @{post.repostOf.authorUsername}
                           </div>
-                        ))}
-                      </div>
-                      <div className="comment-input">
-                        <input
-                          type="text"
-                          placeholder="Написать комментарий..."
-                          value={commentDraft[post.id] || ''}
-                          onChange={(event) =>
-                            setCommentDraft((prev) => ({ ...prev, [post.id]: event.target.value }))
-                          }
-                        />
-                        <button type="button" className="primary" onClick={() => handleAddComment(post.id)}>
-                          Отправить
+                          {post.repostOf.body && <p>{post.repostOf.body}</p>}
+                          {post.repostOf.imageUrl && (
+                            <img
+                              className="feed-image media-thumb"
+                              src={resolveMediaUrl(post.repostOf.imageUrl)}
+                              alt="repost"
+                              onClick={() => setLightboxImage(resolveMediaUrl(post.repostOf.imageUrl))}
+                            />
+                          )}
+                        </div>
+                      )}
+                      <div className="post-actions">
+                        <button
+                          type="button"
+                          className={post.liked ? 'active' : ''}
+                          onClick={() => handleLikePost(post.id)}
+                        >
+                          Like {post.likesCount}
+                        </button>
+                        <button type="button" onClick={() => handleToggleComments(post.id)}>
+                          Comments {post.commentsCount}
+                        </button>
+                        <button
+                          type="button"
+                          className={`${post.reposted ? 'active' : ''} ${isOwnRepostPost(post) ? 'disabled' : ''}`.trim()}
+                          onClick={() => handleRepostPost(post.id)}
+                          disabled={isOwnRepostPost(post)}
+                          title={isOwnRepostPost(post) ? 'Cannot repost your own repost' : 'Repost'}
+                        >
+                          Repost {post.repostsCount}
                         </button>
                       </div>
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
+                      {editingPostId === post.id && (
+                        <div className="comment-input">
+                          <input
+                            type="text"
+                            value={editingPostText}
+                            onChange={(event) => setEditingPostText(event.target.value)}
+                          />
+                          <button type="button" className="primary" onClick={() => {
+                            editPost(post.id, editingPostText)
+                              .then(() => {
+                                setProfilePosts((prev) =>
+                                  prev.map((p) => (p.id === post.id ? { ...p, body: editingPostText } : p))
+                                )
+                                setPosts((prev) =>
+                                  prev.map((p) => (p.id === post.id ? { ...p, body: editingPostText } : p))
+                                )
+                                setEditingPostId(null)
+                              })
+                              .catch((err) => setStatus({ type: 'error', message: err.message }))
+                          }}>
+                            Save
+                          </button>
+                        </div>
+                      )}
+                      {openComments === post.id && (
+                        <div className="comment-box">
+                          <div className="comment-list">
+                            {(commentsByPost[post.id] || []).map((comment) => (
+                              <div key={comment.id} className="comment-item">
+                                <div className="avatar tiny">
+                                  {comment.user.avatarUrl ? (
+                                    <img src={resolveMediaUrl(comment.user.avatarUrl)} alt="avatar" />
+                                  ) : (
+                                    comment.user.username[0].toUpperCase()
+                                  )}
+                                </div>
+                                <div>
+                                  <strong>{comment.user.displayName || comment.user.username}</strong>
+                                  <p>{comment.body}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="comment-input">
+                            <input
+                              type="text"
+                              placeholder="Write a comment..."
+                              value={commentDraft[post.id] || ''}
+                              onChange={(event) =>
+                                setCommentDraft((prev) => ({ ...prev, [post.id]: event.target.value }))
+                              }
+                            />
+                            <button type="button" className="primary" onClick={() => handleAddComment(post.id)}>
+                              Send
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-        )}
-
-        {view === 'admin' && user && user.isAdmin && (
+        )}        {view === 'admin' && user && user.isAdmin && (
           <div className="panel admin-panel">
             <h2>Админ панель</h2>
             <div className="admin-search">
@@ -3260,6 +3510,56 @@ export default function App() {
                 placeholder="Пару слов о себе"
               />
             </label>
+            <div className="music-editor">
+              <h3>Profile music</h3>
+              <div className="music-upload-form">
+                <input
+                  type="text"
+                  value={trackTitle}
+                  onChange={(event) => setTrackTitle(event.target.value)}
+                  placeholder="Track title"
+                  maxLength={120}
+                />
+                <input
+                  type="text"
+                  value={trackArtist}
+                  onChange={(event) => setTrackArtist(event.target.value)}
+                  placeholder="Artist"
+                  maxLength={120}
+                />
+                <label className="file-btn">
+                  Select audio
+                  <input
+                    type="file"
+                    accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/ogg,audio/webm,audio/mp4,audio/aac,.mp3,.wav,.ogg,.webm,.m4a,.aac"
+                    onChange={(event) => setTrackFile(event.target.files && event.target.files[0] ? event.target.files[0] : null)}
+                  />
+                </label>
+                {trackFile && <small>Selected: {trackFile.name}</small>}
+                <button
+                  className="primary"
+                  type="button"
+                  onClick={handleProfileTrackUpload}
+                  disabled={musicUploadLoading || !trackFile}
+                >
+                  {musicUploadLoading ? 'Uploading...' : 'Add to profile'}
+                </button>
+              </div>
+              <div className="my-tracks-list">
+                {myTracks.length === 0 && <div className="empty">No tracks uploaded yet.</div>}
+                {myTracks.map((track) => (
+                  <div key={track.id} className="my-track-item">
+                    <div>
+                      <strong>{track.title || 'Untitled'}</strong>
+                      <span>{track.artist || formatDate(track.createdAt)}</span>
+                    </div>
+                    <button type="button" className="ghost" onClick={() => handleDeleteTrack(track.id)}>
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
             <button className="primary" type="submit" disabled={loading}>Сохранить</button>
           </form>
         )}

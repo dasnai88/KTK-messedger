@@ -190,6 +190,14 @@ export async function getProfilePosts(username) {
   return request(`/users/${username}/posts`)
 }
 
+export async function getProfileTracks(username) {
+  return request(`/users/${username}/tracks`)
+}
+
+export async function toggleSubscription(username) {
+  return request(`/users/${username}/subscribe`, { method: 'POST' })
+}
+
 export async function uploadBanner(file) {
   const token = getToken()
   const formData = new FormData()
@@ -204,6 +212,28 @@ export async function uploadBanner(file) {
     throw new Error(data.error || 'Unexpected error')
   }
   return data
+}
+
+export async function uploadProfileTrack(file, meta = {}) {
+  const token = getToken()
+  const formData = new FormData()
+  formData.append('track', file)
+  if (meta.title) formData.append('title', meta.title)
+  if (meta.artist) formData.append('artist', meta.artist)
+  const response = await fetch(`${API_BASE}/me/tracks`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data.error || 'Unexpected error')
+  }
+  return data
+}
+
+export async function deleteProfileTrack(trackId) {
+  return request(`/me/tracks/${trackId}`, { method: 'DELETE' })
 }
 
 export async function editMessage(messageId, body) {
