@@ -3778,7 +3778,7 @@ export default function App() {
               }}
             ></div>
             <label className="file-btn">
-              РР·РјРµРЅРёС‚СЊ обложку
+              Изменить обложку
               <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleBannerChange} />
             </label>
             <div className="profile-avatar">
@@ -3790,7 +3790,7 @@ export default function App() {
                 )}
               </div>
               <label className="file-btn">
-                РР·РјРµРЅРёС‚СЊ аватар
+                Изменить аватар
                 <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarChange} />
               </label>
             </div>
@@ -4008,7 +4008,7 @@ export default function App() {
       {avatarModalOpen && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h3>РР·РјРµРЅРёС‚СЊ аватар</h3>
+            <h3>Изменить аватар</h3>
             <div className="avatar-crop">
               <div
                 className="avatar-preview"
