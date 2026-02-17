@@ -103,6 +103,13 @@ export async function markConversationRead(conversationId) {
   return request(`/conversations/${conversationId}/read`, { method: 'POST' })
 }
 
+export async function setConversationFavorite(conversationId, favorite) {
+  return request(`/conversations/${conversationId}/favorite`, {
+    method: 'POST',
+    body: { favorite: Boolean(favorite) }
+  })
+}
+
 export async function sendMessage(conversationId, body, file, options = {}) {
   const attachmentKind = typeof options.attachmentKind === 'string' ? options.attachmentKind.trim() : ''
   if (file) {

@@ -478,6 +478,7 @@ function mapConversation(row) {
     id: row.id,
     title: row.title,
     isGroup: row.is_group,
+    isFavorite: row.is_favorite === true,
     other: row.other_id ? mapOtherUser(row) : null,
     lastMessage: getMessagePreviewText(row.last_body, row.last_attachment_url, row.last_attachment_kind),
     lastAt: row.last_at,
@@ -516,10 +517,10 @@ function mapPost(row) {
 }
 
 async function getUserConversations(userId) {
-  const result = await pool.query(
-    `select c.id,
+  const queryWithFavorites = `select c.id,
             c.title,
             c.is_group,
+            me.is_favorite,
             u.id as other_id,
             u.username as other_username,
             u.display_name as other_display_name,
@@ -548,11 +549,50 @@ async function getUserConversations(userId) {
         order by m.created_at desc
         limit 1
       ) lm on true
-     order by lm.created_at desc nulls last, c.created_at desc`,
-    [userId]
-  )
+     order by me.is_favorite desc, lm.created_at desc nulls last, c.created_at desc`
 
-  return result.rows.map(mapConversation)
+  const queryWithoutFavorites = `select c.id,
+            c.title,
+            c.is_group,
+            false as is_favorite,
+            u.id as other_id,
+            u.username as other_username,
+            u.display_name as other_display_name,
+            u.role as other_role,
+            u.avatar_url as other_avatar_url,
+            lm.body as last_body,
+            lm.attachment_url as last_attachment_url,
+            lm.attachment_kind as last_attachment_kind,
+            lm.created_at as last_at,
+            (
+              select count(*)
+              from messages m
+              where m.conversation_id = c.id
+                and m.deleted_at is null
+                and m.sender_id <> $1
+                and (me.last_read_at is null or m.created_at > me.last_read_at)
+            ) as unread_count
+     from conversations c
+     join conversation_members me on me.conversation_id = c.id and me.user_id = $1
+     left join conversation_members other on other.conversation_id = c.id and other.user_id <> $1 and c.is_group = false
+     left join users u on u.id = other.user_id
+     left join lateral (
+        select m.body, m.attachment_url, m.attachment_kind, m.created_at, m.sender_id
+        from messages m
+        where m.conversation_id = c.id and m.deleted_at is null
+        order by m.created_at desc
+        limit 1
+      ) lm on true
+     order by lm.created_at desc nulls last, c.created_at desc`
+
+  try {
+    const result = await pool.query(queryWithFavorites, [userId])
+    return result.rows.map(mapConversation)
+  } catch (err) {
+    if (!err || err.code !== '42703') throw err
+    const fallback = await pool.query(queryWithoutFavorites, [userId])
+    return fallback.rows.map(mapConversation)
+  }
 }
 
 function getSocketIdsForUser(userId) {
@@ -1344,6 +1384,40 @@ app.post('/api/conversations/group', auth, ensureNotBanned, async (req, res) => 
     res.status(500).json({ error: 'Unexpected error' })
   } finally {
     client.release()
+  }
+})
+
+app.post('/api/conversations/:id/favorite', auth, ensureNotBanned, async (req, res) => {
+  const conversationId = req.params.id
+  const favorite = req.body && typeof req.body.favorite === 'boolean' ? req.body.favorite : null
+  if (favorite === null) {
+    return res.status(400).json({ error: 'Favorite flag must be boolean' })
+  }
+  try {
+    const updated = await pool.query(
+      `update conversation_members
+       set is_favorite = $3
+       where conversation_id = $1 and user_id = $2
+       returning conversation_id, is_favorite`,
+      [conversationId, req.userId, favorite]
+    )
+    if (updated.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    const conversations = await getUserConversations(req.userId)
+    const conversation = conversations.find((item) => item.id === conversationId) || null
+    res.json({
+      ok: true,
+      isFavorite: updated.rows[0].is_favorite === true,
+      conversation
+    })
+  } catch (err) {
+    if (err && err.code === '42703') {
+      return res.status(503).json({ error: 'Favorites feature is unavailable: database migration required' })
+    }
+    console.error('Favorite conversation error', err)
+    res.status(500).json({ error: 'Unexpected error' })
   }
 })
 

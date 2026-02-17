@@ -8,6 +8,7 @@ import {
   getMe,
   getMessages,
   markConversationRead,
+  setConversationFavorite,
   getProfile,
   getProfilePosts,
   getProfileTracks,
@@ -118,7 +119,6 @@ const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
 const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
-const FAVORITE_CONVERSATIONS_STORAGE_KEY = 'ktk_favorite_conversations'
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
@@ -304,7 +304,6 @@ export default function App() {
       return {}
     }
   })
-  const [favoriteConversations, setFavoriteConversations] = useState([])
   const [chatListFilter, setChatListFilter] = useState(CHAT_LIST_FILTERS.all)
   const [typingByConversation, setTypingByConversation] = useState({})
   const [searchTerm, setSearchTerm] = useState('')
@@ -418,7 +417,9 @@ export default function App() {
     if (!query) return messages
     return messages.filter((msg) => (msg.body || '').toLowerCase().includes(query))
   }, [messages, chatSearchQuery])
-  const favoriteConversationSet = useMemo(() => new Set(favoriteConversations), [favoriteConversations])
+  const favoriteConversationSet = useMemo(() => (
+    new Set(conversations.filter((conv) => conv.isFavorite).map((conv) => conv.id))
+  ), [conversations])
   const unreadConversationCount = useMemo(() => (
     conversations.reduce((acc, conv) => acc + (Number(conv.unreadCount || 0) > 0 ? 1 : 0), 0)
   ), [conversations])
@@ -1348,36 +1349,6 @@ export default function App() {
       // ignore storage errors
     }
   }, [draftsByConversation])
-
-  useEffect(() => {
-    if (!user || !user.id) {
-      setFavoriteConversations([])
-      setChatListFilter(CHAT_LIST_FILTERS.all)
-      return
-    }
-    try {
-      const key = `${FAVORITE_CONVERSATIONS_STORAGE_KEY}:${user.id}`
-      const parsed = JSON.parse(localStorage.getItem(key) || '[]')
-      if (!Array.isArray(parsed)) {
-        setFavoriteConversations([])
-        return
-      }
-      const sanitized = parsed.filter((value) => typeof value === 'string' && value.trim())
-      setFavoriteConversations(sanitized)
-    } catch (err) {
-      setFavoriteConversations([])
-    }
-  }, [user ? user.id : null])
-
-  useEffect(() => {
-    if (!user || !user.id) return
-    try {
-      const key = `${FAVORITE_CONVERSATIONS_STORAGE_KEY}:${user.id}`
-      localStorage.setItem(key, JSON.stringify(favoriteConversations))
-    } catch (err) {
-      // ignore storage errors
-    }
-  }, [favoriteConversations, user ? user.id : null])
 
   useEffect(() => {
     const handleHotkey = (event) => {
@@ -2577,21 +2548,48 @@ export default function App() {
     setChatMenu({ open: false, x: 0, y: 0 })
   }
 
-  const toggleConversationFavorite = (conversationId = null, { closeMenu = false } = {}) => {
+  const toggleConversationFavorite = async (conversationId = null, { closeMenu = false } = {}) => {
     const targetConversationId = conversationId || (activeConversation ? activeConversation.id : null)
     if (!targetConversationId) return
-    const wasFavorite = favoriteConversationSet.has(targetConversationId)
-    setFavoriteConversations((prev) => (
-      prev.includes(targetConversationId)
-        ? prev.filter((id) => id !== targetConversationId)
-        : [...prev, targetConversationId]
+
+    const targetConversation = conversationsRef.current.find((item) => item.id === targetConversationId)
+    if (!targetConversation) return
+
+    const nextFavorite = targetConversation.isFavorite !== true
+    setConversations((prev) => prev.map((item) => (
+      item.id === targetConversationId ? { ...item, isFavorite: nextFavorite } : item
+    )))
+    setActiveConversation((prev) => (
+      prev && prev.id === targetConversationId ? { ...prev, isFavorite: nextFavorite } : prev
     ))
-    setStatus({
-      type: 'info',
-      message: wasFavorite ? 'Диалог убран из избранного.' : 'Диалог добавлен в избранное.'
-    })
+
     if (closeMenu) {
       setChatMenu({ open: false, x: 0, y: 0 })
+    }
+
+    try {
+      const data = await setConversationFavorite(targetConversationId, nextFavorite)
+      const serverFavorite = typeof data.isFavorite === 'boolean' ? data.isFavorite : nextFavorite
+      setConversations((prev) => prev.map((item) => (
+        item.id === targetConversationId ? { ...item, isFavorite: serverFavorite } : item
+      )))
+      setActiveConversation((prev) => (
+        prev && prev.id === targetConversationId ? { ...prev, isFavorite: serverFavorite } : prev
+      ))
+      setStatus({
+        type: 'info',
+        message: serverFavorite ? 'Диалог добавлен в избранное.' : 'Диалог убран из избранного.'
+      })
+    } catch (err) {
+      setConversations((prev) => prev.map((item) => (
+        item.id === targetConversationId ? { ...item, isFavorite: targetConversation.isFavorite === true } : item
+      )))
+      setActiveConversation((prev) => (
+        prev && prev.id === targetConversationId
+          ? { ...prev, isFavorite: targetConversation.isFavorite === true }
+          : prev
+      ))
+      setStatus({ type: 'error', message: err.message })
     }
   }
 

@@ -60,6 +60,7 @@ create table if not exists conversation_members (
   conversation_id uuid references conversations(id) on delete cascade,
   user_id uuid references users(id) on delete cascade,
   role text default 'member',
+  is_favorite boolean default false,
   joined_at timestamptz default now(),
   last_read_at timestamptz default now(),
   primary key (conversation_id, user_id)
@@ -137,6 +138,7 @@ create index if not exists idx_subscriptions_target on user_subscriptions (targe
 create index if not exists idx_subscriptions_subscriber on user_subscriptions (subscriber_id);
 create index if not exists idx_profile_tracks_user on profile_tracks (user_id, created_at desc);
 create index if not exists idx_members_user on conversation_members (user_id);
+create index if not exists idx_members_user_favorite on conversation_members (user_id, is_favorite);
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
 create index if not exists idx_messages_conversation on messages (conversation_id, created_at);
 create index if not exists idx_posts_created on posts (created_at desc);
@@ -226,8 +228,13 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN END $$;
 
 DO $$ BEGIN
+  ALTER TABLE conversation_members ADD COLUMN is_favorite boolean default false;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
   ALTER TABLE push_subscriptions ADD COLUMN last_seen_at timestamptz default now();
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_column THEN END $$;
 
 UPDATE conversation_members SET last_read_at = now() WHERE last_read_at IS NULL;
+UPDATE conversation_members SET is_favorite = false WHERE is_favorite IS NULL;
