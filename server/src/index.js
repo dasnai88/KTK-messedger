@@ -63,10 +63,16 @@ function createUpload({
   maxFileSizeMb,
   errorMessage,
   allowWithoutExtension = false,
-  allowOctetStreamByExtension = false
+  allowOctetStreamByExtension = false,
+  mimePrefixes = [],
+  allowAnyExtensionWhenMimePrefix = false,
+  allowUnknownMimeByExtension = false
 }) {
   const allowedMimeTypes = new Set(mimeTypes)
   const allowedExtensions = new Set(extensions)
+  const normalizedMimePrefixes = (Array.isArray(mimePrefixes) ? mimePrefixes : [])
+    .map((prefix) => String(prefix || '').trim().toLowerCase())
+    .filter(Boolean)
   return multer({
     storage: useDbStorage ? multer.memoryStorage() : diskStorage,
     limits: { fileSize: maxFileSizeMb * 1024 * 1024, files: 1 },
@@ -75,11 +81,15 @@ function createUpload({
       const rawMime = String(file.mimetype || '').trim().toLowerCase()
       const mime = rawMime.split(';')[0]
       const mimeAllowed = allowedMimeTypes.has(rawMime) || allowedMimeTypes.has(mime)
+      const mimePrefixAllowed = normalizedMimePrefixes.some((prefix) => rawMime.startsWith(prefix) || mime.startsWith(prefix))
       const extAllowed = allowedExtensions.has(ext)
       const noExtAllowed = allowWithoutExtension && !ext
       const octetStreamFallback = allowOctetStreamByExtension && mime === 'application/octet-stream' && extAllowed
+      const unknownMimeFallback = allowUnknownMimeByExtension && !mime && extAllowed
+      const extAccepted = extAllowed || noExtAllowed || (allowAnyExtensionWhenMimePrefix && mimePrefixAllowed)
+      const mimeAccepted = mimeAllowed || mimePrefixAllowed
 
-      if (!((mimeAllowed && (extAllowed || noExtAllowed)) || octetStreamFallback)) {
+      if (!((mimeAccepted && extAccepted) || octetStreamFallback || unknownMimeFallback)) {
         return cb(new Error(errorMessage))
       }
       cb(null, true)
@@ -119,7 +129,10 @@ const messageUpload = createUpload({
   maxFileSizeMb: 30,
   errorMessage: 'Only image or video attachments are allowed',
   allowWithoutExtension: true,
-  allowOctetStreamByExtension: true
+  allowOctetStreamByExtension: true,
+  mimePrefixes: ['image/', 'video/'],
+  allowAnyExtensionWhenMimePrefix: true,
+  allowUnknownMimeByExtension: true
 })
 
 const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:5173'
