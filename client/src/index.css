@@ -474,6 +474,52 @@ body {
   border: 1px solid var(--line);
 }
 
+.chat-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.chat-filter {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.chat-filter span {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+}
+
+.chat-filter:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  color: var(--text);
+}
+
+.chat-filter.active {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--text);
+}
+
 .search-results {
   position: absolute;
   top: 52px;
@@ -536,14 +582,36 @@ body {
   border-color: rgba(var(--accent-rgb), 0.35);
 }
 
+.chat-item.favorite {
+  border-color: rgba(var(--accent-rgb), 0.42);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
 .chat-meta {
   display: grid;
   gap: 2px;
 }
 
+.chat-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .chat-title {
   font-weight: 600;
   font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-favorite-mark {
+  color: #f5c96c;
+  font-size: 13px;
+  line-height: 1;
 }
 
 .chat-side {
@@ -707,6 +775,12 @@ body {
 .chat-action:hover {
   transform: translateY(-1px);
   border-color: rgba(var(--accent-rgb), 0.35);
+}
+
+.chat-action.favorite {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.16);
+  color: #f5c96c;
 }
 
 .chat-action:disabled {
@@ -1735,6 +1809,10 @@ body {
 
   .chat-actions {
     align-self: flex-end;
+  }
+
+  .chat-filters {
+    grid-template-columns: 1fr;
   }
 
   .composer {

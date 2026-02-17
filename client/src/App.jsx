@@ -118,6 +118,12 @@ const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
 const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
+const FAVORITE_CONVERSATIONS_STORAGE_KEY = 'ktk_favorite_conversations'
+const CHAT_LIST_FILTERS = {
+  all: 'all',
+  unread: 'unread',
+  favorites: 'favorites'
+}
 const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
 const DEFAULT_ICE_SERVERS = [
@@ -298,6 +304,8 @@ export default function App() {
       return {}
     }
   })
+  const [favoriteConversations, setFavoriteConversations] = useState([])
+  const [chatListFilter, setChatListFilter] = useState(CHAT_LIST_FILTERS.all)
   const [typingByConversation, setTypingByConversation] = useState({})
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState([])
@@ -394,6 +402,7 @@ export default function App() {
   const typingStateRef = useRef({ conversationId: null, isTyping: false, timer: null })
   const draftsRef = useRef(draftsByConversation)
   const socketConnectionRef = useRef(socketConnection)
+  const chatSearchInputRef = useRef(null)
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -409,6 +418,34 @@ export default function App() {
     if (!query) return messages
     return messages.filter((msg) => (msg.body || '').toLowerCase().includes(query))
   }, [messages, chatSearchQuery])
+  const favoriteConversationSet = useMemo(() => new Set(favoriteConversations), [favoriteConversations])
+  const unreadConversationCount = useMemo(() => (
+    conversations.reduce((acc, conv) => acc + (Number(conv.unreadCount || 0) > 0 ? 1 : 0), 0)
+  ), [conversations])
+  const favoriteConversationCount = useMemo(() => (
+    conversations.reduce((acc, conv) => acc + (favoriteConversationSet.has(conv.id) ? 1 : 0), 0)
+  ), [conversations, favoriteConversationSet])
+  const visibleConversations = useMemo(() => {
+    const sorted = [...conversations].sort((a, b) => {
+      const aFavorite = favoriteConversationSet.has(a.id)
+      const bFavorite = favoriteConversationSet.has(b.id)
+      if (aFavorite !== bFavorite) return aFavorite ? -1 : 1
+      const aTime = Date.parse(a.lastAt || '') || 0
+      const bTime = Date.parse(b.lastAt || '') || 0
+      return bTime - aTime
+    })
+    if (chatListFilter === CHAT_LIST_FILTERS.unread) {
+      return sorted.filter((conv) => Number(conv.unreadCount || 0) > 0)
+    }
+    if (chatListFilter === CHAT_LIST_FILTERS.favorites) {
+      return sorted.filter((conv) => favoriteConversationSet.has(conv.id))
+    }
+    return sorted
+  }, [conversations, favoriteConversationSet, chatListFilter])
+  const isActiveConversationFavorite = useMemo(() => {
+    if (!activeConversation) return false
+    return favoriteConversationSet.has(activeConversation.id)
+  }, [activeConversation, favoriteConversationSet])
   const activeProfileTrack = useMemo(() => {
     if (!activeTrackId) return null
     return profileTracks.find((track) => track.id === activeTrackId) || null
@@ -1311,6 +1348,56 @@ export default function App() {
       // ignore storage errors
     }
   }, [draftsByConversation])
+
+  useEffect(() => {
+    if (!user || !user.id) {
+      setFavoriteConversations([])
+      setChatListFilter(CHAT_LIST_FILTERS.all)
+      return
+    }
+    try {
+      const key = `${FAVORITE_CONVERSATIONS_STORAGE_KEY}:${user.id}`
+      const parsed = JSON.parse(localStorage.getItem(key) || '[]')
+      if (!Array.isArray(parsed)) {
+        setFavoriteConversations([])
+        return
+      }
+      const sanitized = parsed.filter((value) => typeof value === 'string' && value.trim())
+      setFavoriteConversations(sanitized)
+    } catch (err) {
+      setFavoriteConversations([])
+    }
+  }, [user ? user.id : null])
+
+  useEffect(() => {
+    if (!user || !user.id) return
+    try {
+      const key = `${FAVORITE_CONVERSATIONS_STORAGE_KEY}:${user.id}`
+      localStorage.setItem(key, JSON.stringify(favoriteConversations))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [favoriteConversations, user ? user.id : null])
+
+  useEffect(() => {
+    const handleHotkey = (event) => {
+      if (!user || event.defaultPrevented) return
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return
+      const target = event.target
+      const tagName = target && target.tagName ? target.tagName.toLowerCase() : ''
+      if (tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable)) return
+      event.preventDefault()
+      setView('chats')
+      window.requestAnimationFrame(() => {
+        if (chatSearchInputRef.current) {
+          chatSearchInputRef.current.focus()
+          chatSearchInputRef.current.select()
+        }
+      })
+    }
+    window.addEventListener('keydown', handleHotkey)
+    return () => window.removeEventListener('keydown', handleHotkey)
+  }, [user])
 
   useEffect(() => {
     socketConnectionRef.current = socketConnection
@@ -2490,6 +2577,24 @@ export default function App() {
     setChatMenu({ open: false, x: 0, y: 0 })
   }
 
+  const toggleConversationFavorite = (conversationId = null, { closeMenu = false } = {}) => {
+    const targetConversationId = conversationId || (activeConversation ? activeConversation.id : null)
+    if (!targetConversationId) return
+    const wasFavorite = favoriteConversationSet.has(targetConversationId)
+    setFavoriteConversations((prev) => (
+      prev.includes(targetConversationId)
+        ? prev.filter((id) => id !== targetConversationId)
+        : [...prev, targetConversationId]
+    ))
+    setStatus({
+      type: 'info',
+      message: wasFavorite ? 'Диалог убран из избранного.' : 'Диалог добавлен в избранное.'
+    })
+    if (closeMenu) {
+      setChatMenu({ open: false, x: 0, y: 0 })
+    }
+  }
+
   const getMessagePreview = (msg) => getMessagePreviewLabel(msg, 'Сообщение')
 
   const togglePinMessage = (msg) => {
@@ -2824,10 +2929,11 @@ export default function App() {
             <section className="chat-list">
               <div className="chat-search">
                 <input
+                  ref={chatSearchInputRef}
                   type="text"
                   value={searchTerm}
                   onChange={(event) => handleSearch(event.target.value)}
-                  placeholder="Найти по username..."
+                  placeholder="Найти по username... (Ctrl+K)"
                 />
                 {searchResults.length > 0 && (
                   <div className="search-results">
@@ -2847,6 +2953,33 @@ export default function App() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="chat-filters" role="tablist" aria-label="Фильтры чатов">
+                <button
+                  type="button"
+                  className={`chat-filter ${chatListFilter === CHAT_LIST_FILTERS.all ? 'active' : ''}`}
+                  onClick={() => setChatListFilter(CHAT_LIST_FILTERS.all)}
+                >
+                  Все
+                  <span>{conversations.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`chat-filter ${chatListFilter === CHAT_LIST_FILTERS.unread ? 'active' : ''}`}
+                  onClick={() => setChatListFilter(CHAT_LIST_FILTERS.unread)}
+                >
+                  Непрочитанные
+                  <span>{unreadConversationCount}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`chat-filter ${chatListFilter === CHAT_LIST_FILTERS.favorites ? 'active' : ''}`}
+                  onClick={() => setChatListFilter(CHAT_LIST_FILTERS.favorites)}
+                >
+                  Избранные
+                  <span>{favoriteConversationCount}</span>
+                </button>
               </div>
 
               <div className={`group-create ${groupOpen ? 'open' : ''}`}>
@@ -2884,9 +3017,17 @@ export default function App() {
                 {conversations.length === 0 && (
                   <div className="empty">Пока нет диалогов. Найди пользователя по username.</div>
                 )}
-                {conversations.map((conv) => {
+                {conversations.length > 0 && visibleConversations.length === 0 && (
+                  <div className="empty">
+                    {chatListFilter === CHAT_LIST_FILTERS.unread
+                      ? 'Непрочитанных диалогов пока нет.'
+                      : 'Избранных диалогов пока нет.'}
+                  </div>
+                )}
+                {visibleConversations.map((conv) => {
                   const unreadCount = Number(conv.unreadCount || 0)
                   const isActive = activeConversation && conv.id === activeConversation.id
+                  const isFavorite = favoriteConversationSet.has(conv.id)
                   const draftText = typeof draftsByConversation[conv.id] === 'string' ? draftsByConversation[conv.id].trim() : ''
                   const hasDraft = draftText.length > 0
                   const draftPreview = hasDraft
@@ -2896,7 +3037,7 @@ export default function App() {
                     <button
                       type="button"
                       key={conv.id}
-                      className={`chat-item ${isActive ? 'active' : ''} ${!isActive && unreadCount > 0 ? 'unread' : ''}`}
+                      className={`chat-item ${isActive ? 'active' : ''} ${!isActive && unreadCount > 0 ? 'unread' : ''} ${isFavorite ? 'favorite' : ''}`.trim()}
                       onClick={() => setActiveConversation(conv)}
                     >
                       <span className="avatar">
@@ -2905,8 +3046,13 @@ export default function App() {
                           : (conv.other?.username || 'U')[0].toUpperCase()}
                       </span>
                       <div className="chat-meta">
-                        <div className="chat-title">
-                          {conv.isGroup ? conv.title : (conv.other?.displayName || conv.other?.username || 'Пользователь')}
+                        <div className="chat-title-row">
+                          <div className="chat-title">
+                            {conv.isGroup ? conv.title : (conv.other?.displayName || conv.other?.username || 'Пользователь')}
+                          </div>
+                          {isFavorite && (
+                            <span className="chat-favorite-mark" title="Избранный чат">★</span>
+                          )}
                         </div>
                         <div className={`chat-preview ${hasDraft ? 'draft' : ''}`}>
                           {hasDraft ? draftPreview : (conv.lastMessage || 'Нет сообщений')}
@@ -2978,6 +3124,14 @@ export default function App() {
                           disabled={isChatBlocked}
                         >
                           📞
+                        </button>
+                        <button
+                          type="button"
+                          className={`chat-action ${isActiveConversationFavorite ? 'favorite' : ''}`.trim()}
+                          onClick={() => toggleConversationFavorite()}
+                          title={isActiveConversationFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
+                        >
+                          {isActiveConversationFavorite ? '★' : '☆'}
                         </button>
                         <button
                           type="button"
@@ -3948,6 +4102,11 @@ export default function App() {
               setChatSearchOpen(true)
             }}>
               Поиск
+            </button>
+            <button type="button" onClick={() => {
+              toggleConversationFavorite(activeConversation.id, { closeMenu: true })
+            }}>
+              {isActiveConversationFavorite ? 'Убрать из избранного' : 'В избранное'}
             </button>
             <button type="button" onClick={() => {
               setChatMenu({ open: false, x: 0, y: 0 })
