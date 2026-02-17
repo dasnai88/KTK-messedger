@@ -323,42 +323,81 @@ function mapProfileTrack(row) {
   }
 }
 
+function isProfileFeaturesSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('user_subscriptions') || message.includes('profile_tracks')
+}
+
 async function getUserByIdWithStats(userId, viewerId) {
-  const result = await pool.query(
-    `select u.*,
-            (select count(*) from user_subscriptions s where s.target_user_id = u.id) as subscribers_count,
-            (select count(*) from user_subscriptions s where s.subscriber_id = u.id) as subscriptions_count,
-            (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
-            exists(
-              select 1
-              from user_subscriptions s
-              where s.subscriber_id = $2 and s.target_user_id = u.id
-            ) as is_subscribed
-     from users u
-     where u.id = $1`,
-    [userId, viewerId || null]
-  )
-  if (result.rowCount === 0) return null
-  return mapUser(result.rows[0])
+  try {
+    const result = await pool.query(
+      `select u.*,
+              (select count(*) from user_subscriptions s where s.target_user_id = u.id) as subscribers_count,
+              (select count(*) from user_subscriptions s where s.subscriber_id = u.id) as subscriptions_count,
+              (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
+              exists(
+                select 1
+                from user_subscriptions s
+                where s.subscriber_id = $2 and s.target_user_id = u.id
+              ) as is_subscribed
+       from users u
+       where u.id = $1`,
+      [userId, viewerId || null]
+    )
+    if (result.rowCount === 0) return null
+    return mapUser(result.rows[0])
+  } catch (err) {
+    if (!isProfileFeaturesSchemaError(err)) throw err
+    const fallback = await pool.query(
+      `select u.*,
+              0::int as subscribers_count,
+              0::int as subscriptions_count,
+              0::int as tracks_count,
+              false as is_subscribed
+       from users u
+       where u.id = $1`,
+      [userId]
+    )
+    if (fallback.rowCount === 0) return null
+    return mapUser(fallback.rows[0])
+  }
 }
 
 async function getUserByUsernameWithStats(username, viewerId) {
-  const result = await pool.query(
-    `select u.*,
-            (select count(*) from user_subscriptions s where s.target_user_id = u.id) as subscribers_count,
-            (select count(*) from user_subscriptions s where s.subscriber_id = u.id) as subscriptions_count,
-            (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
-            exists(
-              select 1
-              from user_subscriptions s
-              where s.subscriber_id = $2 and s.target_user_id = u.id
-            ) as is_subscribed
-     from users u
-     where u.username = $1`,
-    [username, viewerId || null]
-  )
-  if (result.rowCount === 0) return null
-  return mapUser(result.rows[0])
+  try {
+    const result = await pool.query(
+      `select u.*,
+              (select count(*) from user_subscriptions s where s.target_user_id = u.id) as subscribers_count,
+              (select count(*) from user_subscriptions s where s.subscriber_id = u.id) as subscriptions_count,
+              (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
+              exists(
+                select 1
+                from user_subscriptions s
+                where s.subscriber_id = $2 and s.target_user_id = u.id
+              ) as is_subscribed
+       from users u
+       where u.username = $1`,
+      [username, viewerId || null]
+    )
+    if (result.rowCount === 0) return null
+    return mapUser(result.rows[0])
+  } catch (err) {
+    if (!isProfileFeaturesSchemaError(err)) throw err
+    const fallback = await pool.query(
+      `select u.*,
+              0::int as subscribers_count,
+              0::int as subscriptions_count,
+              0::int as tracks_count,
+              false as is_subscribed
+       from users u
+       where u.username = $1`,
+      [username]
+    )
+    if (fallback.rowCount === 0) return null
+    return mapUser(fallback.rows[0])
+  }
 }
 
 function mapOtherUser(row) {
@@ -999,6 +1038,9 @@ app.get('/api/users/:username/tracks', auth, ensureNotBanned, async (req, res) =
     )
     res.json({ tracks: tracksResult.rows.map(mapProfileTrack) })
   } catch (err) {
+    if (isProfileFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Profile music feature is unavailable: database migration required' })
+    }
     console.error('Profile tracks error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
@@ -1038,6 +1080,9 @@ app.post('/api/users/:username/subscribe', auth, ensureNotBanned, async (req, re
     const user = await getUserByIdWithStats(targetId, req.userId)
     res.json({ subscribed, user })
   } catch (err) {
+    if (isProfileFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Subscription feature is unavailable: database migration required' })
+    }
     console.error('Subscribe error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
@@ -1062,6 +1107,9 @@ app.post('/api/me/tracks', uploadLimiter, auth, ensureNotBanned, audioUpload.sin
     )
     res.json({ track: mapProfileTrack(result.rows[0]) })
   } catch (err) {
+    if (isProfileFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Profile music feature is unavailable: database migration required' })
+    }
     console.error('Track upload error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
@@ -1079,6 +1127,9 @@ app.delete('/api/me/tracks/:id', auth, ensureNotBanned, async (req, res) => {
     }
     res.json({ ok: true, trackId })
   } catch (err) {
+    if (isProfileFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Profile music feature is unavailable: database migration required' })
+    }
     console.error('Delete track error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
