@@ -70,12 +70,12 @@ const icons = {
 }
 
 const fallbackRoles = [
-  { value: 'programmist', label: 'РџСЂРѕРіСЂР°РјРјРёСЃС‚' },
-  { value: 'tehnik', label: 'РўРµС…РЅРёРє' },
-  { value: 'polimer', label: 'РџРѕР»РёРјРµСЂ' },
-  { value: 'pirotehnik', label: 'РџРёСЂРѕС‚РµС…РЅРёРє' },
-  { value: 'tehmash', label: 'РўРµС…РјР°С€' },
-  { value: 'holodilchik', label: 'РҐРѕР»РѕРґРёР»СЊС‡РёРє' }
+  { value: 'programmist', label: 'Программист' },
+  { value: 'tehnik', label: 'Техник' },
+  { value: 'polimer', label: 'Полимер' },
+  { value: 'pirotehnik', label: 'Пиротехник' },
+  { value: 'tehmash', label: 'Техмаш' },
+  { value: 'holodilchik', label: 'Холодильчик' }
 ]
 
 const initialRegister = {
@@ -236,15 +236,15 @@ function isVideoMessageAttachment(message) {
   return /\.(mp4|webm|ogv|ogg|mov|m4v)(\?|$)/i.test(message.attachmentUrl)
 }
 
-function getMessagePreviewLabel(message, emptyText = 'Message') {
+function getMessagePreviewLabel(message, emptyText = 'Сообщение') {
   if (message && typeof message.body === 'string' && message.body.trim()) {
     const text = message.body.trim()
     return text.length > 120 ? `${text.slice(0, 117)}...` : text
   }
   if (message && message.attachmentUrl) {
-    if (message.attachmentKind === VIDEO_NOTE_KIND) return 'Video note'
-    if (isVideoMessageAttachment(message)) return 'Video'
-    return 'Photo'
+    if (message.attachmentKind === VIDEO_NOTE_KIND) return 'Видеосообщение'
+    if (isVideoMessageAttachment(message)) return 'Видео'
+    return 'Фото'
   }
   return emptyText
 }
@@ -433,14 +433,14 @@ export default function App() {
     const conv = conversations.find((item) => !item.isGroup && item.other && item.other.id === callState.withUserId)
     return conv ? conv.other : { id: callState.withUserId, username: 'user', displayName: '' }
   }, [callState.withUserId, activeConversation, conversations])
-  const callTitle = callUser ? (callUser.displayName || callUser.username) : 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ'
+  const callTitle = callUser ? (callUser.displayName || callUser.username) : 'Пользователь'
   const callSubtitle = callUser && callUser.username ? `@${callUser.username}` : ''
   const callStatusText = callState.status === 'calling'
-    ? 'Р’С‹Р·РѕРІ...'
+    ? 'Вызов...'
     : callState.status === 'connecting'
-      ? 'РЎРѕРµРґРёРЅРµРЅРёРµ...'
+      ? 'Соединение...'
       : callState.status === 'in-call'
-        ? `Р—РІРѕРЅРѕРє ${formatDuration(callDuration)}`
+        ? `Звонок ${formatDuration(callDuration)}`
         : ''
   const clearCallDisconnectTimer = () => {
     if (!callDisconnectTimerRef.current) return
@@ -513,7 +513,7 @@ export default function App() {
   const startVideoNoteRecording = async () => {
     if (!activeConversation || isChatBlocked) return
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof window.MediaRecorder === 'undefined') {
-      setStatus({ type: 'error', message: 'Video note recording is not supported on this device.' })
+      setStatus({ type: 'error', message: 'Запись кружков не поддерживается на этом устройстве.' })
       return
     }
     const preferredMimeType = getSupportedVideoNoteMimeType()
@@ -540,7 +540,7 @@ export default function App() {
         }
       }
       recorder.onerror = () => {
-        setStatus({ type: 'error', message: 'Unable to record video note.' })
+        setStatus({ type: 'error', message: 'Не удалось записать кружок.' })
         stopVideoNoteRecording(true)
       }
       recorder.onstop = () => {
@@ -556,7 +556,7 @@ export default function App() {
         setVideoNoteDuration(0)
         if (shouldDiscard) return
         if (blob.size === 0) {
-          setStatus({ type: 'error', message: 'Video note is empty. Record again.' })
+          setStatus({ type: 'error', message: 'Кружок пустой. Запишите снова.' })
           return
         }
         const extension = getVideoExtensionFromMime(blob.type || mimeType)
@@ -589,7 +589,7 @@ export default function App() {
       }, 1000)
     } catch (err) {
       stopVideoNoteRecording(true)
-      setStatus({ type: 'error', message: 'Cannot access camera or microphone.' })
+      setStatus({ type: 'error', message: 'Нет доступа к камере или микрофону.' })
     }
   }
 
@@ -1049,11 +1049,11 @@ export default function App() {
 
   const handlePushToggle = () => {
     if (!webPushFeatureEnabled) {
-      setStatus({ type: 'info', message: 'Push-СѓРІРµРґРѕРјР»РµРЅРёСЏ РѕС‚РєР»СЋС‡РµРЅС‹ РґР»СЏ СЌС‚РѕРіРѕ РѕРєСЂСѓР¶РµРЅРёСЏ.' })
+      setStatus({ type: 'info', message: 'Push-уведомления отключены для этого окружения.' })
       return
     }
     if (!pushState.supported) {
-      setStatus({ type: 'info', message: 'Р”Р»СЏ СЃРёСЃС‚РµРјРЅС‹С… СѓРІРµРґРѕРјР»РµРЅРёР№ РЅСѓР¶РµРЅ HTTPS СЃ РІР°Р»РёРґРЅС‹Рј SSL-СЃРµСЂС‚РёС„РёРєР°С‚РѕРј.' })
+      setStatus({ type: 'info', message: 'Для системных уведомлений нужен HTTPS с валидным SSL-сертификатом.' })
       return
     }
     if (pushState.enabled) {
@@ -1503,7 +1503,7 @@ export default function App() {
       })
     })
 
-    const getConversationPreview = (message) => getMessagePreviewLabel(message, 'Message')
+    const getConversationPreview = (message) => getMessagePreviewLabel(message, 'Сообщение')
 
     const updateConversationPreview = (conversationId, message) => {
       if (!conversationId || !message) return
@@ -1519,7 +1519,7 @@ export default function App() {
         if (index === -1) return prev
         const updated = {
           ...prev[index],
-          lastMessage: getMessagePreviewLabel(message, 'Message'),
+          lastMessage: getMessagePreviewLabel(message, 'Сообщение'),
           lastAt: message.createdAt
         }
         const next = [...prev]
@@ -1555,7 +1555,7 @@ export default function App() {
         const known = conversationsRef.current.find((item) => item.id === conversationId)
         const title = known
           ? (known.isGroup ? known.title : (known.other && (known.other.displayName || known.other.username)))
-          : (message.senderDisplayName || message.senderUsername || 'РќРѕРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ')
+          : (message.senderDisplayName || message.senderUsername || 'Новое сообщение')
         const isPageVisible = typeof document !== 'undefined' && document.visibilityState === 'visible'
         if (isPageVisible) {
           playNotificationSound()
@@ -1648,7 +1648,7 @@ export default function App() {
         await flushPendingIceCandidates()
         setCallState({ status: 'in-call', withUserId: fromUserId, direction: 'outgoing', startedAt: Date.now() })
       } catch (err) {
-        setStatus({ type: 'error', message: 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓСЃС‚Р°РЅРѕРІРёС‚СЊ СЃРѕРµРґРёРЅРµРЅРёРµ.' })
+        setStatus({ type: 'error', message: 'Не удалось установить соединение.' })
         cleanupCall()
       }
     }
@@ -1670,23 +1670,23 @@ export default function App() {
       if (callStateRef.current.withUserId !== fromUserId) return
       cleanupCall()
       const message = reason === 'busy'
-        ? 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ Р·Р°РЅСЏС‚.'
+        ? 'Пользователь занят.'
         : reason === 'blocked'
-          ? 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµРґРѕСЃС‚СѓРїРµРЅ.'
-          : 'Р—РІРѕРЅРѕРє РѕС‚РєР»РѕРЅРµРЅ.'
+          ? 'Пользователь недоступен.'
+          : 'Звонок отклонен.'
       setStatus({ type: 'info', message })
     }
 
     const handleCallEnd = ({ fromUserId }) => {
       if (callStateRef.current.withUserId !== fromUserId) return
       cleanupCall()
-      setStatus({ type: 'info', message: 'Р—РІРѕРЅРѕРє Р·Р°РІРµСЂС€РµРЅ.' })
+      setStatus({ type: 'info', message: 'Звонок завершен.' })
     }
 
     const handleCallUnavailable = () => {
       if (callStateRef.current.status !== 'calling') return
       cleanupCall()
-      setStatus({ type: 'info', message: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ РѕС„Р»Р°Р№РЅ.' })
+      setStatus({ type: 'info', message: 'Пользователь офлайн.' })
     }
 
     socket.on('call:offer', handleCallOffer)
@@ -1758,7 +1758,7 @@ export default function App() {
         themeColor: data.user.themeColor || '#7a1f1d'
       })
       setView('feed')
-      setStatus({ type: 'success', message: 'Р РµРіРёСЃС‚СЂР°С†РёСЏ Р·Р°РІРµСЂС€РµРЅР°.' })
+      setStatus({ type: 'success', message: 'Регистрация завершена.' })
       setRegisterForm(initialRegister)
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
@@ -1783,7 +1783,7 @@ export default function App() {
         themeColor: data.user.themeColor || '#7a1f1d'
       })
       setView('feed')
-      setStatus({ type: 'success', message: 'РЎ РІРѕР·РІСЂР°С‰РµРЅРёРµРј.' })
+      setStatus({ type: 'success', message: 'С возвращением.' })
       setLoginForm(initialLogin)
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
@@ -1799,7 +1799,7 @@ export default function App() {
     try {
       const data = await updateMe(profileForm)
       setUser(data.user)
-      setStatus({ type: 'success', message: 'РџСЂРѕС„РёР»СЊ РѕР±РЅРѕРІР»РµРЅ.' })
+      setStatus({ type: 'success', message: 'Профиль обновлен.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -1845,7 +1845,7 @@ export default function App() {
       const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' })
       const data = await uploadAvatar(file)
       setUser(data.user)
-      setStatus({ type: 'success', message: 'РђРІР°С‚Р°СЂ РѕР±РЅРѕРІР»РµРЅ.' })
+      setStatus({ type: 'success', message: 'Аватар обновлен.' })
       setAvatarModalOpen(false)
       setAvatarSource('')
     } catch (err) {
@@ -1887,7 +1887,7 @@ export default function App() {
     try {
       const data = await uploadBanner(file)
       setUser(data.user)
-      setStatus({ type: 'success', message: 'РћР±Р»РѕР¶РєР° РѕР±РЅРѕРІР»РµРЅР°.' })
+      setStatus({ type: 'success', message: 'Обложка обновлена.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -1942,7 +1942,7 @@ export default function App() {
       })
       setStatus({
         type: 'success',
-        message: data.subscribed ? 'РџРѕРґРїРёСЃРєР° РѕС„РѕСЂРјР»РµРЅР°.' : 'РџРѕРґРїРёСЃРєР° РѕС‚РјРµРЅРµРЅР°.'
+        message: data.subscribed ? 'Подписка оформлена.' : 'Подписка отменена.'
       })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
@@ -1960,7 +1960,7 @@ export default function App() {
       event.preventDefault()
     }
     if (!trackFile) {
-      setStatus({ type: 'error', message: 'Р’С‹Р±РµСЂРёС‚Рµ Р°СѓРґРёРѕ С„Р°Р№Р».' })
+      setStatus({ type: 'error', message: 'Выберите аудио файл.' })
       return
     }
     setMusicUploadLoading(true)
@@ -1980,7 +1980,7 @@ export default function App() {
       setTrackTitle('')
       setTrackArtist('')
       setTrackFile(null)
-      setStatus({ type: 'success', message: 'РњСѓР·С‹РєР° РґРѕР±Р°РІР»РµРЅР° РІ РїСЂРѕС„РёР»СЊ.' })
+      setStatus({ type: 'success', message: 'Музыка добавлена в профиль.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -2012,7 +2012,7 @@ export default function App() {
       if (activeTrackId === trackId) {
         setActiveTrackId(null)
       }
-      setStatus({ type: 'success', message: 'РўСЂРµРє СѓРґР°Р»РµРЅ.' })
+      setStatus({ type: 'success', message: 'Трек удален.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     }
@@ -2185,7 +2185,7 @@ export default function App() {
       .map((item) => item.trim())
       .filter(Boolean)
     if (groupTitle.trim().length < 3 || members.length < 2) {
-      setStatus({ type: 'error', message: 'РќР°Р·РІР°РЅРёРµ 3+ СЃРёРјРІРѕР»Р° Рё РјРёРЅРёРјСѓРј 2 СѓС‡Р°СЃС‚РЅРёРєР°.' })
+      setStatus({ type: 'error', message: 'Название 3+ символа и минимум 2 участника.' })
       return
     }
     try {
@@ -2198,7 +2198,7 @@ export default function App() {
       }
       setGroupTitle('')
       setGroupMembers('')
-      setStatus({ type: 'success', message: 'Р“СЂСѓРїРїРѕРІРѕР№ С‡Р°С‚ СЃРѕР·РґР°РЅ.' })
+      setStatus({ type: 'success', message: 'Групповой чат создан.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     }
@@ -2208,7 +2208,7 @@ export default function App() {
     event.preventDefault()
     if (!activeConversation) return
     if (isChatBlocked) {
-      setStatus({ type: 'error', message: 'Р’С‹ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°Р»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.' })
+      setStatus({ type: 'error', message: 'Вы заблокировали пользователя.' })
       return
     }
     const text = messageText.trim()
@@ -2391,12 +2391,12 @@ export default function App() {
     const fromUserId = callStateRef.current.withUserId
     if (!fromUserId || !incomingOfferRef.current) return
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus({ type: 'error', message: 'Р‘СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ Р·РІРѕРЅРєРё.' })
+      setStatus({ type: 'error', message: 'Браузер не поддерживает звонки.' })
       declineCall('declined')
       return
     }
     if (!socketRef.current) {
-      setStatus({ type: 'error', message: 'РќРµС‚ СЃРѕРµРґРёРЅРµРЅРёСЏ СЃ СЃРµСЂРІРµСЂРѕРј.' })
+      setStatus({ type: 'error', message: 'Нет соединения с сервером.' })
       declineCall('declined')
       return
     }
@@ -2413,7 +2413,7 @@ export default function App() {
       socketRef.current.emit('call:answer', { toUserId: fromUserId, answer })
       setCallState({ status: 'in-call', withUserId: fromUserId, direction: 'incoming', startedAt: Date.now() })
     } catch (err) {
-      setStatus({ type: 'error', message: 'РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРёРЅСЏС‚СЊ Р·РІРѕРЅРѕРє.' })
+      setStatus({ type: 'error', message: 'Не удалось принять звонок.' })
       endCall(true)
     }
   }
@@ -2429,15 +2429,15 @@ export default function App() {
   const handleCall = async () => {
     if (!activeConversation || activeConversation.isGroup) return
     if (isChatBlocked) {
-      setStatus({ type: 'error', message: 'Р’С‹ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°Р»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.' })
+      setStatus({ type: 'error', message: 'Вы заблокировали пользователя.' })
       return
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus({ type: 'error', message: 'Р‘СЂР°СѓР·РµСЂ РЅРµ РїРѕРґРґРµСЂР¶РёРІР°РµС‚ Р·РІРѕРЅРєРё.' })
+      setStatus({ type: 'error', message: 'Браузер не поддерживает звонки.' })
       return
     }
     if (!socketRef.current) {
-      setStatus({ type: 'error', message: 'РќРµС‚ СЃРѕРµРґРёРЅРµРЅРёСЏ СЃ СЃРµСЂРІРµСЂРѕРј.' })
+      setStatus({ type: 'error', message: 'Нет соединения с сервером.' })
       return
     }
     const targetId = activeConversation.other.id
@@ -2445,7 +2445,7 @@ export default function App() {
       if (callStateRef.current.withUserId === targetId) {
         endCall(true)
       } else {
-        setStatus({ type: 'info', message: 'РЎРЅР°С‡Р°Р»Р° Р·Р°РІРµСЂС€РёС‚Рµ С‚РµРєСѓС‰РёР№ Р·РІРѕРЅРѕРє.' })
+        setStatus({ type: 'info', message: 'Сначала завершите текущий звонок.' })
       }
       return
     }
@@ -2460,7 +2460,7 @@ export default function App() {
       await pc.setLocalDescription(offer)
       socketRef.current.emit('call:offer', { toUserId: targetId, offer })
     } catch (err) {
-      setStatus({ type: 'error', message: 'РќРµ СѓРґР°Р»РѕСЃСЊ РЅР°С‡Р°С‚СЊ Р·РІРѕРЅРѕРє.' })
+      setStatus({ type: 'error', message: 'Не удалось начать звонок.' })
       cleanupCall()
     }
   }
@@ -2485,12 +2485,12 @@ export default function App() {
     })
     setStatus({
       type: 'info',
-      message: isChatBlocked ? 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ СЂР°Р·Р±Р»РѕРєРёСЂРѕРІР°РЅ.' : 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ.'
+      message: isChatBlocked ? 'Пользователь разблокирован.' : 'Пользователь заблокирован.'
     })
     setChatMenu({ open: false, x: 0, y: 0 })
   }
 
-  const getMessagePreview = (msg) => getMessagePreviewLabel(msg, 'Message')
+  const getMessagePreview = (msg) => getMessagePreviewLabel(msg, 'Сообщение')
 
   const togglePinMessage = (msg) => {
     if (!activeConversation) return
@@ -2511,9 +2511,9 @@ export default function App() {
     if (!msg.body) return
     try {
       await navigator.clipboard.writeText(msg.body)
-      setStatus({ type: 'success', message: 'РўРµРєСЃС‚ СЃРєРѕРїРёСЂРѕРІР°РЅ.' })
+      setStatus({ type: 'success', message: 'Текст скопирован.' })
     } catch (err) {
-      setStatus({ type: 'error', message: 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєРѕРїРёСЂРѕРІР°С‚СЊ С‚РµРєСЃС‚.' })
+      setStatus({ type: 'error', message: 'Не удалось скопировать текст.' })
     }
     setContextMenu({ open: false, x: 0, y: 0, message: null })
   }
@@ -2526,7 +2526,7 @@ export default function App() {
 
   const handleRepostFromMenu = async (post) => {
     if (isOwnRepostPost(post)) {
-      setStatus({ type: 'error', message: 'РќРµР»СЊР·СЏ СЂРµРїРѕСЃС‚РёС‚СЊ СЃРІРѕР№ СЂРµРїРѕСЃС‚.' })
+      setStatus({ type: 'error', message: 'Нельзя репостить свой репост.' })
       setPostMenu({ open: false, x: 0, y: 0, post: null })
       return
     }
@@ -2546,7 +2546,7 @@ export default function App() {
       setPostText('')
       setPostFile(null)
       setPostPreview('')
-      setStatus({ type: 'success', message: 'РџРѕСЃС‚ РѕРїСѓР±Р»РёРєРѕРІР°РЅ.' })
+      setStatus({ type: 'success', message: 'Пост опубликован.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -2589,10 +2589,10 @@ export default function App() {
       <main className="content">
         <div className="topbar">
           <div className="brand-inline">
-            <div className="brand-icon">РљРўРљ</div>
+            <div className="brand-icon">КТК</div>
             <div>
               <h1>Messenger</h1>
-              <p>РЎРѕРІСЂРµРјРµРЅРЅС‹Р№ С‡Р°С‚ РєРѕР»Р»РµРґР¶Р°.</p>
+              <p>Современный чат колледжа.</p>
             </div>
           </div>
           <div className="top-actions">
@@ -2600,10 +2600,10 @@ export default function App() {
               type="button"
               className="theme-toggle"
               onClick={toggleTheme}
-              title="РЎРјРµРЅРёС‚СЊ С‚РµРјСѓ"
+              title="Сменить тему"
             >
-              <span>{theme === 'dark' ? 'рџЊ™' : 'вЂпёЏ'}</span>
-              {theme === 'dark' ? 'РўС‘РјРЅР°СЏ' : 'РЎРІРµС‚Р»Р°СЏ'}
+              <span>{theme === 'dark' ? '🌙' : '☀️'}</span>
+              {theme === 'dark' ? 'Тёмная' : 'Светлая'}
             </button>
             <button
               type="button"
@@ -2620,16 +2620,16 @@ export default function App() {
                 type="button"
                 className="logout-btn"
                 onClick={handleLogout}
-                title="Р’С‹Р№С‚Рё"
+                title="Выйти"
               >
                 <span>?</span>
-                Р’С‹Р№С‚Рё
+                Выйти
               </button>
               <button
                 type="button"
                 className="user-pill"
                 onClick={() => setView('profile')}
-                title="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
+                title="Открыть профиль"
               >
                 <div className="avatar">
                   {user.avatarUrl ? (
@@ -2654,7 +2654,7 @@ export default function App() {
               type="button"
               className={view === 'feed' ? 'active' : ''}
               onClick={() => setView('feed')}
-              title="Р›РµРЅС‚Р°"
+              title="Лента"
             >
               {icons.feed}
             </button>
@@ -2662,7 +2662,7 @@ export default function App() {
               type="button"
               className={view === 'chats' ? 'active' : ''}
               onClick={() => setView('chats')}
-              title="Р§Р°С‚С‹"
+              title="Чаты"
             >
               {icons.chats}
             </button>
@@ -2674,7 +2674,7 @@ export default function App() {
                   setView('admin')
                   loadAdminUsers(adminQuery)
                 }}
-                title="РђРґРјРёРЅ"
+                title="Админ"
               >
                 {icons.admin}
               </button>
@@ -2683,7 +2683,7 @@ export default function App() {
               type="button"
               className={view === 'profile' ? 'active' : ''}
               onClick={() => setView('profile')}
-              title="РџСЂРѕС„РёР»СЊ"
+              title="Профиль"
             >
               {icons.profile}
             </button>
@@ -2709,8 +2709,8 @@ export default function App() {
                   {toast.title && <strong>{toast.title}</strong>}
                   {toast.message && <span>{toast.message}</span>}
                 </div>
-                <button type="button" onClick={() => dismissToast(toast.id)} aria-label="Р—Р°РєСЂС‹С‚СЊ">
-                  вњ•
+                <button type="button" onClick={() => dismissToast(toast.id)} aria-label="Закрыть">
+                  ✕
                 </button>
               </div>
             ))}
@@ -2724,24 +2724,24 @@ export default function App() {
               className={view === 'login' ? 'active' : ''}
               onClick={() => setView('login')}
             >
-              Р’С…РѕРґ
+              Вход
             </button>
             <button
               type="button"
               className={view === 'register' ? 'active' : ''}
               onClick={() => setView('register')}
             >
-              Р РµРіРёСЃС‚СЂР°С†РёСЏ
+              Регистрация
             </button>
           </div>
         )}
 
         {view === 'login' && !user && (
           <form className="panel" onSubmit={handleLogin}>
-            <h2>Р’С…РѕРґ</h2>
-            <p className="subtitle">РњРѕР¶РЅРѕ Р»РѕРіРёРЅ РёР»Рё username.</p>
+            <h2>Вход</h2>
+            <p className="subtitle">Можно логин или username.</p>
             <label>
-              Р›РѕРіРёРЅ РёР»Рё username
+              Логин или username
               <input
                 type="text"
                 value={loginForm.login}
@@ -2752,26 +2752,26 @@ export default function App() {
               />
             </label>
             <label>
-              РџР°СЂРѕР»СЊ
+              Пароль
               <input
                 type="password"
                 value={loginForm.password}
                 onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
-                placeholder="вЂўвЂўвЂўвЂўвЂўвЂў"
+                placeholder="••••••"
                 required
                 minLength={6}
               />
             </label>
-            <button className="primary" type="submit" disabled={loading}>Р’РѕР№С‚Рё</button>
+            <button className="primary" type="submit" disabled={loading}>Войти</button>
           </form>
         )}
 
         {view === 'register' && !user && (
           <form className="panel" onSubmit={handleRegister}>
-            <h2>РЎРѕР·РґР°С‚СЊ Р°РєРєР°СѓРЅС‚</h2>
-            <p className="subtitle">Р’С‹Р±РµСЂРё СЂРѕР»СЊ Рё Р±СѓРґСЊ РЅР° СЃРІСЏР·Рё.</p>
+            <h2>Создать аккаунт</h2>
+            <p className="subtitle">Выбери роль и будь на связи.</p>
             <label>
-              Р›РѕРіРёРЅ
+              Логин
               <input
                 type="text"
                 value={registerForm.login}
@@ -2782,7 +2782,7 @@ export default function App() {
               />
             </label>
             <label>
-              Username (СѓРЅРёРєР°Р»СЊРЅС‹Р№)
+              Username (уникальный)
               <input
                 type="text"
                 value={registerForm.username}
@@ -2794,18 +2794,18 @@ export default function App() {
               />
             </label>
             <label>
-              РџР°СЂРѕР»СЊ
+              Пароль
               <input
                 type="password"
                 value={registerForm.password}
                 onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })}
-                placeholder="вЂўвЂўвЂўвЂўвЂўвЂў"
+                placeholder="••••••"
                 required
                 minLength={6}
               />
             </label>
             <label>
-              РЎРїРµС†РёР°Р»РёР·Р°С†РёСЏ
+              Специализация
               <select
                 value={registerForm.role}
                 onChange={(event) => setRegisterForm({ ...registerForm, role: event.target.value })}
@@ -2815,7 +2815,7 @@ export default function App() {
                 ))}
               </select>
             </label>
-            <button className="primary" type="submit" disabled={loading}>Р—Р°СЂРµРіРёСЃС‚СЂРёСЂРѕРІР°С‚СЊСЃСЏ</button>
+            <button className="primary" type="submit" disabled={loading}>Зарегистрироваться</button>
           </form>
         )}
 
@@ -2827,7 +2827,7 @@ export default function App() {
                   type="text"
                   value={searchTerm}
                   onChange={(event) => handleSearch(event.target.value)}
-                  placeholder="РќР°Р№С‚Рё РїРѕ username..."
+                  placeholder="Найти по username..."
                 />
                 {searchResults.length > 0 && (
                   <div className="search-results">
@@ -2857,8 +2857,8 @@ export default function App() {
                 >
                   <span>?</span>
                   <div>
-                    <strong>РќРѕРІС‹Р№ РіСЂСѓРїРїРѕРІРѕР№ С‡Р°С‚</strong>
-                    <small>РќР°Р¶РјРё, С‡С‚РѕР±С‹ СЃРѕР·РґР°С‚СЊ РіСЂСѓРїРїСѓ</small>
+                    <strong>Новый групповой чат</strong>
+                    <small>Нажми, чтобы создать группу</small>
                   </div>
                 </button>
                 {groupOpen && (
@@ -2867,22 +2867,22 @@ export default function App() {
                       type="text"
                       value={groupTitle}
                       onChange={(event) => setGroupTitle(event.target.value)}
-                      placeholder="РќР°Р·РІР°РЅРёРµ РіСЂСѓРїРїС‹"
+                      placeholder="Название группы"
                     />
                     <input
                       type="text"
                       value={groupMembers}
                       onChange={(event) => setGroupMembers(event.target.value)}
-                      placeholder="Usernames С‡РµСЂРµР· Р·Р°РїСЏС‚СѓСЋ"
+                      placeholder="Usernames через запятую"
                     />
-                    <button className="primary" type="button" onClick={handleCreateGroup}>РЎРѕР·РґР°С‚СЊ</button>
+                    <button className="primary" type="button" onClick={handleCreateGroup}>Создать</button>
                   </div>
                 )}
               </div>
 
               <div className="chat-items">
                 {conversations.length === 0 && (
-                  <div className="empty">РџРѕРєР° РЅРµС‚ РґРёР°Р»РѕРіРѕРІ. РќР°Р№РґРё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РїРѕ username.</div>
+                  <div className="empty">Пока нет диалогов. Найди пользователя по username.</div>
                 )}
                 {conversations.map((conv) => {
                   const unreadCount = Number(conv.unreadCount || 0)
@@ -2906,10 +2906,10 @@ export default function App() {
                       </span>
                       <div className="chat-meta">
                         <div className="chat-title">
-                          {conv.isGroup ? conv.title : (conv.other?.displayName || conv.other?.username || 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ')}
+                          {conv.isGroup ? conv.title : (conv.other?.displayName || conv.other?.username || 'Пользователь')}
                         </div>
                         <div className={`chat-preview ${hasDraft ? 'draft' : ''}`}>
-                          {hasDraft ? draftPreview : (conv.lastMessage || 'РќРµС‚ СЃРѕРѕР±С‰РµРЅРёР№')}
+                          {hasDraft ? draftPreview : (conv.lastMessage || 'Нет сообщений')}
                         </div>
                       </div>
                       <div className="chat-side">
@@ -2936,7 +2936,7 @@ export default function App() {
                           </div>
                           <div>
                             <h3>{activeConversation.title}</h3>
-                            <span>Р“СЂСѓРїРїРѕРІРѕР№ С‡Р°С‚</span>
+                            <span>Групповой чат</span>
                           </div>
                         </div>
                       ) : (
@@ -2956,7 +2956,7 @@ export default function App() {
                             <h3>{activeConversation.other.displayName || activeConversation.other.username}</h3>
                             <div className="chat-status">
                               <span className={`presence-dot ${isOnline(activeConversation.other.id) ? 'online' : ''}`}></span>
-                              {isOnline(activeConversation.other.id) ? 'РІ СЃРµС‚Рё' : 'РЅРµ РІ СЃРµС‚Рё'}
+                              {isOnline(activeConversation.other.id) ? 'в сети' : 'не в сети'}
                             </div>
                           </div>
                         </button>
@@ -2966,55 +2966,55 @@ export default function App() {
                           type="button"
                           className="chat-action"
                           onClick={() => setChatSearchOpen((prev) => !prev)}
-                          title="РџРѕРёСЃРє"
+                          title="Поиск"
                         >
-                          рџ”Ќ
+                          🔍
                         </button>
                         <button
                           type="button"
                           className="chat-action"
                           onClick={handleCall}
-                          title={isChatBlocked ? 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅ' : 'Р—РІРѕРЅРѕРє'}
+                          title={isChatBlocked ? 'Пользователь заблокирован' : 'Звонок'}
                           disabled={isChatBlocked}
                         >
-                          рџ“ћ
+                          📞
                         </button>
                         <button
                           type="button"
                           className="chat-action"
                           onClick={openChatMenu}
-                          title={activeConversation.isGroup ? 'Р”РѕСЃС‚СѓРїРЅРѕ РІ Р»РёС‡РЅС‹С… С‡Р°С‚Р°С…' : 'РњРµРЅСЋ'}
+                          title={activeConversation.isGroup ? 'Доступно в личных чатах' : 'Меню'}
                           disabled={activeConversation.isGroup}
                         >
-                          в‹Ї
+                          ⋯
                         </button>
                       </div>
                     </div>
                     {pinnedMessage && (
                       <div className="pinned-banner">
                         <div>
-                          <span className="pinned-label">Р—Р°РєСЂРµРїР»РµРЅРЅРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ</span>
+                          <span className="pinned-label">Закрепленное сообщение</span>
                           {pinnedMessage.senderUsername && (
                             <span className="pinned-author">@{pinnedMessage.senderUsername}</span>
                           )}
                           <p>{getMessagePreview(pinnedMessage)}</p>
                         </div>
-                        <button type="button" onClick={() => togglePinMessage(pinnedMessage)} title="РћС‚РєСЂРµРїРёС‚СЊ">
+                        <button type="button" onClick={() => togglePinMessage(pinnedMessage)} title="Открепить">
                           ?
                         </button>
                       </div>
                     )}
                     {chatSearchOpen && (
                       <div className="chat-search-bar">
-                        <span>рџ”Ќ</span>
+                        <span>🔍</span>
                         <input
                           type="text"
-                          placeholder="РџРѕРёСЃРє РІ С‡Р°С‚Рµ"
+                          placeholder="Поиск в чате"
                           value={chatSearchQuery}
                           onChange={(event) => setChatSearchQuery(event.target.value)}
                         />
                         {chatSearchQuery && (
-                          <button type="button" onClick={() => setChatSearchQuery('')} title="РћС‡РёСЃС‚РёС‚СЊ">
+                          <button type="button" onClick={() => setChatSearchQuery('')} title="Очистить">
                             ?
                           </button>
                         )}
@@ -3022,8 +3022,8 @@ export default function App() {
                     )}
                     {isChatBlocked && (
                       <div className="chat-blocked">
-                        <span>Р’С‹ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°Р»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.</span>
-                        <button type="button" onClick={toggleChatBlock}>Р Р°Р·Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ</button>
+                        <span>Вы заблокировали пользователя.</span>
+                        <button type="button" onClick={toggleChatBlock}>Разблокировать</button>
                       </div>
                     )}
                     {typingLabel && (
@@ -3033,7 +3033,7 @@ export default function App() {
                   <div className="chat-messages">
                     {filteredMessages.length === 0 && (
                       <div className="empty">
-                        {chatSearchQuery ? 'РЎРѕРѕР±С‰РµРЅРёСЏ РЅРµ РЅР°Р№РґРµРЅС‹.' : 'РќР°РїРёС€РёС‚Рµ РїРµСЂРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ.'}
+                        {chatSearchQuery ? 'Сообщения не найдены.' : 'Напишите первое сообщение.'}
                       </div>
                     )}
                   {filteredMessages.map((msg) => (
@@ -3047,7 +3047,7 @@ export default function App() {
                             type="button"
                             className="avatar tiny clickable"
                             onClick={() => openProfile(msg.senderUsername)}
-                            title="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
+                            title="Открыть профиль"
                           >
                             {msg.senderAvatarUrl ? (
                               <img src={resolveMediaUrl(msg.senderAvatarUrl)} alt="avatar" />
@@ -3104,18 +3104,18 @@ export default function App() {
                                   })
                                   .catch((err) => setStatus({ type: 'error', message: err.message }))
                               }}>
-                                РЎРѕС…СЂР°РЅРёС‚СЊ
+                                Сохранить
                               </button>
                             </div>
                           ) : (
                             msg.body ? <p className="message-text">{msg.body}</p> : null
                           )}
                           <div className="message-meta">
-                            {msg.editedAt && <span className="message-edited">РёР·РјРµРЅРµРЅРѕ</span>}
+                            {msg.editedAt && <span className="message-edited">изменено</span>}
                             <time className="message-time">{formatTime(msg.createdAt)}</time>
                             {msg.senderId === user.id && activeConversation && !activeConversation.isGroup && (
                               <span className={`message-status ${msg.readByOther ? 'read' : ''}`}>
-                                {msg.readByOther ? 'вњ“вњ“' : 'вњ“'}
+                                {msg.readByOther ? '✓✓' : '✓'}
                               </span>
                             )}
                           </div>
@@ -3124,8 +3124,8 @@ export default function App() {
                           <div className="message-actions">
                             <button type="button" onClick={() => {
                               startEditMessage(msg)
-                            }}>вњЏпёЏ</button>
-                            <button type="button" onClick={() => handleDeleteMessage(msg)}>рџ—‘пёЏ</button>
+                            }}>✏️</button>
+                            <button type="button" onClick={() => handleDeleteMessage(msg)}>🗑️</button>
                           </div>
                         )}
                         {msg.senderId === user.id && (
@@ -3133,7 +3133,7 @@ export default function App() {
                             type="button"
                             className="avatar tiny clickable"
                             onClick={() => setView('profile')}
-                            title="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
+                            title="Открыть профиль"
                           >
                             {user.avatarUrl ? (
                               <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
@@ -3152,20 +3152,20 @@ export default function App() {
                     >
                       {contextMenu.message.body && (
                         <button type="button" onClick={() => handleCopyMessage(contextMenu.message)}>
-                          РљРѕРїРёСЂРѕРІР°С‚СЊ С‚РµРєСЃС‚
+                          Копировать текст
                         </button>
                       )}
                       <button type="button" onClick={() => togglePinMessage(contextMenu.message)}>
-                        {pinnedMessage && pinnedMessage.id === contextMenu.message.id ? 'РћС‚РєСЂРµРїРёС‚СЊ' : 'Р—Р°РєСЂРµРїРёС‚СЊ'}
+                        {pinnedMessage && pinnedMessage.id === contextMenu.message.id ? 'Открепить' : 'Закрепить'}
                       </button>
                       {(contextMenu.message.senderId === user.id || user.isAdmin) && (
                         <button type="button" onClick={() => startEditMessage(contextMenu.message)}>
-                          Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ
+                          Редактировать
                         </button>
                       )}
                       {(contextMenu.message.senderId === user.id || user.isAdmin) && (
                         <button type="button" className="danger" onClick={() => handleDeleteMessage(contextMenu.message)}>
-                          РЈРґР°Р»РёС‚СЊ
+                          Удалить
                         </button>
                       )}
                     </div>
@@ -3175,11 +3175,11 @@ export default function App() {
                       type="text"
                       value={messageText}
                       onChange={handleMessageInputChange}
-                      placeholder="Message..."
+                      placeholder="Сообщение..."
                       disabled={isChatBlocked}
                     />
                     <label className="file-btn">
-                      File
+                      Файл
                       <input
                         type="file"
                         accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.webm,.mov,.ogv,.ogg,.m4v"
@@ -3205,14 +3205,14 @@ export default function App() {
                       onClick={toggleVideoNoteRecording}
                       disabled={isChatBlocked}
                     >
-                      {videoNoteRecording ? `Stop ${videoNoteDuration}s` : 'Video note'}
+                      {videoNoteRecording ? `Стоп ${videoNoteDuration}с` : 'Кружок'}
                     </button>
-                    <button className="primary" type="submit" disabled={loading || isChatBlocked}>Send</button>
+                    <button className="primary" type="submit" disabled={loading || isChatBlocked}>Отправить</button>
                   </form>
                   {videoNoteRecording && (
                     <div className="video-note-live">
                       <video ref={videoNotePreviewRef} autoPlay muted playsInline />
-                      <span>Recording {videoNoteDuration}s / {VIDEO_NOTE_MAX_SECONDS}s</span>
+                      <span>Запись {videoNoteDuration}с / {VIDEO_NOTE_MAX_SECONDS}с</span>
                     </div>
                   )}
                   {messagePreview && (
@@ -3240,8 +3240,8 @@ export default function App() {
                 </>
               ) : (
                 <div className="chat-empty">
-                  <h3>Р’С‹Р±РµСЂРёС‚Рµ РґРёР°Р»РѕРі</h3>
-                  <p>РќР°Р№РґРёС‚Рµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РїРѕ username Рё РЅР°С‡РЅРёС‚Рµ С‡Р°С‚.</p>
+                  <h3>Выберите диалог</h3>
+                  <p>Найдите пользователя по username и начните чат.</p>
                 </div>
               )}
             </section>
@@ -3268,11 +3268,11 @@ export default function App() {
                 rows={3}
                 value={postText}
                 onChange={(event) => setPostText(event.target.value)}
-                placeholder="Р§С‚Рѕ РЅРѕРІРѕРіРѕ РІ РєРѕР»Р»РµРґР¶Рµ?"
+                placeholder="Что нового в колледже?"
               />
               <div className="feed-actions">
                 <label className="file-btn">
-                  рџ“·
+                  📷
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
@@ -3283,7 +3283,7 @@ export default function App() {
                     }}
                   />
                 </label>
-                <button className="primary" type="submit" disabled={loading}>РћРїСѓР±Р»РёРєРѕРІР°С‚СЊ</button>
+                <button className="primary" type="submit" disabled={loading}>Опубликовать</button>
               </div>
               {postPreview && (
                 <div className="upload-preview">
@@ -3296,7 +3296,7 @@ export default function App() {
                       setPostPreview('')
                     }}
                   >
-                    РЈРґР°Р»РёС‚СЊ
+                    Удалить
                   </button>
                 </div>
               )}
@@ -3304,7 +3304,7 @@ export default function App() {
 
             <div className="feed-list">
               {posts.length === 0 && (
-                <div className="empty">РџРѕСЃС‚РѕРІ РїРѕРєР° РЅРµС‚.</div>
+                <div className="empty">Постов пока нет.</div>
               )}
               {posts.map((post) => (
                 <article
@@ -3313,7 +3313,7 @@ export default function App() {
                   onContextMenu={(event) => openPostMenu(event, post)}
                 >
                   {post.repostOf && (
-                    <div className="repost-badge">? Р РµРїРѕСЃС‚</div>
+                    <div className="repost-badge">? Репост</div>
                   )}
                   <button
                     type="button"
@@ -3344,7 +3344,7 @@ export default function App() {
                   )}
                   {post.repostOf && (
                     <div className="repost-card">
-                      <div className="repost-label">? Р РµРїРѕСЃС‚</div>
+                      <div className="repost-label">? Репост</div>
                       <div className="repost-meta">
                         @{post.repostOf.authorUsername}
                       </div>
@@ -3365,19 +3365,19 @@ export default function App() {
                       className={post.liked ? 'active' : ''}
                       onClick={() => handleLikePost(post.id)}
                     >
-                      вќ¤пёЏ {post.likesCount}
+                      ❤️ {post.likesCount}
                     </button>
                     <button type="button" onClick={() => handleToggleComments(post.id)}>
-                      рџ’¬ {post.commentsCount}
+                      💬 {post.commentsCount}
                     </button>
                     <button
                       type="button"
                       className={`${post.reposted ? 'active' : ''} ${isOwnRepostPost(post) ? 'disabled' : ''}`.trim()}
                       onClick={() => handleRepostPost(post.id)}
                       disabled={isOwnRepostPost(post)}
-                      title={isOwnRepostPost(post) ? 'РќРµР»СЊР·СЏ СЂРµРїРѕСЃС‚РёС‚СЊ СЃРІРѕР№ СЂРµРїРѕСЃС‚' : 'Р РµРїРѕСЃС‚'}
+                      title={isOwnRepostPost(post) ? 'Нельзя репостить свой репост' : 'Репост'}
                     >
-                      рџ”Ѓ {post.repostsCount}
+                      🔁 {post.repostsCount}
                     </button>
                   </div>
                   {editingPostId === post.id && (
@@ -3400,7 +3400,7 @@ export default function App() {
                           })
                           .catch((err) => setStatus({ type: 'error', message: err.message }))
                       }}>
-                        РЎРѕС…СЂР°РЅРёС‚СЊ
+                        Сохранить
                       </button>
                     </div>
                   )}
@@ -3426,14 +3426,14 @@ export default function App() {
                       <div className="comment-input">
                         <input
                           type="text"
-                          placeholder="РќР°РїРёСЃР°С‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№..."
+                          placeholder="Написать комментарий..."
                           value={commentDraft[post.id] || ''}
                           onChange={(event) =>
                             setCommentDraft((prev) => ({ ...prev, [post.id]: event.target.value }))
                           }
                         />
                         <button type="button" className="primary" onClick={() => handleAddComment(post.id)}>
-                          РћС‚РїСЂР°РІРёС‚СЊ
+                          Отправить
                         </button>
                       </div>
                     </div>
@@ -3672,20 +3672,20 @@ export default function App() {
           </div>
         )}        {view === 'admin' && user && user.isAdmin && (
           <div className="panel admin-panel">
-            <h2>РђРґРјРёРЅ РїР°РЅРµР»СЊ</h2>
+            <h2>Админ панель</h2>
             <div className="admin-search">
               <input
                 type="text"
-                placeholder="РџРѕРёСЃРє РїРѕ username..."
+                placeholder="Поиск по username..."
                 value={adminQuery}
                 onChange={(event) => setAdminQuery(event.target.value)}
               />
               <button type="button" className="primary" onClick={() => loadAdminUsers(adminQuery)}>
-                РќР°Р№С‚Рё
+                Найти
               </button>
             </div>
             <div className="admin-list">
-              {adminUsers.length === 0 && <div className="empty">РџРѕР»СЊР·РѕРІР°С‚РµР»Рё РЅРµ РЅР°Р№РґРµРЅС‹.</div>}
+              {adminUsers.length === 0 && <div className="empty">Пользователи не найдены.</div>}
               {adminUsers.map((u) => (
                 <div key={u.id} className="admin-item">
                   <div>
@@ -3697,22 +3697,22 @@ export default function App() {
                     </div>
                   </div>
                   <div className="admin-meta">
-                    <span>РџСЂРµРґСѓРїСЂ.: {u.warnings_count}</span>
-                    <span>{u.is_banned ? 'Р‘РђРќ' : 'Р°РєС‚РёРІРµРЅ'}</span>
+                    <span>Предупр.: {u.warnings_count}</span>
+                    <span>{u.is_banned ? 'БАН' : 'активен'}</span>
                   </div>
                   <div className="admin-actions">
                     {u.is_banned ? (
                       <button type="button" onClick={() => adminUnbanUser(u.id).then(() => loadAdminUsers(adminQuery))}>
-                        Р Р°Р·Р±Р°РЅ
+                        Разбан
                       </button>
                     ) : (
                       <button type="button" onClick={() => adminBanUser(u.id).then(() => loadAdminUsers(adminQuery))}>
-                        Р‘Р°РЅ
+                        Бан
                       </button>
                     )}
                     <input
                       type="text"
-                      placeholder="РџСЂРёС‡РёРЅР° РїСЂРµРґСѓРїСЂРµР¶РґРµРЅРёСЏ"
+                      placeholder="Причина предупреждения"
                       value={adminWarnReason[u.id] || ''}
                       onChange={(event) =>
                         setAdminWarnReason((prev) => ({ ...prev, [u.id]: event.target.value }))
@@ -3728,7 +3728,7 @@ export default function App() {
                           })
                       }
                     >
-                      РџСЂРµРґСѓРїСЂРµРґРёС‚СЊ
+                      Предупредить
                     </button>
                     <button
                       type="button"
@@ -3736,7 +3736,7 @@ export default function App() {
                         adminClearWarnings(u.id).then(() => loadAdminUsers(adminQuery))
                       }
                     >
-                      РЎРЅСЏС‚СЊ РїСЂРµРґСѓРїСЂРµР¶РґРµРЅРёСЏ
+                      Снять предупреждения
                     </button>
                     <button
                       type="button"
@@ -3745,7 +3745,7 @@ export default function App() {
                           .then(() => loadAdminUsers(adminQuery))
                       }
                     >
-                      {u.is_moderator ? 'РЎРЅСЏС‚СЊ РјРѕРґРµСЂ' : 'РќР°Р·РЅР°С‡РёС‚СЊ РјРѕРґРµСЂ'}
+                      {u.is_moderator ? 'Снять модер' : 'Назначить модер'}
                     </button>
                   </div>
                 </div>
@@ -3758,16 +3758,16 @@ export default function App() {
           <form className="panel" onSubmit={handleProfileSave}>
             <div className="panel-header">
               <div>
-                <h2>РџСЂРѕС„РёР»СЊ</h2>
-                <p className="subtitle">РќР°СЃС‚СЂРѕР№ РїСЂРѕС„РёР»СЊ РєР°Рє РІ Telegram.</p>
+                <h2>Профиль</h2>
+                <p className="subtitle">Настрой профиль как в Telegram.</p>
               </div>
               <button
                 type="button"
                 className="ghost"
                 onClick={() => openProfile(user.username)}
-                title="Open my public profile"
+                title="Открыть мой публичный профиль"
               >
-                Open my profile
+                Открыть мой профиль
               </button>
             </div>
             <div
@@ -3778,7 +3778,7 @@ export default function App() {
               }}
             ></div>
             <label className="file-btn">
-              РР·РјРµРЅРёС‚СЊ РѕР±Р»РѕР¶РєСѓ
+              РР·РјРµРЅРёС‚СЊ обложку
               <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleBannerChange} />
             </label>
             <div className="profile-avatar">
@@ -3790,12 +3790,12 @@ export default function App() {
                 )}
               </div>
               <label className="file-btn">
-                РР·РјРµРЅРёС‚СЊ Р°РІР°С‚Р°СЂ
+                РР·РјРµРЅРёС‚СЊ аватар
                 <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarChange} />
               </label>
             </div>
             <label>
-              Р¦РІРµС‚ РїСЂРѕС„РёР»СЏ
+              Цвет профиля
               <input
                 type="color"
                 value={profileForm.themeColor}
@@ -3805,12 +3805,12 @@ export default function App() {
               />
             </label>
             <label>
-              РћС‚РѕР±СЂР°Р¶Р°РµРјРѕРµ РёРјСЏ
+              Отображаемое имя
               <input
                 type="text"
                 value={profileForm.displayName}
                 onChange={(event) => setProfileForm({ ...profileForm, displayName: event.target.value })}
-                placeholder="Р’Р°С€Рµ РёРјСЏ"
+                placeholder="Ваше имя"
               />
             </label>
             <label>
@@ -3825,7 +3825,7 @@ export default function App() {
               />
             </label>
             <label>
-              РЎРїРµС†РёР°Р»РёР·Р°С†РёСЏ
+              Специализация
               <select
                 value={profileForm.role}
                 onChange={(event) => setProfileForm({ ...profileForm, role: event.target.value })}
@@ -3836,12 +3836,12 @@ export default function App() {
               </select>
             </label>
             <label>
-              Рћ СЃРµР±Рµ
+              О себе
               <textarea
                 rows={4}
                 value={profileForm.bio}
                 onChange={(event) => setProfileForm({ ...profileForm, bio: event.target.value })}
-                placeholder="РџР°СЂСѓ СЃР»РѕРІ Рѕ СЃРµР±Рµ"
+                placeholder="Пару слов о себе"
               />
             </label>
             <div className="music-editor">
@@ -3894,14 +3894,14 @@ export default function App() {
                 ))}
               </div>
             </div>
-            <button className="primary" type="submit" disabled={loading}>РЎРѕС…СЂР°РЅРёС‚СЊ</button>
+            <button className="primary" type="submit" disabled={loading}>Сохранить</button>
           </form>
         )}
 
         {view === 'profile' && !user && (
           <div className="panel">
-            <h2>РџСЂРѕС„РёР»СЊ</h2>
-            <p className="subtitle">РЎРЅР°С‡Р°Р»Р° РІРѕР№РґРёС‚Рµ РёР»Рё Р·Р°СЂРµРіРёСЃС‚СЂРёСЂСѓР№С‚РµСЃСЊ.</p>
+            <h2>Профиль</h2>
+            <p className="subtitle">Сначала войдите или зарегистрируйтесь.</p>
           </div>
         )}
 
@@ -3912,21 +3912,21 @@ export default function App() {
           >
             {isOwnRepostPost(postMenu.post) ? (
               <button type="button" className="disabled" disabled>
-                Р РµРїРѕСЃС‚ РЅРµРґРѕСЃС‚СѓРїРµРЅ
+                Репост недоступен
               </button>
             ) : (
               <button type="button" className="accent" onClick={() => handleRepostFromMenu(postMenu.post)}>
-                {postMenu.post.reposted ? '? РћС‚РјРµРЅРёС‚СЊ СЂРµРїРѕСЃС‚' : '? Р РµРїРѕСЃС‚'}
+                {postMenu.post.reposted ? '? Отменить репост' : '? Репост'}
               </button>
             )}
             {user && (user.id === postMenu.post.author.id || user.isAdmin) && (
               <button type="button" onClick={() => startEditPost(postMenu.post)}>
-                Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ
+                Редактировать
               </button>
             )}
             {user && (user.id === postMenu.post.author.id || user.isAdmin) && (
               <button type="button" className="danger" onClick={() => handleDeletePost(postMenu.post)}>
-                РЈРґР°Р»РёС‚СЊ
+                Удалить
               </button>
             )}
           </div>
@@ -3941,22 +3941,22 @@ export default function App() {
               setChatMenu({ open: false, x: 0, y: 0 })
               openProfile(activeConversation.other.username)
             }}>
-              РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ
+              Открыть профиль
             </button>
             <button type="button" onClick={() => {
               setChatMenu({ open: false, x: 0, y: 0 })
               setChatSearchOpen(true)
             }}>
-              РџРѕРёСЃРє
+              Поиск
             </button>
             <button type="button" onClick={() => {
               setChatMenu({ open: false, x: 0, y: 0 })
               handleCall()
             }}>
-              Р—РІРѕРЅРѕРє
+              Звонок
             </button>
             <button type="button" className="danger" onClick={toggleChatBlock}>
-              {isChatBlocked ? 'Р Р°Р·Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ' : 'Р—Р°Р±Р»РѕРєРёСЂРѕРІР°С‚СЊ'}
+              {isChatBlocked ? 'Разблокировать' : 'Заблокировать'}
             </button>
           </div>
         )}
@@ -3964,7 +3964,7 @@ export default function App() {
         {callState.status === 'incoming' && (
           <div className="call-modal">
             <div className="call-card">
-              <div className="call-title">Р’С…РѕРґСЏС‰РёР№ Р·РІРѕРЅРѕРє</div>
+              <div className="call-title">Входящий звонок</div>
               <div className="call-user">
                 <div className="avatar small">
                   {callUser && callUser.avatarUrl ? (
@@ -3980,10 +3980,10 @@ export default function App() {
               </div>
               <div className="call-actions">
                 <button type="button" className="danger" onClick={() => declineCall('declined')}>
-                  РћС‚РєР»РѕРЅРёС‚СЊ
+                  Отклонить
                 </button>
                 <button type="button" className="primary" onClick={answerCall}>
-                  РћС‚РІРµС‚РёС‚СЊ
+                  Ответить
                 </button>
               </div>
             </div>
@@ -3997,7 +3997,7 @@ export default function App() {
               <span>{callStatusText}</span>
             </div>
             <button type="button" className="danger" onClick={() => endCall(true)}>
-              Р—Р°РІРµСЂС€РёС‚СЊ
+              Завершить
             </button>
           </div>
         )}
@@ -4008,7 +4008,7 @@ export default function App() {
       {avatarModalOpen && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h3>РР·РјРµРЅРёС‚СЊ Р°РІР°С‚Р°СЂ</h3>
+            <h3>РР·РјРµРЅРёС‚СЊ аватар</h3>
             <div className="avatar-crop">
               <div
                 className="avatar-preview"
@@ -4025,7 +4025,7 @@ export default function App() {
               </div>
             </div>
             <label className="slider">
-              РњР°СЃС€С‚Р°Р±
+              Масштаб
               <input
                 type="range"
                 min={AVATAR_ZOOM_MIN}
@@ -4037,10 +4037,10 @@ export default function App() {
             </label>
             <div className="modal-actions">
               <button type="button" className="ghost" onClick={() => setAvatarModalOpen(false)}>
-                РћС‚РјРµРЅР°
+                Отмена
               </button>
               <button type="button" className="primary" onClick={handleAvatarSave} disabled={loading}>
-                РЎРѕС…СЂР°РЅРёС‚СЊ
+                Сохранить
               </button>
             </div>
           </div>
@@ -4055,4 +4055,3 @@ export default function App() {
     </div>
   )
 }
-
