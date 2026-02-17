@@ -57,7 +57,14 @@ const diskStorage = multer.diskStorage({
   }
 })
 
-function createUpload({ mimeTypes, extensions, maxFileSizeMb, errorMessage }) {
+function createUpload({
+  mimeTypes,
+  extensions,
+  maxFileSizeMb,
+  errorMessage,
+  allowWithoutExtension = false,
+  allowOctetStreamByExtension = false
+}) {
   const allowedMimeTypes = new Set(mimeTypes)
   const allowedExtensions = new Set(extensions)
   return multer({
@@ -65,7 +72,14 @@ function createUpload({ mimeTypes, extensions, maxFileSizeMb, errorMessage }) {
     limits: { fileSize: maxFileSizeMb * 1024 * 1024, files: 1 },
     fileFilter: (req, file, cb) => {
       const ext = path.extname(file.originalname || '').toLowerCase()
-      if (!allowedMimeTypes.has(file.mimetype) || !allowedExtensions.has(ext)) {
+      const rawMime = String(file.mimetype || '').trim().toLowerCase()
+      const mime = rawMime.split(';')[0]
+      const mimeAllowed = allowedMimeTypes.has(rawMime) || allowedMimeTypes.has(mime)
+      const extAllowed = allowedExtensions.has(ext)
+      const noExtAllowed = allowWithoutExtension && !ext
+      const octetStreamFallback = allowOctetStreamByExtension && mime === 'application/octet-stream' && extAllowed
+
+      if (!((mimeAllowed && (extAllowed || noExtAllowed)) || octetStreamFallback)) {
         return cb(new Error(errorMessage))
       }
       cb(null, true)
@@ -89,17 +103,23 @@ const audioUpload = createUpload({
 
 const messageUpload = createUpload({
   mimeTypes: [
+    'image/jpg',
     'image/jpeg',
     'image/png',
     'image/webp',
     'video/mp4',
     'video/webm',
     'video/ogg',
-    'video/quicktime'
+    'video/quicktime',
+    'video/x-matroska',
+    'video/3gpp',
+    'video/3gpp2'
   ],
-  extensions: ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.webm', '.ogv', '.ogg', '.mov', '.m4v'],
+  extensions: ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.webm', '.ogv', '.ogg', '.mov', '.m4v', '.mkv', '.3gp', '.3g2'],
   maxFileSizeMb: 30,
-  errorMessage: 'Only image or video attachments are allowed'
+  errorMessage: 'Only image or video attachments are allowed',
+  allowWithoutExtension: true,
+  allowOctetStreamByExtension: true
 })
 
 const rawOrigins = process.env.CORS_ORIGIN || 'http://localhost:5173'
@@ -1940,7 +1960,7 @@ app.use((err, req, res, next) => {
     return res.status(400).json({ error: 'Разрешены только изображения (jpg, png, webp)' })
   }
   if (err && err.message && err.message.includes('Only image or video attachments')) {
-    return res.status(400).json({ error: 'Разрешены только изображения и видео (jpg, png, webp, mp4, webm, mov, ogg)' })
+    return res.status(400).json({ error: 'Разрешены только изображения и видео файлы.' })
   }
   if (err && err.message && err.message.includes('Only audio files')) {
     return res.status(400).json({ error: 'Разрешены только аудио файлы (mp3, wav, ogg, webm, m4a, aac)' })
