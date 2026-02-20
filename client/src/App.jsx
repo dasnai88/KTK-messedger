@@ -537,6 +537,9 @@ export default function App() {
   const unreadConversationCount = useMemo(() => (
     conversations.reduce((acc, conv) => acc + (Number(conv.unreadCount || 0) > 0 ? 1 : 0), 0)
   ), [conversations])
+  const unreadMessagesCount = useMemo(() => (
+    conversations.reduce((acc, conv) => acc + Math.max(0, Number(conv.unreadCount || 0)), 0)
+  ), [conversations])
   const favoriteConversationCount = useMemo(() => (
     conversations.reduce((acc, conv) => acc + (favoriteConversationSet.has(conv.id) ? 1 : 0), 0)
   ), [conversations, favoriteConversationSet])
@@ -3170,8 +3173,12 @@ export default function App() {
               className={view === 'chats' ? 'active' : ''}
               onClick={() => setView('chats')}
               title="Чаты"
+              aria-label={unreadMessagesCount > 0 ? `Чаты, непрочитанных сообщений: ${unreadMessagesCount}` : 'Чаты'}
             >
               {icons.chats}
+              {unreadMessagesCount > 0 && (
+                <span className="icon-rail-badge">{unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}</span>
+              )}
             </button>
             {user.isAdmin && (
               <button
