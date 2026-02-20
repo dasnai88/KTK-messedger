@@ -112,6 +112,7 @@ export async function setConversationFavorite(conversationId, favorite) {
 
 export async function sendMessage(conversationId, body, file, options = {}) {
   const attachmentKind = typeof options.attachmentKind === 'string' ? options.attachmentKind.trim() : ''
+  const replyToMessageId = typeof options.replyToMessageId === 'string' ? options.replyToMessageId.trim() : ''
   if (file) {
     const token = getToken()
     const formData = new FormData()
@@ -119,6 +120,9 @@ export async function sendMessage(conversationId, body, file, options = {}) {
     formData.append('file', file)
     if (attachmentKind) {
       formData.append('attachmentKind', attachmentKind)
+    }
+    if (replyToMessageId) {
+      formData.append('replyToMessageId', replyToMessageId)
     }
     const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
       method: 'POST',
@@ -131,7 +135,13 @@ export async function sendMessage(conversationId, body, file, options = {}) {
     }
     return data
   }
-  return request(`/conversations/${conversationId}/messages`, { method: 'POST', body: { body } })
+  return request(`/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    body: {
+      body,
+      ...(replyToMessageId ? { replyToMessageId } : {})
+    }
+  })
 }
 
 export async function getPresence() {

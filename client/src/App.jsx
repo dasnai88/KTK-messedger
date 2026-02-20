@@ -317,10 +317,27 @@ function normalizeMessageReactions(reactions) {
   return Array.from(map.values()).sort(MESSAGE_REACTION_SORT)
 }
 
+function normalizeReplyMessage(replyTo) {
+  if (!replyTo || typeof replyTo !== 'object') return null
+  return {
+    id: typeof replyTo.id === 'string' ? replyTo.id : '',
+    body: typeof replyTo.body === 'string' ? replyTo.body : '',
+    attachmentUrl: replyTo.attachmentUrl || null,
+    attachmentMime: replyTo.attachmentMime || null,
+    attachmentKind: replyTo.attachmentKind || null,
+    deletedAt: replyTo.deletedAt || null,
+    senderId: replyTo.senderId || null,
+    senderUsername: replyTo.senderUsername || null,
+    senderDisplayName: replyTo.senderDisplayName || null,
+    senderAvatarUrl: replyTo.senderAvatarUrl || null
+  }
+}
+
 function normalizeChatMessage(message) {
   if (!message || typeof message !== 'object') return message
   return {
     ...message,
+    replyTo: normalizeReplyMessage(message.replyTo),
     reactions: normalizeMessageReactions(message.reactions)
   }
 }
@@ -397,6 +414,7 @@ export default function App() {
   const [activeConversation, setActiveConversation] = useState(null)
   const [messages, setMessages] = useState([])
   const [messageText, setMessageText] = useState('')
+  const [replyMessage, setReplyMessage] = useState(null)
   const [messageFile, setMessageFile] = useState(null)
   const [messagePreview, setMessagePreview] = useState('')
   const [messagePreviewType, setMessagePreviewType] = useState('')
@@ -1571,11 +1589,13 @@ export default function App() {
     stopTyping()
     if (!activeConversation) {
       setMessageText('')
+      setReplyMessage(null)
       clearMessageAttachment()
       return
     }
     const draft = draftsRef.current[activeConversation.id]
     setMessageText(typeof draft === 'string' ? draft : '')
+    setReplyMessage(null)
     clearMessageAttachment()
   }, [activeConversation ? activeConversation.id : null])
 
@@ -2545,7 +2565,8 @@ export default function App() {
     setLoading(true)
     try {
       const data = await sendMessage(activeConversation.id, text, messageFile, {
-        attachmentKind: messageAttachmentKind
+        attachmentKind: messageAttachmentKind,
+        replyToMessageId: replyMessage && replyMessage.id ? replyMessage.id : ''
       })
       const createdMessage = normalizeChatMessage(data.message)
       setMessages((prev) => {
@@ -2553,6 +2574,7 @@ export default function App() {
         return createdMessage ? [...prev, createdMessage] : prev
       })
       setMessageText('')
+      setReplyMessage(null)
       clearMessageAttachment()
       setDraftsByConversation((prev) => {
         if (!Object.prototype.hasOwnProperty.call(prev, activeConversation.id)) return prev
@@ -2717,6 +2739,7 @@ export default function App() {
   const handleDeleteMessage = (msg) => {
     deleteMessage(msg.id)
       .then(() => {
+        setReplyMessage((prev) => (prev && prev.id === msg.id ? null : prev))
         setMessages((prev) => prev.filter((m) => m.id !== msg.id))
         if (pinnedMessage && pinnedMessage.id === msg.id && activeConversation) {
           setPinnedByConversation((prev) => {
@@ -3001,6 +3024,28 @@ export default function App() {
   }
 
   const getMessagePreview = (msg) => getMessagePreviewLabel(msg, 'Сообщение')
+
+  const getReplyAuthorLabel = (msg) => {
+    if (!msg) return 'Пользователь'
+    if (user && msg.senderId === user.id) return 'Вы'
+    return msg.senderDisplayName || msg.senderUsername || 'Пользователь'
+  }
+
+  const startReplyMessage = (msg) => {
+    if (!msg || !msg.id) return
+    setReplyMessage({
+      id: msg.id,
+      body: msg.body || '',
+      attachmentUrl: msg.attachmentUrl || null,
+      attachmentMime: msg.attachmentMime || null,
+      attachmentKind: msg.attachmentKind || null,
+      senderId: msg.senderId || null,
+      senderUsername: msg.senderUsername || null,
+      senderDisplayName: msg.senderDisplayName || null,
+      senderAvatarUrl: msg.senderAvatarUrl || null
+    })
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
+  }
 
   const togglePinMessage = (msg) => {
     if (!activeConversation) return
@@ -3620,6 +3665,16 @@ export default function App() {
                           </button>
                         )}
                         <div className="message-bubble">
+                          {msg.replyTo && (
+                            <div className="message-reply">
+                              <span className="message-reply-author">
+                                {getReplyAuthorLabel(msg.replyTo)}
+                              </span>
+                              <p className="message-reply-text">
+                                {msg.replyTo.deletedAt ? 'Сообщение удалено' : getMessagePreview(msg.replyTo)}
+                              </p>
+                            </div>
+                          )}
                           {msg.attachmentUrl && (
                             isVideoMessageAttachment(msg) ? (
                               <video
@@ -3770,6 +3825,9 @@ export default function App() {
                           ))}
                         </div>
                       )}
+                      <button type="button" onClick={() => startReplyMessage(contextMenu.message)}>
+                        Ответить
+                      </button>
                       {contextMenu.message.body && (
                         <button type="button" onClick={() => handleCopyMessage(contextMenu.message)}>
                           Копировать текст
@@ -3792,6 +3850,17 @@ export default function App() {
                   document.body
                 )}
                   <form className={`composer ${isChatBlocked ? 'disabled' : ''}`} onSubmit={handleSendMessage}>
+                    {replyMessage && (
+                      <div className="composer-reply">
+                        <div className="composer-reply-head">
+                          <span>Ответ: {getReplyAuthorLabel(replyMessage)}</span>
+                          <button type="button" onClick={() => setReplyMessage(null)} title="Отменить ответ">
+                            ×
+                          </button>
+                        </div>
+                        <p>{getMessagePreview(replyMessage)}</p>
+                      </div>
+                    )}
                     <input
                       type="text"
                       value={messageText}

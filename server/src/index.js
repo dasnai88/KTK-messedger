@@ -500,6 +500,13 @@ function isMessageReactionsSchemaError(err) {
   return message.includes('message_reactions')
 }
 
+function isMessageReplySchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('reply_to_id') || message.includes('reply_')
+}
+
 function normalizeMessageReactions(value) {
   if (!Array.isArray(value)) return []
   return value
@@ -516,6 +523,19 @@ function normalizeMessageReactions(value) {
 }
 
 function mapMessageRow(row) {
+  const replyTo = row.reply_id ? {
+    id: row.reply_id,
+    body: row.reply_body,
+    attachmentUrl: row.reply_attachment_url,
+    attachmentMime: row.reply_attachment_mime || null,
+    attachmentKind: row.reply_attachment_kind || null,
+    deletedAt: row.reply_deleted_at || null,
+    senderId: row.reply_sender_id || null,
+    senderUsername: row.reply_sender_username || null,
+    senderDisplayName: row.reply_sender_display_name || null,
+    senderAvatarUrl: row.reply_sender_avatar_url || null
+  } : null
+
   return {
     id: row.id,
     body: row.body,
@@ -529,6 +549,7 @@ function mapMessageRow(row) {
     senderDisplayName: row.sender_display_name || null,
     senderAvatarUrl: row.sender_avatar_url || null,
     readByOther: row.read_by_other === true,
+    replyTo,
     reactions: normalizeMessageReactions(row.reactions)
   }
 }
@@ -1502,6 +1523,64 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
               m.attachment_url,
               m.attachment_mime,
               m.attachment_kind,
+              m.reply_to_id,
+              m.edited_at,
+              m.created_at,
+              u.id as sender_id,
+              u.username as sender_username,
+              u.display_name as sender_display_name,
+              u.avatar_url as sender_avatar_url,
+              rm.id as reply_id,
+              rm.body as reply_body,
+              rm.attachment_url as reply_attachment_url,
+              rm.attachment_mime as reply_attachment_mime,
+              rm.attachment_kind as reply_attachment_kind,
+              rm.deleted_at as reply_deleted_at,
+              ru.id as reply_sender_id,
+              ru.username as reply_sender_username,
+              ru.display_name as reply_sender_display_name,
+              ru.avatar_url as reply_sender_avatar_url,
+              c.is_group,
+              (c.is_group = false
+                and m.sender_id = $2
+                and other.last_read_at is not null
+                and m.created_at <= other.last_read_at) as read_by_other,
+              coalesce((
+                select json_agg(
+                  json_build_object(
+                    'emoji', reaction.emoji,
+                    'count', reaction.reaction_count,
+                    'reacted', reaction.reacted
+                  )
+                  order by reaction.reaction_count desc, reaction.emoji asc
+                )
+               from (
+                  select mr.emoji,
+                         count(*)::int as reaction_count,
+                         bool_or(mr.user_id = $2) as reacted
+                  from message_reactions mr
+                  where mr.message_id = m.id
+                  group by mr.emoji
+                ) reaction
+              ), '[]'::json) as reactions
+       from messages m
+       join conversations c on c.id = m.conversation_id
+       left join users u on u.id = m.sender_id
+       left join messages rm on rm.id = m.reply_to_id and rm.conversation_id = m.conversation_id
+       left join users ru on ru.id = rm.sender_id
+       left join conversation_members other
+         on other.conversation_id = c.id
+        and other.user_id <> $2
+        and c.is_group = false
+       where m.conversation_id = $1 and m.deleted_at is null
+       order by m.created_at asc
+       limit 200`
+
+    const messagesQueryWithReactionsLegacy = `select m.id,
+              m.body,
+              m.attachment_url,
+              m.attachment_mime,
+              m.attachment_kind,
               m.edited_at,
               m.created_at,
               u.id as sender_id,
@@ -1547,6 +1626,47 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
               m.attachment_url,
               m.attachment_mime,
               m.attachment_kind,
+              m.reply_to_id,
+              m.edited_at,
+              m.created_at,
+              u.id as sender_id,
+              u.username as sender_username,
+              u.display_name as sender_display_name,
+              u.avatar_url as sender_avatar_url,
+              rm.id as reply_id,
+              rm.body as reply_body,
+              rm.attachment_url as reply_attachment_url,
+              rm.attachment_mime as reply_attachment_mime,
+              rm.attachment_kind as reply_attachment_kind,
+              rm.deleted_at as reply_deleted_at,
+              ru.id as reply_sender_id,
+              ru.username as reply_sender_username,
+              ru.display_name as reply_sender_display_name,
+              ru.avatar_url as reply_sender_avatar_url,
+              c.is_group,
+              (c.is_group = false
+                and m.sender_id = $2
+                and other.last_read_at is not null
+                and m.created_at <= other.last_read_at) as read_by_other,
+              '[]'::json as reactions
+       from messages m
+       join conversations c on c.id = m.conversation_id
+       left join users u on u.id = m.sender_id
+       left join messages rm on rm.id = m.reply_to_id and rm.conversation_id = m.conversation_id
+       left join users ru on ru.id = rm.sender_id
+       left join conversation_members other
+         on other.conversation_id = c.id
+        and other.user_id <> $2
+        and c.is_group = false
+       where m.conversation_id = $1 and m.deleted_at is null
+       order by m.created_at asc
+       limit 200`
+
+    const messagesQueryWithoutReactionsLegacy = `select m.id,
+              m.body,
+              m.attachment_url,
+              m.attachment_mime,
+              m.attachment_kind,
               m.edited_at,
               m.created_at,
               u.id as sender_id,
@@ -1574,8 +1694,23 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
     try {
       result = await pool.query(messagesQueryWithReactions, [conversationId, req.userId])
     } catch (err) {
-      if (!isMessageReactionsSchemaError(err)) throw err
-      result = await pool.query(messagesQueryWithoutReactions, [conversationId, req.userId])
+      if (isMessageReactionsSchemaError(err)) {
+        try {
+          result = await pool.query(messagesQueryWithoutReactions, [conversationId, req.userId])
+        } catch (innerErr) {
+          if (!isMessageReplySchemaError(innerErr)) throw innerErr
+          result = await pool.query(messagesQueryWithoutReactionsLegacy, [conversationId, req.userId])
+        }
+      } else if (isMessageReplySchemaError(err)) {
+        try {
+          result = await pool.query(messagesQueryWithReactionsLegacy, [conversationId, req.userId])
+        } catch (innerErr) {
+          if (!isMessageReactionsSchemaError(innerErr)) throw innerErr
+          result = await pool.query(messagesQueryWithoutReactionsLegacy, [conversationId, req.userId])
+        }
+      } else {
+        throw err
+      }
     }
 
     const messages = result.rows.map(mapMessageRow)
@@ -1627,6 +1762,7 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
   try {
     const conversationId = req.params.id
     const body = req.body.body || ''
+    const rawReplyToMessageId = typeof req.body.replyToMessageId === 'string' ? req.body.replyToMessageId.trim() : ''
 
     if (!req.file && !isValidMessage(body)) {
       return res.status(400).json({ error: 'Message is empty' })
@@ -1659,13 +1795,68 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
     const attachmentUrl = req.file ? await storeUpload(req.file) : null
     const attachmentMime = req.file ? (req.file.mimetype || null) : null
     const attachmentKind = normalizeMessageAttachmentKind(req.file, req.body.attachmentKind)
+    let replyToMessageId = null
+    let replyTo = null
 
-    const result = await pool.query(
-      `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind)
-       values ($1, $2, $3, $4, $5, $6)
-       returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
-      [conversationId, req.userId, body.trim(), attachmentUrl, attachmentMime, attachmentKind]
-    )
+    if (rawReplyToMessageId) {
+      if (!isValidUuid(rawReplyToMessageId)) {
+        return res.status(400).json({ error: 'Invalid reply target' })
+      }
+      const replyResult = await pool.query(
+        `select m.id,
+                m.body,
+                m.attachment_url,
+                m.attachment_mime,
+                m.attachment_kind,
+                m.deleted_at,
+                u.id as sender_id,
+                u.username as sender_username,
+                u.display_name as sender_display_name,
+                u.avatar_url as sender_avatar_url
+         from messages m
+         left join users u on u.id = m.sender_id
+         where m.id = $1 and m.conversation_id = $2
+         limit 1`,
+        [rawReplyToMessageId, conversationId]
+      )
+      if (replyResult.rowCount === 0) {
+        return res.status(400).json({ error: 'Reply target not found' })
+      }
+      const replyRow = replyResult.rows[0]
+      replyToMessageId = replyRow.id
+      replyTo = {
+        id: replyRow.id,
+        body: replyRow.body,
+        attachmentUrl: replyRow.attachment_url,
+        attachmentMime: replyRow.attachment_mime || null,
+        attachmentKind: replyRow.attachment_kind || null,
+        deletedAt: replyRow.deleted_at || null,
+        senderId: replyRow.sender_id || null,
+        senderUsername: replyRow.sender_username || null,
+        senderDisplayName: replyRow.sender_display_name || null,
+        senderAvatarUrl: replyRow.sender_avatar_url || null
+      }
+    }
+    let result
+    try {
+      result = await pool.query(
+        `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind, reply_to_id)
+         values ($1, $2, $3, $4, $5, $6, $7)
+         returning id, body, attachment_url, attachment_mime, attachment_kind, reply_to_id, created_at`,
+        [conversationId, req.userId, body.trim(), attachmentUrl, attachmentMime, attachmentKind, replyToMessageId]
+      )
+    } catch (err) {
+      if (!isMessageReplySchemaError(err)) throw err
+      if (replyToMessageId) {
+        return res.status(503).json({ error: 'Reply feature is unavailable: database migration required' })
+      }
+      result = await pool.query(
+        `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
+        [conversationId, req.userId, body.trim(), attachmentUrl, attachmentMime, attachmentKind]
+      )
+    }
 
     const senderRow = await pool.query(
       'select username, display_name, avatar_url from users where id = $1',
@@ -1686,6 +1877,7 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
       senderDisplayName: sender.display_name || null,
       senderAvatarUrl: sender.avatar_url || null,
       readByOther: false,
+      replyTo,
       reactions: []
     }
 

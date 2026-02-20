@@ -85,6 +85,7 @@ create table if not exists messages (
   attachment_url text,
   attachment_mime text,
   attachment_kind text check (attachment_kind in ('image', 'video', 'video-note')),
+  reply_to_id uuid references messages(id) on delete set null,
   edited_at timestamptz,
   deleted_at timestamptz,
   deleted_by uuid references users(id) on delete set null,
@@ -171,10 +172,26 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_column THEN END $$;
 
 DO $$ BEGIN
+  ALTER TABLE messages ADD COLUMN reply_to_id uuid;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE messages
+    ADD CONSTRAINT fk_messages_reply_to
+    FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN END $$;
+
+DO $$ BEGIN
   ALTER TABLE messages
     ADD CONSTRAINT chk_messages_attachment_kind
     CHECK (attachment_kind in ('image', 'video', 'video-note'));
 EXCEPTION WHEN duplicate_object THEN END $$;
+
+DO $$ BEGIN
+  CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages (reply_to_id);
+EXCEPTION WHEN undefined_column THEN NULL;
+WHEN undefined_table THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE posts ADD COLUMN image_url text;
