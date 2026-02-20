@@ -4637,6 +4637,52 @@ export default function App() {
         )}
       </main>
 
+      {user && (
+        <div className="icon-rail icon-rail-root">
+          <button
+            type="button"
+            className={view === 'feed' ? 'active' : ''}
+            onClick={() => setView('feed')}
+            title="Лента"
+          >
+            {icons.feed}
+          </button>
+          <button
+            type="button"
+            className={view === 'chats' ? 'active' : ''}
+            onClick={() => setView('chats')}
+            title="Чаты"
+            aria-label={unreadMessagesCount > 0 ? `Чаты, непрочитанных сообщений: ${unreadMessagesCount}` : 'Чаты'}
+          >
+            {icons.chats}
+            {unreadMessagesCount > 0 && (
+              <span className="icon-rail-badge">{unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}</span>
+            )}
+          </button>
+          {user.isAdmin && (
+            <button
+              type="button"
+              className={view === 'admin' ? 'active' : ''}
+              onClick={() => {
+                setView('admin')
+                loadAdminUsers(adminQuery)
+              }}
+              title="Админ"
+            >
+              {icons.admin}
+            </button>
+          )}
+          <button
+            type="button"
+            className={view === 'profile' ? 'active' : ''}
+            onClick={() => setView('profile')}
+            title="Профиль"
+          >
+            {icons.profile}
+          </button>
+        </div>
+      )}
+
       <audio ref={remoteAudioRef} autoPlay playsInline />
 
       {avatarModalOpen && (
