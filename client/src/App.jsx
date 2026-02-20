@@ -127,7 +127,8 @@ const CHAT_LIST_FILTERS = {
 }
 const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
-const MESSAGE_MENU_CURSOR_GAP = 4
+const MENU_VIEWPORT_PADDING = 12
+const MENU_ANCHOR_GAP = 8
 const INITIAL_MESSAGE_MENU_STATE = {
   open: false,
   x: 0,
@@ -136,6 +137,21 @@ const INITIAL_MESSAGE_MENU_STATE = {
   anchorY: null,
   message: null,
   showAllReactions: false
+}
+const INITIAL_POST_MENU_STATE = {
+  open: false,
+  x: 0,
+  y: 0,
+  anchorX: null,
+  anchorY: null,
+  post: null
+}
+const INITIAL_CHAT_MENU_STATE = {
+  open: false,
+  x: 0,
+  y: 0,
+  anchorX: null,
+  anchorY: null
 }
 const QUICK_MESSAGE_REACTIONS = ['❤️', '👍', '😭', '👎', '🤩', '🐳', '❤️‍🔥']
 const ALL_MESSAGE_REACTIONS = Array.from(new Set([
@@ -429,8 +445,8 @@ export default function App() {
   const [editingMessageId, setEditingMessageId] = useState(null)
   const [editingMessageText, setEditingMessageText] = useState('')
   const [contextMenu, setContextMenu] = useState(INITIAL_MESSAGE_MENU_STATE)
-  const [postMenu, setPostMenu] = useState({ open: false, x: 0, y: 0, post: null })
-  const [chatMenu, setChatMenu] = useState({ open: false, x: 0, y: 0 })
+  const [postMenu, setPostMenu] = useState(INITIAL_POST_MENU_STATE)
+  const [chatMenu, setChatMenu] = useState(INITIAL_CHAT_MENU_STATE)
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [chatSearchQuery, setChatSearchQuery] = useState('')
   const [pinnedByConversation, setPinnedByConversation] = useState({})
@@ -493,6 +509,8 @@ export default function App() {
   const socketConnectionRef = useRef(socketConnection)
   const chatSearchInputRef = useRef(null)
   const contextMenuRef = useRef(null)
+  const postMenuRef = useRef(null)
+  const chatMenuRef = useRef(null)
   const chatMessagesRef = useRef(null)
   const previousMessageMetaRef = useRef({ conversationId: null, count: 0, lastMessageId: null })
   const previousViewRef = useRef(view)
@@ -1647,8 +1665,8 @@ export default function App() {
     setChatSearchOpen(false)
     setChatSearchQuery('')
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
-    setPostMenu({ open: false, x: 0, y: 0, post: null })
-    setChatMenu({ open: false, x: 0, y: 0 })
+    setPostMenu(INITIAL_POST_MENU_STATE)
+    setChatMenu(INITIAL_CHAT_MENU_STATE)
   }, [activeConversation ? activeConversation.id : null])
 
   useEffect(() => {
@@ -1957,8 +1975,8 @@ export default function App() {
     if (!contextMenu.open && !postMenu.open && !chatMenu.open) return
     const handleClose = () => {
       setContextMenu(INITIAL_MESSAGE_MENU_STATE)
-      setPostMenu({ open: false, x: 0, y: 0, post: null })
-      setChatMenu({ open: false, x: 0, y: 0 })
+      setPostMenu(INITIAL_POST_MENU_STATE)
+      setChatMenu(INITIAL_CHAT_MENU_STATE)
     }
     const handleEsc = (event) => {
       if (event.key === 'Escape') handleClose()
@@ -1977,11 +1995,11 @@ export default function App() {
     if (!contextMenu.open) return
     const menuNode = contextMenuRef.current
     if (!menuNode) return
-    const menuWidth = menuNode.offsetWidth || 220
-    const menuHeight = menuNode.offsetHeight || 200
+    const menuWidth = menuNode.offsetWidth || 340
+    const menuHeight = menuNode.offsetHeight || 240
     const anchorX = Number.isFinite(contextMenu.anchorX) ? contextMenu.anchorX : contextMenu.x
     const anchorY = Number.isFinite(contextMenu.anchorY) ? contextMenu.anchorY : contextMenu.y
-    const nextPos = getAnchoredMenuPosition(anchorX, anchorY, menuWidth, menuHeight)
+    const nextPos = getMenuPosition(anchorX, anchorY, menuWidth, menuHeight)
     if (nextPos.x === contextMenu.x && nextPos.y === contextMenu.y) return
     setContextMenu((prev) => {
       if (!prev.open) return prev
@@ -1996,6 +2014,56 @@ export default function App() {
     contextMenu.anchorY,
     contextMenu.showAllReactions,
     contextMenu.message ? contextMenu.message.id : null
+  ])
+
+  useEffect(() => {
+    if (!postMenu.open) return
+    const menuNode = postMenuRef.current
+    if (!menuNode) return
+    const menuWidth = menuNode.offsetWidth || 260
+    const menuHeight = menuNode.offsetHeight || 180
+    const anchorX = Number.isFinite(postMenu.anchorX) ? postMenu.anchorX : postMenu.x
+    const anchorY = Number.isFinite(postMenu.anchorY) ? postMenu.anchorY : postMenu.y
+    const nextPos = getMenuPosition(anchorX, anchorY, menuWidth, menuHeight)
+    if (nextPos.x === postMenu.x && nextPos.y === postMenu.y) return
+    setPostMenu((prev) => {
+      if (!prev.open) return prev
+      if (prev.x === nextPos.x && prev.y === nextPos.y) return prev
+      return { ...prev, x: nextPos.x, y: nextPos.y }
+    })
+  }, [
+    postMenu.open,
+    postMenu.x,
+    postMenu.y,
+    postMenu.anchorX,
+    postMenu.anchorY,
+    postMenu.post ? postMenu.post.id : null
+  ])
+
+  useEffect(() => {
+    if (!chatMenu.open) return
+    const menuNode = chatMenuRef.current
+    if (!menuNode) return
+    const menuWidth = menuNode.offsetWidth || 260
+    const menuHeight = menuNode.offsetHeight || 220
+    const anchorX = Number.isFinite(chatMenu.anchorX) ? chatMenu.anchorX : chatMenu.x
+    const anchorY = Number.isFinite(chatMenu.anchorY) ? chatMenu.anchorY : chatMenu.y
+    const nextPos = getMenuPosition(anchorX, anchorY, menuWidth, menuHeight)
+    if (nextPos.x === chatMenu.x && nextPos.y === chatMenu.y) return
+    setChatMenu((prev) => {
+      if (!prev.open) return prev
+      if (prev.x === nextPos.x && prev.y === nextPos.y) return prev
+      return { ...prev, x: nextPos.x, y: nextPos.y }
+    })
+  }, [
+    chatMenu.open,
+    chatMenu.x,
+    chatMenu.y,
+    chatMenu.anchorX,
+    chatMenu.anchorY,
+    activeConversation ? activeConversation.id : null,
+    isActiveConversationFavorite,
+    isChatBlocked
   ])
 
   const handleRegister = async (event) => {
@@ -2497,74 +2565,67 @@ export default function App() {
     }
   }
 
-  const clampMenuPosition = (x, y, options = {}) => {
-    const {
-      menuWidth = 220,
-      menuHeight = 240,
-      padding = 12,
-      offsetX = 0,
-      offsetY = 0
-    } = options
-    const maxX = Math.max(padding, window.innerWidth - menuWidth - padding)
-    const maxY = Math.max(padding, window.innerHeight - menuHeight - padding)
-    return {
-      x: Math.max(padding, Math.min(x + offsetX, maxX)),
-      y: Math.max(padding, Math.min(y + offsetY, maxY))
-    }
+  const clampValue = (value, min, max) => Math.min(Math.max(value, min), max)
+
+  const getPointerDistanceToRect = (pointX, pointY, rectX, rectY, rectWidth, rectHeight) => {
+    const maxX = rectX + rectWidth
+    const maxY = rectY + rectHeight
+    const dx = pointX < rectX ? rectX - pointX : (pointX > maxX ? pointX - maxX : 0)
+    const dy = pointY < rectY ? rectY - pointY : (pointY > maxY ? pointY - maxY : 0)
+    return dx + dy
   }
 
-  const getAnchoredAxisPosition = (anchor, size, viewportSize, options = {}) => {
+  const getMenuPosition = (anchorX, anchorY, menuWidth, menuHeight, options = {}) => {
     const {
-      padding = 12,
-      gap = MESSAGE_MENU_CURSOR_GAP
+      padding = MENU_VIEWPORT_PADDING,
+      gap = MENU_ANCHOR_GAP
     } = options
-    const minStart = padding
-    const maxStart = Math.max(minStart, viewportSize - size - padding)
-    const rawCandidates = [
-      anchor + gap,
-      anchor - size - gap,
-      anchor - (size / 2)
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const minX = padding
+    const minY = padding
+    const maxX = Math.max(minX, viewportWidth - menuWidth - padding)
+    const maxY = Math.max(minY, viewportHeight - menuHeight - padding)
+
+    const safeAnchorX = Number.isFinite(anchorX) ? anchorX : viewportWidth / 2
+    const safeAnchorY = Number.isFinite(anchorY) ? anchorY : viewportHeight / 2
+
+    const candidates = [
+      { x: safeAnchorX + gap, y: safeAnchorY + gap },
+      { x: safeAnchorX - menuWidth - gap, y: safeAnchorY + gap },
+      { x: safeAnchorX + gap, y: safeAnchorY - menuHeight - gap },
+      { x: safeAnchorX - menuWidth - gap, y: safeAnchorY - menuHeight - gap }
     ]
-    const candidates = rawCandidates.map((value) => Math.max(minStart, Math.min(value, maxStart)))
-    const getDistance = (start) => {
-      const end = start + size
-      if (anchor >= start && anchor <= end) return 0
-      return anchor < start ? start - anchor : anchor - end
-    }
-    return candidates.reduce((best, current) => (
-      getDistance(current) < getDistance(best) ? current : best
-    ), candidates[0])
+
+    const best = candidates.reduce((selected, candidate, index) => {
+      const x = clampValue(candidate.x, minX, maxX)
+      const y = clampValue(candidate.y, minY, maxY)
+      const overflow = Math.abs(candidate.x - x) + Math.abs(candidate.y - y)
+      const distance = getPointerDistanceToRect(safeAnchorX, safeAnchorY, x, y, menuWidth, menuHeight)
+      const score = { x, y, overflow, distance, index }
+      if (!selected) return score
+      if (score.overflow !== selected.overflow) return score.overflow < selected.overflow ? score : selected
+      if (score.distance !== selected.distance) return score.distance < selected.distance ? score : selected
+      return score.index < selected.index ? score : selected
+    }, null)
+
+    return { x: Math.round(best.x), y: Math.round(best.y) }
   }
 
-  const getAnchoredMenuPosition = (anchorX, anchorY, menuWidth, menuHeight, options = {}) => {
-    const { padding = 12, gap = MESSAGE_MENU_CURSOR_GAP } = options
-    const x = getAnchoredAxisPosition(anchorX, menuWidth, window.innerWidth, { padding, gap })
-    const y = getAnchoredAxisPosition(anchorY, menuHeight, window.innerHeight, { padding, gap })
-
-    return clampMenuPosition(x, y, { menuWidth, menuHeight, padding })
-  }
-
-  const getMessageMenuAnchor = (event) => {
-    const fallback = {
-      anchorX: event.clientX,
-      anchorY: event.clientY
+  const getMenuAnchorFromEvent = (event) => {
+    const pointX = Number(event && event.clientX)
+    const pointY = Number(event && event.clientY)
+    if (Number.isFinite(pointX) && Number.isFinite(pointY) && (pointX !== 0 || pointY !== 0)) {
+      return { anchorX: pointX, anchorY: pointY }
     }
-    const target = event.target
-    if (!target || typeof target.closest !== 'function') return fallback
-    const bubbleNode = target.closest('.message-bubble')
-    if (!bubbleNode) return fallback
-    const rect = bubbleNode.getBoundingClientRect()
-    const sidePadding = 8
-    const verticalPadding = 8
-    const leftDist = Math.abs(event.clientX - rect.left)
-    const rightDist = Math.abs(event.clientX - rect.right)
-    const preferLeftSide = leftDist <= rightDist
-    const sideX = preferLeftSide ? rect.left : rect.right
-    const minY = rect.top + verticalPadding
-    const maxY = Math.max(minY, rect.bottom - verticalPadding)
-    const anchorY = Math.max(minY, Math.min(event.clientY, maxY))
-    const anchorX = preferLeftSide ? sideX - sidePadding : sideX + sidePadding
-    return { anchorX, anchorY }
+    if (event && event.currentTarget && typeof event.currentTarget.getBoundingClientRect === 'function') {
+      const rect = event.currentTarget.getBoundingClientRect()
+      return {
+        anchorX: rect.left + (rect.width / 2),
+        anchorY: rect.top + (rect.height / 2)
+      }
+    }
+    return { anchorX: window.innerWidth / 2, anchorY: window.innerHeight / 2 }
   }
 
   const toggleContextMenuReactions = () => {
@@ -2595,13 +2656,14 @@ export default function App() {
     if (editingMessageId === msg.id) return
     event.preventDefault()
     event.stopPropagation()
-    setPostMenu({ open: false, x: 0, y: 0, post: null })
-    setChatMenu({ open: false, x: 0, y: 0 })
-    const { anchorX, anchorY } = getMessageMenuAnchor(event)
+    setPostMenu(INITIAL_POST_MENU_STATE)
+    setChatMenu(INITIAL_CHAT_MENU_STATE)
+    const { anchorX, anchorY } = getMenuAnchorFromEvent(event)
+    const pos = getMenuPosition(anchorX, anchorY, 340, 240)
     setContextMenu({
       open: true,
-      x: anchorX,
-      y: anchorY,
+      x: pos.x,
+      y: pos.y,
       anchorX,
       anchorY,
       message: msg,
@@ -2637,15 +2699,23 @@ export default function App() {
     event.preventDefault()
     event.stopPropagation()
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
-    setChatMenu({ open: false, x: 0, y: 0 })
-    const pos = clampMenuPosition(event.clientX, event.clientY)
-    setPostMenu({ open: true, x: pos.x, y: pos.y, post })
+    setChatMenu(INITIAL_CHAT_MENU_STATE)
+    const { anchorX, anchorY } = getMenuAnchorFromEvent(event)
+    const pos = getMenuPosition(anchorX, anchorY, 260, 180)
+    setPostMenu({
+      open: true,
+      x: pos.x,
+      y: pos.y,
+      anchorX,
+      anchorY,
+      post
+    })
   }
 
   const startEditPost = (post) => {
     setEditingPostId(post.id)
     setEditingPostText(post.body || '')
-    setPostMenu({ open: false, x: 0, y: 0, post: null })
+    setPostMenu(INITIAL_POST_MENU_STATE)
   }
 
   const handleDeletePost = (post) => {
@@ -2658,7 +2728,7 @@ export default function App() {
         }
       })
       .catch((err) => setStatus({ type: 'error', message: err.message }))
-      .finally(() => setPostMenu({ open: false, x: 0, y: 0, post: null }))
+      .finally(() => setPostMenu(INITIAL_POST_MENU_STATE))
   }
 
   const createPeerConnection = (targetUserId) => {
@@ -2815,10 +2885,16 @@ export default function App() {
     event.preventDefault()
     event.stopPropagation()
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
-    setPostMenu({ open: false, x: 0, y: 0, post: null })
-    const rect = event.currentTarget.getBoundingClientRect()
-    const pos = clampMenuPosition(rect.right, rect.bottom + 8)
-    setChatMenu({ open: true, x: pos.x, y: pos.y })
+    setPostMenu(INITIAL_POST_MENU_STATE)
+    const { anchorX, anchorY } = getMenuAnchorFromEvent(event)
+    const pos = getMenuPosition(anchorX, anchorY, 260, 220)
+    setChatMenu({
+      open: true,
+      x: pos.x,
+      y: pos.y,
+      anchorX,
+      anchorY
+    })
   }
 
   const toggleChatBlock = () => {
@@ -2833,7 +2909,7 @@ export default function App() {
       type: 'info',
       message: isChatBlocked ? 'Пользователь разблокирован.' : 'Пользователь заблокирован.'
     })
-    setChatMenu({ open: false, x: 0, y: 0 })
+    setChatMenu(INITIAL_CHAT_MENU_STATE)
   }
 
   const toggleConversationFavorite = async (conversationId = null, { closeMenu = false } = {}) => {
@@ -2852,7 +2928,7 @@ export default function App() {
     ))
 
     if (closeMenu) {
-      setChatMenu({ open: false, x: 0, y: 0 })
+      setChatMenu(INITIAL_CHAT_MENU_STATE)
     }
 
     try {
@@ -2918,11 +2994,11 @@ export default function App() {
   const handleRepostFromMenu = async (post) => {
     if (isOwnRepostPost(post)) {
       setStatus({ type: 'error', message: 'Нельзя репостить свой репост.' })
-      setPostMenu({ open: false, x: 0, y: 0, post: null })
+      setPostMenu(INITIAL_POST_MENU_STATE)
       return
     }
     await handleRepostPost(post.id)
-    setPostMenu({ open: false, x: 0, y: 0, post: null })
+    setPostMenu(INITIAL_POST_MENU_STATE)
   }
 
   const handleCreatePost = async (event) => {
@@ -3604,14 +3680,14 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                  {contextMenu.open && contextMenu.message && (
-                    <div
-                      ref={contextMenuRef}
-                      className="message-menu"
-                      style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
-                      onClick={(event) => event.stopPropagation()}
-                      onContextMenu={(event) => event.stopPropagation()}
-                    >
+                {contextMenu.open && contextMenu.message && (
+                  <div
+                    ref={contextMenuRef}
+                    className="message-menu with-reactions"
+                    style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+                    onClick={(event) => event.stopPropagation()}
+                    onContextMenu={(event) => event.stopPropagation()}
+                  >
                       <div className="message-menu-reactions">
                         {QUICK_MESSAGE_REACTIONS.map((emoji) => (
                           <button
@@ -4404,8 +4480,11 @@ export default function App() {
 
         {postMenu.open && postMenu.post && (
           <div
-            className="message-menu"
+            ref={postMenuRef}
+            className="message-menu compact"
             style={{ top: `${postMenu.y}px`, left: `${postMenu.x}px` }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.stopPropagation()}
           >
             {isOwnRepostPost(postMenu.post) ? (
               <button type="button" className="disabled" disabled>
@@ -4431,17 +4510,20 @@ export default function App() {
 
         {chatMenu.open && activeConversation && !activeConversation.isGroup && (
           <div
-            className="message-menu"
+            ref={chatMenuRef}
+            className="message-menu compact"
             style={{ top: `${chatMenu.y}px`, left: `${chatMenu.x}px` }}
+            onClick={(event) => event.stopPropagation()}
+            onContextMenu={(event) => event.stopPropagation()}
           >
             <button type="button" onClick={() => {
-              setChatMenu({ open: false, x: 0, y: 0 })
+              setChatMenu(INITIAL_CHAT_MENU_STATE)
               openProfile(activeConversation.other.username)
             }}>
               Открыть профиль
             </button>
             <button type="button" onClick={() => {
-              setChatMenu({ open: false, x: 0, y: 0 })
+              setChatMenu(INITIAL_CHAT_MENU_STATE)
               setChatSearchOpen(true)
             }}>
               Поиск
@@ -4452,7 +4534,7 @@ export default function App() {
               {isActiveConversationFavorite ? 'Убрать из избранного' : 'В избранное'}
             </button>
             <button type="button" onClick={() => {
-              setChatMenu({ open: false, x: 0, y: 0 })
+              setChatMenu(INITIAL_CHAT_MENU_STATE)
               handleCall()
             }}>
               Звонок

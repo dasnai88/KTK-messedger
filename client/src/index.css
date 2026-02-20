@@ -1250,7 +1250,7 @@ body {
 .message-menu {
   position: fixed;
   z-index: 80;
-  width: min(360px, calc(100vw - 24px));
+  width: min(var(--menu-width, 300px), calc(100vw - 24px));
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -1263,6 +1263,14 @@ body {
   backdrop-filter: blur(12px);
   transform-origin: top left;
   animation: scale-in 180ms var(--ease-out) both;
+}
+
+.message-menu.with-reactions {
+  --menu-width: 360px;
+}
+
+.message-menu.compact {
+  --menu-width: 280px;
 }
 
 .message-menu button {
