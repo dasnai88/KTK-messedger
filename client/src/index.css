@@ -74,7 +74,7 @@ body {
 .content {
   background: var(--panel-gradient);
   border-radius: 28px;
-  padding: 24px 110px 24px 24px;
+  padding: 24px 24px 24px 110px;
   border: 1px solid var(--line);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
   display: flex;
@@ -210,9 +210,9 @@ body {
 
 .icon-rail {
   position: fixed;
-  right: 34px;
-  left: auto;
-  top: 50%;
+  left: 34px;
+  right: auto;
+  top: 44%;
   transform: translateY(-50%);
   display: grid;
   gap: 12px;
@@ -1943,18 +1943,16 @@ body {
   }
 
   .content {
-    padding: 24px;
+    padding: 24px 24px 24px 92px;
   }
 
   .icon-rail {
     position: fixed;
-    right: 16px;
-    left: auto;
-    top: auto;
-    bottom: 16px;
-    transform: none;
-    grid-auto-flow: column;
-    justify-content: flex-end;
+    left: 16px;
+    right: auto;
+    top: 44%;
+    bottom: auto;
+    transform: translateY(-50%);
     margin: 0;
     z-index: 90;
   }
@@ -1984,7 +1982,7 @@ body {
   }
 
   .content {
-    padding: 18px;
+    padding: 18px 18px 18px 82px;
     border-radius: 20px;
   }
 
@@ -2002,9 +2000,10 @@ body {
   .icon-rail {
     gap: 8px;
     padding: 10px;
-    right: 12px;
-    bottom: 12px;
-    justify-content: flex-end;
+    left: 10px;
+    top: 44%;
+    bottom: auto;
+    justify-content: initial;
   }
 
   .icon-rail button {
