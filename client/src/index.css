@@ -1198,14 +1198,15 @@ body {
 .message-menu {
   position: fixed;
   z-index: 80;
-  min-width: 200px;
-  max-width: min(420px, calc(100vw - 24px));
+  width: min(360px, calc(100vw - 24px));
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 6px;
   display: grid;
   gap: 4px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   box-shadow: 0 18px 40px rgba(2, 6, 23, 0.55);
   backdrop-filter: blur(12px);
 }
@@ -1243,7 +1244,8 @@ body {
 }
 
 .message-menu-reactions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   align-items: center;
   gap: 6px;
   padding: 2px 2px 8px;
@@ -1267,13 +1269,14 @@ body {
   border: none;
   background: transparent;
   color: var(--text);
-  width: 38px;
-  height: 38px;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  min-height: 32px;
   border-radius: 11px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  font-size: 24px;
+  font-size: 23px;
   line-height: 1;
   padding: 0 !important;
 }
@@ -1289,7 +1292,6 @@ body {
 }
 
 .message-menu .message-menu-expand {
-  margin-left: auto;
   font-size: 16px;
   font-weight: 700;
   transition: transform 0.18s ease;
@@ -1949,7 +1951,12 @@ body {
   }
 
   .message-menu {
-    max-width: calc(100vw - 16px);
+    width: calc(100vw - 16px);
+  }
+
+  .message-menu-reactions {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 5px;
   }
 
   .message-menu-reactions-grid {

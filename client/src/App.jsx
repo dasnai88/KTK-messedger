@@ -2537,7 +2537,7 @@ export default function App() {
     event.stopPropagation()
     setPostMenu({ open: false, x: 0, y: 0, post: null })
     setChatMenu({ open: false, x: 0, y: 0 })
-    const pos = clampMenuPosition(event.clientX, event.clientY, { offsetX: 6, offsetY: 6 })
+    const pos = clampMenuPosition(event.clientX, event.clientY)
     setContextMenu({ open: true, x: pos.x, y: pos.y, message: msg, showAllReactions: false })
   }
 
