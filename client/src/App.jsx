@@ -127,10 +127,13 @@ const CHAT_LIST_FILTERS = {
 }
 const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
+const MESSAGE_MENU_CURSOR_GAP = 4
 const INITIAL_MESSAGE_MENU_STATE = {
   open: false,
   x: 0,
   y: 0,
+  anchorX: null,
+  anchorY: null,
   message: null,
   showAllReactions: false
 }
@@ -1974,10 +1977,11 @@ export default function App() {
     if (!contextMenu.open) return
     const menuNode = contextMenuRef.current
     if (!menuNode) return
-    const nextPos = clampMenuPosition(contextMenu.x, contextMenu.y, {
-      menuWidth: menuNode.offsetWidth || 220,
-      menuHeight: menuNode.offsetHeight || 200
-    })
+    const menuWidth = menuNode.offsetWidth || 220
+    const menuHeight = menuNode.offsetHeight || 200
+    const anchorX = Number.isFinite(contextMenu.anchorX) ? contextMenu.anchorX : contextMenu.x
+    const anchorY = Number.isFinite(contextMenu.anchorY) ? contextMenu.anchorY : contextMenu.y
+    const nextPos = getAnchoredMenuPosition(anchorX, anchorY, menuWidth, menuHeight)
     if (nextPos.x === contextMenu.x && nextPos.y === contextMenu.y) return
     setContextMenu((prev) => {
       if (!prev.open) return prev
@@ -1988,6 +1992,8 @@ export default function App() {
     contextMenu.open,
     contextMenu.x,
     contextMenu.y,
+    contextMenu.anchorX,
+    contextMenu.anchorY,
     contextMenu.showAllReactions,
     contextMenu.message ? contextMenu.message.id : null
   ])
@@ -2507,6 +2513,36 @@ export default function App() {
     }
   }
 
+  const getAnchoredMenuPosition = (anchorX, anchorY, menuWidth, menuHeight, options = {}) => {
+    const { padding = 12, gap = MESSAGE_MENU_CURSOR_GAP } = options
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const spaceRight = viewportWidth - anchorX - padding
+    const spaceLeft = anchorX - padding
+    const spaceBottom = viewportHeight - anchorY - padding
+    const spaceTop = anchorY - padding
+
+    let x
+    if (spaceRight >= menuWidth + gap) {
+      x = anchorX + gap
+    } else if (spaceLeft >= menuWidth + gap) {
+      x = anchorX - menuWidth - gap
+    } else {
+      x = anchorX - (menuWidth / 2)
+    }
+
+    let y
+    if (spaceBottom >= menuHeight + gap) {
+      y = anchorY + gap
+    } else if (spaceTop >= menuHeight + gap) {
+      y = anchorY - menuHeight - gap
+    } else {
+      y = anchorY - (menuHeight / 2)
+    }
+
+    return clampMenuPosition(x, y, { menuWidth, menuHeight, padding })
+  }
+
   const toggleContextMenuReactions = () => {
     setContextMenu((prev) => {
       if (!prev.open) return prev
@@ -2537,8 +2573,17 @@ export default function App() {
     event.stopPropagation()
     setPostMenu({ open: false, x: 0, y: 0, post: null })
     setChatMenu({ open: false, x: 0, y: 0 })
-    const pos = clampMenuPosition(event.clientX, event.clientY)
-    setContextMenu({ open: true, x: pos.x, y: pos.y, message: msg, showAllReactions: false })
+    const anchorX = event.clientX
+    const anchorY = event.clientY
+    setContextMenu({
+      open: true,
+      x: anchorX,
+      y: anchorY,
+      anchorX,
+      anchorY,
+      message: msg,
+      showAllReactions: false
+    })
   }
 
   const startEditMessage = (msg) => {
