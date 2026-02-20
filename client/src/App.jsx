@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { io } from 'socket.io-client'
 import {
   createConversation,
@@ -1991,7 +1991,7 @@ export default function App() {
     }
   }, [contextMenu.open, postMenu.open, chatMenu.open])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!contextMenu.open) return
     const menuNode = contextMenuRef.current
     if (!menuNode) return
@@ -2016,7 +2016,7 @@ export default function App() {
     contextMenu.message ? contextMenu.message.id : null
   ])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!postMenu.open) return
     const menuNode = postMenuRef.current
     if (!menuNode) return
@@ -2040,7 +2040,7 @@ export default function App() {
     postMenu.post ? postMenu.post.id : null
   ])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!chatMenu.open) return
     const menuNode = chatMenuRef.current
     if (!menuNode) return
@@ -2567,49 +2567,50 @@ export default function App() {
 
   const clampValue = (value, min, max) => Math.min(Math.max(value, min), max)
 
-  const getPointerDistanceToRect = (pointX, pointY, rectX, rectY, rectWidth, rectHeight) => {
-    const maxX = rectX + rectWidth
-    const maxY = rectY + rectHeight
-    const dx = pointX < rectX ? rectX - pointX : (pointX > maxX ? pointX - maxX : 0)
-    const dy = pointY < rectY ? rectY - pointY : (pointY > maxY ? pointY - maxY : 0)
-    return dx + dy
-  }
-
   const getMenuPosition = (anchorX, anchorY, menuWidth, menuHeight, options = {}) => {
     const {
       padding = MENU_VIEWPORT_PADDING,
       gap = MENU_ANCHOR_GAP
     } = options
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight
     const minX = padding
     const minY = padding
     const maxX = Math.max(minX, viewportWidth - menuWidth - padding)
     const maxY = Math.max(minY, viewportHeight - menuHeight - padding)
 
-    const safeAnchorX = Number.isFinite(anchorX) ? anchorX : viewportWidth / 2
-    const safeAnchorY = Number.isFinite(anchorY) ? anchorY : viewportHeight / 2
+    const safeAnchorX = clampValue(
+      Number.isFinite(anchorX) ? anchorX : viewportWidth / 2,
+      0,
+      viewportWidth
+    )
+    const safeAnchorY = clampValue(
+      Number.isFinite(anchorY) ? anchorY : viewportHeight / 2,
+      0,
+      viewportHeight
+    )
 
-    const candidates = [
-      { x: safeAnchorX + gap, y: safeAnchorY + gap },
-      { x: safeAnchorX - menuWidth - gap, y: safeAnchorY + gap },
-      { x: safeAnchorX + gap, y: safeAnchorY - menuHeight - gap },
-      { x: safeAnchorX - menuWidth - gap, y: safeAnchorY - menuHeight - gap }
-    ]
+    const rightSpace = viewportWidth - safeAnchorX - padding
+    const leftSpace = safeAnchorX - padding
+    const bottomSpace = viewportHeight - safeAnchorY - padding
+    const topSpace = safeAnchorY - padding
 
-    const best = candidates.reduce((selected, candidate, index) => {
-      const x = clampValue(candidate.x, minX, maxX)
-      const y = clampValue(candidate.y, minY, maxY)
-      const overflow = Math.abs(candidate.x - x) + Math.abs(candidate.y - y)
-      const distance = getPointerDistanceToRect(safeAnchorX, safeAnchorY, x, y, menuWidth, menuHeight)
-      const score = { x, y, overflow, distance, index }
-      if (!selected) return score
-      if (score.overflow !== selected.overflow) return score.overflow < selected.overflow ? score : selected
-      if (score.distance !== selected.distance) return score.distance < selected.distance ? score : selected
-      return score.index < selected.index ? score : selected
-    }, null)
+    const openRight = rightSpace >= menuWidth + gap || (
+      rightSpace < menuWidth + gap &&
+      (leftSpace < menuWidth + gap ? rightSpace >= leftSpace : false)
+    )
+    const openDown = bottomSpace >= menuHeight + gap || (
+      bottomSpace < menuHeight + gap &&
+      (topSpace < menuHeight + gap ? bottomSpace >= topSpace : false)
+    )
 
-    return { x: Math.round(best.x), y: Math.round(best.y) }
+    const rawX = openRight ? safeAnchorX + gap : safeAnchorX - menuWidth - gap
+    const rawY = openDown ? safeAnchorY + gap : safeAnchorY - menuHeight - gap
+
+    return {
+      x: Math.round(clampValue(rawX, minX, maxX)),
+      y: Math.round(clampValue(rawY, minY, maxY))
+    }
   }
 
   const getMenuAnchorFromEvent = (event) => {
