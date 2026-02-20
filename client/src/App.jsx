@@ -2513,34 +2513,58 @@ export default function App() {
     }
   }
 
+  const getAnchoredAxisPosition = (anchor, size, viewportSize, options = {}) => {
+    const {
+      padding = 12,
+      gap = MESSAGE_MENU_CURSOR_GAP
+    } = options
+    const minStart = padding
+    const maxStart = Math.max(minStart, viewportSize - size - padding)
+    const rawCandidates = [
+      anchor + gap,
+      anchor - size - gap,
+      anchor - (size / 2)
+    ]
+    const candidates = rawCandidates.map((value) => Math.max(minStart, Math.min(value, maxStart)))
+    const getDistance = (start) => {
+      const end = start + size
+      if (anchor >= start && anchor <= end) return 0
+      return anchor < start ? start - anchor : anchor - end
+    }
+    return candidates.reduce((best, current) => (
+      getDistance(current) < getDistance(best) ? current : best
+    ), candidates[0])
+  }
+
   const getAnchoredMenuPosition = (anchorX, anchorY, menuWidth, menuHeight, options = {}) => {
     const { padding = 12, gap = MESSAGE_MENU_CURSOR_GAP } = options
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-    const spaceRight = viewportWidth - anchorX - padding
-    const spaceLeft = anchorX - padding
-    const spaceBottom = viewportHeight - anchorY - padding
-    const spaceTop = anchorY - padding
-
-    let x
-    if (spaceRight >= menuWidth + gap) {
-      x = anchorX + gap
-    } else if (spaceLeft >= menuWidth + gap) {
-      x = anchorX - menuWidth - gap
-    } else {
-      x = anchorX - (menuWidth / 2)
-    }
-
-    let y
-    if (spaceBottom >= menuHeight + gap) {
-      y = anchorY + gap
-    } else if (spaceTop >= menuHeight + gap) {
-      y = anchorY - menuHeight - gap
-    } else {
-      y = anchorY - (menuHeight / 2)
-    }
+    const x = getAnchoredAxisPosition(anchorX, menuWidth, window.innerWidth, { padding, gap })
+    const y = getAnchoredAxisPosition(anchorY, menuHeight, window.innerHeight, { padding, gap })
 
     return clampMenuPosition(x, y, { menuWidth, menuHeight, padding })
+  }
+
+  const getMessageMenuAnchor = (event) => {
+    const fallback = {
+      anchorX: event.clientX,
+      anchorY: event.clientY
+    }
+    const target = event.target
+    if (!target || typeof target.closest !== 'function') return fallback
+    const bubbleNode = target.closest('.message-bubble')
+    if (!bubbleNode) return fallback
+    const rect = bubbleNode.getBoundingClientRect()
+    const sidePadding = 8
+    const verticalPadding = 8
+    const leftDist = Math.abs(event.clientX - rect.left)
+    const rightDist = Math.abs(event.clientX - rect.right)
+    const preferLeftSide = leftDist <= rightDist
+    const sideX = preferLeftSide ? rect.left : rect.right
+    const minY = rect.top + verticalPadding
+    const maxY = Math.max(minY, rect.bottom - verticalPadding)
+    const anchorY = Math.max(minY, Math.min(event.clientY, maxY))
+    const anchorX = preferLeftSide ? sideX - sidePadding : sideX + sidePadding
+    return { anchorX, anchorY }
   }
 
   const toggleContextMenuReactions = () => {
@@ -2573,8 +2597,7 @@ export default function App() {
     event.stopPropagation()
     setPostMenu({ open: false, x: 0, y: 0, post: null })
     setChatMenu({ open: false, x: 0, y: 0 })
-    const anchorX = event.clientX
-    const anchorY = event.clientY
+    const { anchorX, anchorY } = getMessageMenuAnchor(event)
     setContextMenu({
       open: true,
       x: anchorX,
