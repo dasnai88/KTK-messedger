@@ -74,7 +74,7 @@ body {
 .content {
   background: var(--panel-gradient);
   border-radius: 28px;
-  padding: 24px 24px 24px 110px;
+  padding: 24px 110px 24px 24px;
   border: 1px solid var(--line);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
   display: flex;
@@ -210,7 +210,8 @@ body {
 
 .icon-rail {
   position: fixed;
-  left: 34px;
+  right: 34px;
+  left: auto;
   top: 50%;
   transform: translateY(-50%);
   display: grid;
@@ -221,6 +222,7 @@ body {
   border: 1px solid var(--line);
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(10px);
+  z-index: 70;
 }
 
 .icon-rail button {
@@ -1945,11 +1947,16 @@ body {
   }
 
   .icon-rail {
-    position: static;
+    position: fixed;
+    right: 16px;
+    left: auto;
+    top: auto;
+    bottom: 16px;
     transform: none;
     grid-auto-flow: column;
-    justify-content: center;
-    margin: 0 auto;
+    justify-content: flex-end;
+    margin: 0;
+    z-index: 90;
   }
 
   .chat-layout {
@@ -1995,7 +2002,9 @@ body {
   .icon-rail {
     gap: 8px;
     padding: 10px;
-    justify-content: space-between;
+    right: 12px;
+    bottom: 12px;
+    justify-content: flex-end;
   }
 
   .icon-rail button {
