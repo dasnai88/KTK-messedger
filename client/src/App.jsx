@@ -33,6 +33,7 @@ import {
   addComment,
   editMessage,
   deleteMessage,
+  toggleMessageReaction,
   editPost,
   deletePost,
   adminListUsers,
@@ -126,6 +127,26 @@ const CHAT_LIST_FILTERS = {
 }
 const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
+const INITIAL_MESSAGE_MENU_STATE = {
+  open: false,
+  x: 0,
+  y: 0,
+  message: null,
+  showAllReactions: false
+}
+const QUICK_MESSAGE_REACTIONS = ['❤️', '👍', '😭', '👎', '🤩', '🐳', '❤️‍🔥']
+const ALL_MESSAGE_REACTIONS = Array.from(new Set([
+  ...QUICK_MESSAGE_REACTIONS,
+  '👌', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '🎉', '🤬',
+  '😢', '🙏', '🤝', '🫡', '💯', '🤣', '😇', '🥳', '😴', '😎',
+  '😡', '💔', '💩', '😈', '👀', '🎃', '🙈', '🙉', '🙊', '🫶',
+  '🤗', '🤤', '🤮', '🍾', '🍓', '🌭', '⚡', '🏆', '💋', '🤡',
+  '💘', '🎯', '🫠', '😐', '😶', '🙃', '🫢', '🤌', '✌️', '👋'
+]))
+const MESSAGE_REACTION_SORT = (a, b) => {
+  if (b.count !== a.count) return b.count - a.count
+  return a.emoji.localeCompare(b.emoji)
+}
 const DEFAULT_ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
   { urls: 'stun:global.stun.twilio.com:3478' }
@@ -255,6 +276,72 @@ function getMessagePreviewLabel(message, emptyText = 'Сообщение') {
   return emptyText
 }
 
+function normalizeMessageReactions(reactions) {
+  if (!Array.isArray(reactions)) return []
+  const map = new Map()
+  reactions.forEach((item) => {
+    const emoji = typeof item.emoji === 'string' ? item.emoji : ''
+    const count = Number(item.count || 0)
+    if (!emoji || !Number.isFinite(count) || count <= 0) return
+    const existing = map.get(emoji)
+    if (!existing) {
+      map.set(emoji, { emoji, count, reacted: item.reacted === true })
+      return
+    }
+    map.set(emoji, {
+      emoji,
+      count: existing.count + count,
+      reacted: existing.reacted || item.reacted === true
+    })
+  })
+  return Array.from(map.values()).sort(MESSAGE_REACTION_SORT)
+}
+
+function normalizeChatMessage(message) {
+  if (!message || typeof message !== 'object') return message
+  return {
+    ...message,
+    reactions: normalizeMessageReactions(message.reactions)
+  }
+}
+
+function hasEmojiReaction(message, emoji) {
+  if (!message || !Array.isArray(message.reactions)) return false
+  return message.reactions.some((reaction) => reaction.emoji === emoji && reaction.reacted)
+}
+
+function applyReactionDeltaToMessage(message, payload, currentUserId) {
+  if (!message || !payload || message.id !== payload.messageId) return message
+  const emoji = typeof payload.emoji === 'string' ? payload.emoji : ''
+  if (!emoji) return message
+  const active = payload.active === true
+  const actorUserId = typeof payload.userId === 'string' ? payload.userId : ''
+  const reactions = [...normalizeMessageReactions(message.reactions)]
+  const index = reactions.findIndex((item) => item.emoji === emoji)
+
+  if (index === -1) {
+    if (!active) return message
+    reactions.push({ emoji, count: 1, reacted: actorUserId === currentUserId })
+    reactions.sort(MESSAGE_REACTION_SORT)
+    return { ...message, reactions }
+  }
+
+  const current = reactions[index]
+  const nextCount = Math.max(0, current.count + (active ? 1 : -1))
+  if (nextCount === 0) {
+    reactions.splice(index, 1)
+  } else {
+    reactions[index] = {
+      ...current,
+      count: nextCount,
+      reacted: actorUserId === currentUserId ? active : current.reacted
+    }
+  }
+
+  reactions.sort(MESSAGE_REACTION_SORT)
+  return { ...message, reactions }
+}
+
 export default function App() {
   const [health, setHealth] = useState(null)
   const [roles, setRoles] = useState([])
@@ -338,7 +425,7 @@ export default function App() {
   const [openComments, setOpenComments] = useState(null)
   const [editingMessageId, setEditingMessageId] = useState(null)
   const [editingMessageText, setEditingMessageText] = useState('')
-  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, message: null })
+  const [contextMenu, setContextMenu] = useState(INITIAL_MESSAGE_MENU_STATE)
   const [postMenu, setPostMenu] = useState({ open: false, x: 0, y: 0, post: null })
   const [chatMenu, setChatMenu] = useState({ open: false, x: 0, y: 0 })
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
@@ -402,6 +489,10 @@ export default function App() {
   const draftsRef = useRef(draftsByConversation)
   const socketConnectionRef = useRef(socketConnection)
   const chatSearchInputRef = useRef(null)
+  const contextMenuRef = useRef(null)
+  const chatMessagesRef = useRef(null)
+  const previousMessageMetaRef = useRef({ conversationId: null, count: 0, lastMessageId: null })
+  const previousViewRef = useRef(view)
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -417,6 +508,7 @@ export default function App() {
     if (!query) return messages
     return messages.filter((msg) => (msg.body || '').toLowerCase().includes(query))
   }, [messages, chatSearchQuery])
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null
   const favoriteConversationSet = useMemo(() => (
     new Set(conversations.filter((conv) => conv.isFavorite).map((conv) => conv.id))
   ), [conversations])
@@ -480,6 +572,12 @@ export default function App() {
       : callState.status === 'in-call'
         ? `Звонок ${formatDuration(callDuration)}`
         : ''
+  const scrollChatToBottom = (behavior = 'auto') => {
+    const container = chatMessagesRef.current
+    if (!container) return
+    container.scrollTo({ top: container.scrollHeight, behavior })
+  }
+
   const clearCallDisconnectTimer = () => {
     if (!callDisconnectTimerRef.current) return
     clearTimeout(callDisconnectTimerRef.current)
@@ -782,6 +880,41 @@ export default function App() {
     } catch (err) {
       // ignore read errors
     }
+  }
+
+  const patchMessageById = (messageId, updater) => {
+    if (!messageId || typeof updater !== 'function') return
+
+    setMessages((prev) => {
+      let changed = false
+      const next = prev.map((message) => {
+        if (message.id !== messageId) return message
+        const updated = updater(message)
+        if (!updated || updated === message) return message
+        changed = true
+        return normalizeChatMessage(updated)
+      })
+      return changed ? next : prev
+    })
+
+    setContextMenu((prev) => {
+      if (!prev.open || !prev.message || prev.message.id !== messageId) return prev
+      const updated = updater(prev.message)
+      if (!updated || updated === prev.message) return prev
+      return { ...prev, message: normalizeChatMessage(updated) }
+    })
+  }
+
+  const setMessageReactions = (messageId, reactions) => {
+    const normalized = normalizeMessageReactions(reactions)
+    patchMessageById(messageId, (message) => ({ ...message, reactions: normalized }))
+  }
+
+  const applyIncomingReactionDelta = (payload) => {
+    if (!payload || !payload.messageId) return
+    patchMessageById(payload.messageId, (message) =>
+      applyReactionDeltaToMessage(message, payload, user ? user.id : '')
+    )
   }
 
   const removeTypingUser = (conversationId, userId) => {
@@ -1332,7 +1465,7 @@ export default function App() {
     const loadMessages = async () => {
       try {
         const data = await getMessages(activeConversation.id)
-        setMessages(data.messages || [])
+        setMessages((data.messages || []).map(normalizeChatMessage))
         await clearConversationUnread(activeConversation.id)
       } catch (err) {
         setStatus({ type: 'error', message: err.message })
@@ -1340,6 +1473,34 @@ export default function App() {
     }
     loadMessages()
   }, [activeConversation])
+
+  useEffect(() => {
+    const previousView = previousViewRef.current
+    const enteredChatView = previousView !== 'chats' && view === 'chats'
+    previousViewRef.current = view
+
+    if (!activeConversation) {
+      previousMessageMetaRef.current = { conversationId: null, count: 0, lastMessageId: null }
+      return
+    }
+
+    const conversationId = activeConversation.id
+    const previous = previousMessageMetaRef.current
+    const conversationChanged = previous.conversationId !== conversationId
+    const listChanged = previous.count !== messages.length || previous.lastMessageId !== lastMessageId
+    const hasNewMessage = !conversationChanged && messages.length > previous.count
+
+    previousMessageMetaRef.current = { conversationId, count: messages.length, lastMessageId }
+
+    if (view !== 'chats') return
+    if (!enteredChatView && !conversationChanged && !listChanged) return
+
+    const behavior = hasNewMessage ? 'smooth' : 'auto'
+    const frame = window.requestAnimationFrame(() => {
+      scrollChatToBottom(behavior)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeConversation ? activeConversation.id : null, lastMessageId, messages.length, view])
 
   useEffect(() => {
     draftsRef.current = draftsByConversation
@@ -1482,7 +1643,7 @@ export default function App() {
   useEffect(() => {
     setChatSearchOpen(false)
     setChatSearchQuery('')
-    setContextMenu({ open: false, x: 0, y: 0, message: null })
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setPostMenu({ open: false, x: 0, y: 0, post: null })
     setChatMenu({ open: false, x: 0, y: 0 })
   }, [activeConversation ? activeConversation.id : null])
@@ -1588,7 +1749,7 @@ export default function App() {
 
     const handleIncomingMessage = (payload) => {
       if (!payload || !payload.message) return
-      const { message } = payload
+      const message = normalizeChatMessage(payload.message)
       const conversationId = payload.conversationId
       updateConversationPreview(conversationId, message)
       if (message.senderId) {
@@ -1624,6 +1785,13 @@ export default function App() {
           })
         }
       }
+    }
+
+    const handleIncomingReaction = (payload) => {
+      if (!payload || !payload.conversationId || !payload.messageId) return
+      const currentActive = activeConversationRef.current
+      if (!currentActive || payload.conversationId !== currentActive.id) return
+      applyIncomingReactionDelta(payload)
     }
 
     const handlePostNew = (payload) => {
@@ -1679,6 +1847,7 @@ export default function App() {
     }
 
     socket.on('message', handleIncomingMessage)
+    socket.on('message:reaction', handleIncomingReaction)
     socket.on('conversation:read', handleConversationRead)
     socket.on('post:new', handlePostNew)
     socket.on('post:delete', handlePostDelete)
@@ -1761,6 +1930,7 @@ export default function App() {
       socket.off('connect', handleSocketConnect)
       socket.off('disconnect', handleSocketDisconnect)
       socket.off('message', handleIncomingMessage)
+      socket.off('message:reaction', handleIncomingReaction)
       socket.off('conversation:read', handleConversationRead)
       socket.off('post:new', handlePostNew)
       socket.off('post:delete', handlePostDelete)
@@ -1783,7 +1953,7 @@ export default function App() {
   useEffect(() => {
     if (!contextMenu.open && !postMenu.open && !chatMenu.open) return
     const handleClose = () => {
-      setContextMenu({ open: false, x: 0, y: 0, message: null })
+      setContextMenu(INITIAL_MESSAGE_MENU_STATE)
       setPostMenu({ open: false, x: 0, y: 0, post: null })
       setChatMenu({ open: false, x: 0, y: 0 })
     }
@@ -1799,6 +1969,28 @@ export default function App() {
       window.removeEventListener('keydown', handleEsc)
     }
   }, [contextMenu.open, postMenu.open, chatMenu.open])
+
+  useEffect(() => {
+    if (!contextMenu.open) return
+    const menuNode = contextMenuRef.current
+    if (!menuNode) return
+    const nextPos = clampMenuPosition(contextMenu.x, contextMenu.y, {
+      menuWidth: menuNode.offsetWidth || 220,
+      menuHeight: menuNode.offsetHeight || 200
+    })
+    if (nextPos.x === contextMenu.x && nextPos.y === contextMenu.y) return
+    setContextMenu((prev) => {
+      if (!prev.open) return prev
+      if (prev.x === nextPos.x && prev.y === nextPos.y) return prev
+      return { ...prev, x: nextPos.x, y: nextPos.y }
+    })
+  }, [
+    contextMenu.open,
+    contextMenu.x,
+    contextMenu.y,
+    contextMenu.showAllReactions,
+    contextMenu.message ? contextMenu.message.id : null
+  ])
 
   const handleRegister = async (event) => {
     event.preventDefault()
@@ -2277,9 +2469,10 @@ export default function App() {
       const data = await sendMessage(activeConversation.id, text, messageFile, {
         attachmentKind: messageAttachmentKind
       })
+      const createdMessage = normalizeChatMessage(data.message)
       setMessages((prev) => {
-        if (data.message && prev.some((msg) => msg.id === data.message.id)) return prev
-        return [...prev, data.message]
+        if (createdMessage && prev.some((msg) => msg.id === createdMessage.id)) return prev
+        return createdMessage ? [...prev, createdMessage] : prev
       })
       setMessageText('')
       clearMessageAttachment()
@@ -2298,33 +2491,60 @@ export default function App() {
     }
   }
 
-  const clampMenuPosition = (x, y) => {
-    const menuWidth = 220
-    const menuHeight = 240
-    const padding = 12
-    const maxX = window.innerWidth - menuWidth - padding
-    const maxY = window.innerHeight - menuHeight - padding
+  const clampMenuPosition = (x, y, options = {}) => {
+    const {
+      menuWidth = 220,
+      menuHeight = 240,
+      padding = 12,
+      offsetX = 0,
+      offsetY = 0
+    } = options
+    const maxX = Math.max(padding, window.innerWidth - menuWidth - padding)
+    const maxY = Math.max(padding, window.innerHeight - menuHeight - padding)
     return {
-      x: Math.max(padding, Math.min(x, maxX)),
-      y: Math.max(padding, Math.min(y, maxY))
+      x: Math.max(padding, Math.min(x + offsetX, maxX)),
+      y: Math.max(padding, Math.min(y + offsetY, maxY))
+    }
+  }
+
+  const toggleContextMenuReactions = () => {
+    setContextMenu((prev) => {
+      if (!prev.open) return prev
+      return { ...prev, showAllReactions: !prev.showAllReactions }
+    })
+  }
+
+  const handleMessageReaction = async (msg, emoji, { closeMenu = false } = {}) => {
+    if (!msg || !msg.id || !emoji) return
+    try {
+      const data = await toggleMessageReaction(msg.id, emoji)
+      const socket = socketRef.current
+      if (!socket || !socket.connected) {
+        setMessageReactions(msg.id, data.reactions || [])
+      }
+      if (closeMenu) {
+        setContextMenu(INITIAL_MESSAGE_MENU_STATE)
+      }
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
     }
   }
 
   const openMessageMenu = (event, msg) => {
-    if (!activeConversation || activeConversation.isGroup) return
+    if (!activeConversation) return
     if (editingMessageId === msg.id) return
     event.preventDefault()
     event.stopPropagation()
     setPostMenu({ open: false, x: 0, y: 0, post: null })
     setChatMenu({ open: false, x: 0, y: 0 })
-    const pos = clampMenuPosition(event.clientX, event.clientY)
-    setContextMenu({ open: true, x: pos.x, y: pos.y, message: msg })
+    const pos = clampMenuPosition(event.clientX, event.clientY, { offsetX: 6, offsetY: 6 })
+    setContextMenu({ open: true, x: pos.x, y: pos.y, message: msg, showAllReactions: false })
   }
 
   const startEditMessage = (msg) => {
     setEditingMessageId(msg.id)
     setEditingMessageText(msg.body || '')
-    setContextMenu({ open: false, x: 0, y: 0, message: null })
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
   }
 
   const handleDeleteMessage = (msg) => {
@@ -2340,7 +2560,7 @@ export default function App() {
         }
       })
       .catch((err) => setStatus({ type: 'error', message: err.message }))
-      .finally(() => setContextMenu({ open: false, x: 0, y: 0, message: null }))
+      .finally(() => setContextMenu(INITIAL_MESSAGE_MENU_STATE))
   }
 
   const openPostMenu = (event, post) => {
@@ -2348,7 +2568,7 @@ export default function App() {
     if (event.target && event.target.closest('input, textarea')) return
     event.preventDefault()
     event.stopPropagation()
-    setContextMenu({ open: false, x: 0, y: 0, message: null })
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setChatMenu({ open: false, x: 0, y: 0 })
     const pos = clampMenuPosition(event.clientX, event.clientY)
     setPostMenu({ open: true, x: pos.x, y: pos.y, post })
@@ -2526,7 +2746,7 @@ export default function App() {
   const openChatMenu = (event) => {
     event.preventDefault()
     event.stopPropagation()
-    setContextMenu({ open: false, x: 0, y: 0, message: null })
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setPostMenu({ open: false, x: 0, y: 0, post: null })
     const rect = event.currentTarget.getBoundingClientRect()
     const pos = clampMenuPosition(rect.right, rect.bottom + 8)
@@ -2607,7 +2827,7 @@ export default function App() {
       }
       return next
     })
-    setContextMenu({ open: false, x: 0, y: 0, message: null })
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
   }
 
   const handleCopyMessage = async (msg) => {
@@ -2618,7 +2838,7 @@ export default function App() {
     } catch (err) {
       setStatus({ type: 'error', message: 'Не удалось скопировать текст.' })
     }
-    setContextMenu({ open: false, x: 0, y: 0, message: null })
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
   }
 
   const isOwnRepostPost = (post) => {
@@ -3182,7 +3402,7 @@ export default function App() {
                       <div className="chat-typing">{typingLabel}</div>
                     )}
                   </div>
-                  <div className="chat-messages">
+                  <div className="chat-messages" ref={chatMessagesRef}>
                     {filteredMessages.length === 0 && (
                       <div className="empty">
                         {chatSearchQuery ? 'Сообщения не найдены.' : 'Напишите первое сообщение.'}
@@ -3271,6 +3491,25 @@ export default function App() {
                               </span>
                             )}
                           </div>
+                          {Array.isArray(msg.reactions) && msg.reactions.length > 0 && (
+                            <div className={`message-reactions ${msg.senderId === user.id ? 'mine' : ''}`.trim()}>
+                              {msg.reactions.map((reaction) => (
+                                <button
+                                  key={reaction.emoji}
+                                  type="button"
+                                  className={`message-reaction ${reaction.reacted ? 'active' : ''}`.trim()}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    handleMessageReaction(msg, reaction.emoji)
+                                  }}
+                                >
+                                  <span className="message-reaction-emoji">{reaction.emoji}</span>
+                                  <span className="message-reaction-count">{reaction.count}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         {(msg.senderId === user.id || user.isAdmin) && editingMessageId !== msg.id && activeConversation && activeConversation.isGroup && (
                           <div className="message-actions">
@@ -3299,9 +3538,47 @@ export default function App() {
                   </div>
                   {contextMenu.open && contextMenu.message && (
                     <div
+                      ref={contextMenuRef}
                       className="message-menu"
                       style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+                      onClick={(event) => event.stopPropagation()}
+                      onContextMenu={(event) => event.stopPropagation()}
                     >
+                      <div className="message-menu-reactions">
+                        {QUICK_MESSAGE_REACTIONS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            className={`message-menu-emoji ${hasEmojiReaction(contextMenu.message, emoji) ? 'active' : ''}`.trim()}
+                            onClick={() => handleMessageReaction(contextMenu.message, emoji, { closeMenu: true })}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className={`message-menu-expand ${contextMenu.showAllReactions ? 'open' : ''}`.trim()}
+                          onClick={toggleContextMenuReactions}
+                          title={contextMenu.showAllReactions ? 'Скрыть все реакции' : 'Показать все реакции'}
+                          aria-label={contextMenu.showAllReactions ? 'Скрыть все реакции' : 'Показать все реакции'}
+                        >
+                          ▾
+                        </button>
+                      </div>
+                      {contextMenu.showAllReactions && (
+                        <div className="message-menu-reactions-grid">
+                          {ALL_MESSAGE_REACTIONS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              className={`message-menu-emoji ${hasEmojiReaction(contextMenu.message, emoji) ? 'active' : ''}`.trim()}
+                              onClick={() => handleMessageReaction(contextMenu.message, emoji, { closeMenu: true })}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {contextMenu.message.body && (
                         <button type="button" onClick={() => handleCopyMessage(contextMenu.message)}>
                           Копировать текст

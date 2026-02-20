@@ -245,6 +245,13 @@ function isValidMessage(value) {
   return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 1000
 }
 
+function normalizeReactionEmoji(value) {
+  const emoji = String(value || '').trim()
+  if (!emoji) return ''
+  if (emoji.length > 16) return ''
+  return emoji
+}
+
 function isValidUuid(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
@@ -484,6 +491,64 @@ function mapConversation(row) {
     lastAt: row.last_at,
     unreadCount: Number(row.unread_count || 0)
   }
+}
+
+function isMessageReactionsSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('message_reactions')
+}
+
+function normalizeMessageReactions(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      const emoji = typeof item.emoji === 'string' ? item.emoji : ''
+      const count = Number(item.count || 0)
+      return {
+        emoji,
+        count: Number.isFinite(count) ? count : 0,
+        reacted: item.reacted === true
+      }
+    })
+    .filter((item) => item.emoji && item.count > 0)
+}
+
+function mapMessageRow(row) {
+  return {
+    id: row.id,
+    body: row.body,
+    attachmentUrl: row.attachment_url,
+    attachmentMime: row.attachment_mime,
+    attachmentKind: row.attachment_kind,
+    editedAt: row.edited_at || null,
+    createdAt: row.created_at,
+    senderId: row.sender_id,
+    senderUsername: row.sender_username || null,
+    senderDisplayName: row.sender_display_name || null,
+    senderAvatarUrl: row.sender_avatar_url || null,
+    readByOther: row.read_by_other === true,
+    reactions: normalizeMessageReactions(row.reactions)
+  }
+}
+
+async function getMessageReactions(messageId, viewerId) {
+  const result = await pool.query(
+    `select mr.emoji,
+            count(*)::int as reaction_count,
+            bool_or(mr.user_id = $2) as reacted
+     from message_reactions mr
+     where mr.message_id = $1
+     group by mr.emoji
+     order by reaction_count desc, mr.emoji asc`,
+    [messageId, viewerId]
+  )
+  return result.rows.map((row) => ({
+    emoji: row.emoji,
+    count: Number(row.reaction_count || 0),
+    reacted: row.reacted === true
+  }))
 }
 
 function mapPost(row) {
@@ -1432,14 +1497,40 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
       return res.status(403).json({ error: 'Access denied' })
     }
 
-    const result = await pool.query(
-      `select m.id, m.body, m.attachment_url, m.attachment_mime, m.attachment_kind, m.created_at,
-              u.id as sender_id, u.username as sender_username, u.display_name as sender_display_name, u.avatar_url as sender_avatar_url,
+    const messagesQueryWithReactions = `select m.id,
+              m.body,
+              m.attachment_url,
+              m.attachment_mime,
+              m.attachment_kind,
+              m.edited_at,
+              m.created_at,
+              u.id as sender_id,
+              u.username as sender_username,
+              u.display_name as sender_display_name,
+              u.avatar_url as sender_avatar_url,
               c.is_group,
               (c.is_group = false
                 and m.sender_id = $2
                 and other.last_read_at is not null
-                and m.created_at <= other.last_read_at) as read_by_other
+                and m.created_at <= other.last_read_at) as read_by_other,
+              coalesce((
+                select json_agg(
+                  json_build_object(
+                    'emoji', reaction.emoji,
+                    'count', reaction.reaction_count,
+                    'reacted', reaction.reacted
+                  )
+                  order by reaction.reaction_count desc, reaction.emoji asc
+                )
+                from (
+                  select mr.emoji,
+                         count(*)::int as reaction_count,
+                         bool_or(mr.user_id = $2) as reacted
+                  from message_reactions mr
+                  where mr.message_id = m.id
+                  group by mr.emoji
+                ) reaction
+              ), '[]'::json) as reactions
        from messages m
        join conversations c on c.id = m.conversation_id
        left join users u on u.id = m.sender_id
@@ -1449,23 +1540,45 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
         and c.is_group = false
        where m.conversation_id = $1 and m.deleted_at is null
        order by m.created_at asc
-       limit 200`,
-      [conversationId, req.userId]
-    )
+       limit 200`
 
-    const messages = result.rows.map((row) => ({
-      id: row.id,
-      body: row.body,
-      attachmentUrl: row.attachment_url,
-      attachmentMime: row.attachment_mime,
-      attachmentKind: row.attachment_kind,
-      createdAt: row.created_at,
-      senderId: row.sender_id,
-      senderUsername: row.sender_username,
-      senderDisplayName: row.sender_display_name,
-      senderAvatarUrl: row.sender_avatar_url,
-      readByOther: row.read_by_other === true
-    }))
+    const messagesQueryWithoutReactions = `select m.id,
+              m.body,
+              m.attachment_url,
+              m.attachment_mime,
+              m.attachment_kind,
+              m.edited_at,
+              m.created_at,
+              u.id as sender_id,
+              u.username as sender_username,
+              u.display_name as sender_display_name,
+              u.avatar_url as sender_avatar_url,
+              c.is_group,
+              (c.is_group = false
+                and m.sender_id = $2
+                and other.last_read_at is not null
+                and m.created_at <= other.last_read_at) as read_by_other,
+              '[]'::json as reactions
+       from messages m
+       join conversations c on c.id = m.conversation_id
+       left join users u on u.id = m.sender_id
+       left join conversation_members other
+         on other.conversation_id = c.id
+        and other.user_id <> $2
+        and c.is_group = false
+       where m.conversation_id = $1 and m.deleted_at is null
+       order by m.created_at asc
+       limit 200`
+
+    let result
+    try {
+      result = await pool.query(messagesQueryWithReactions, [conversationId, req.userId])
+    } catch (err) {
+      if (!isMessageReactionsSchemaError(err)) throw err
+      result = await pool.query(messagesQueryWithoutReactions, [conversationId, req.userId])
+    }
+
+    const messages = result.rows.map(mapMessageRow)
 
     res.json({ messages })
   } catch (err) {
@@ -1566,12 +1679,14 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
       attachmentUrl: result.rows[0].attachment_url,
       attachmentMime: result.rows[0].attachment_mime,
       attachmentKind: result.rows[0].attachment_kind,
+      editedAt: null,
       createdAt: result.rows[0].created_at,
       senderId: req.userId,
       senderUsername: sender.username || null,
       senderDisplayName: sender.display_name || null,
       senderAvatarUrl: sender.avatar_url || null,
-      readByOther: false
+      readByOther: false,
+      reactions: []
     }
 
     membersResult.rows.forEach((member) => {
@@ -1904,6 +2019,76 @@ app.delete('/api/messages/:id', auth, ensureNotBanned, async (req, res) => {
     res.json({ ok: true })
   } catch (err) {
     console.error('Delete message error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/messages/:id/reactions', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const messageId = req.params.id
+    const emoji = normalizeReactionEmoji(req.body.emoji)
+    if (!emoji) {
+      return res.status(400).json({ error: 'Invalid emoji' })
+    }
+
+    const messageResult = await pool.query(
+      `select m.conversation_id, m.deleted_at
+       from messages m
+       join conversation_members cm
+         on cm.conversation_id = m.conversation_id
+        and cm.user_id = $2
+       where m.id = $1`,
+      [messageId, req.userId]
+    )
+    if (messageResult.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+    if (messageResult.rows[0].deleted_at) {
+      return res.status(400).json({ error: 'Message is deleted' })
+    }
+
+    const conversationId = messageResult.rows[0].conversation_id
+    const inserted = await pool.query(
+      `insert into message_reactions (message_id, user_id, emoji)
+       values ($1, $2, $3)
+       on conflict do nothing
+       returning message_id`,
+      [messageId, req.userId, emoji]
+    )
+
+    const active = inserted.rowCount > 0
+    if (!active) {
+      await pool.query(
+        'delete from message_reactions where message_id = $1 and user_id = $2 and emoji = $3',
+        [messageId, req.userId, emoji]
+      )
+    }
+
+    const reactions = await getMessageReactions(messageId, req.userId)
+    const memberIds = await getConversationMemberIds(conversationId)
+    memberIds.forEach((memberId) => {
+      emitToUser(memberId, 'message:reaction', {
+        conversationId,
+        messageId,
+        emoji,
+        userId: req.userId,
+        active
+      })
+    })
+
+    res.json({
+      ok: true,
+      conversationId,
+      messageId,
+      emoji,
+      active,
+      reactions
+    })
+  } catch (err) {
+    if (isMessageReactionsSchemaError(err)) {
+      return res.status(503).json({ error: 'Message reactions are unavailable: database migration required' })
+    }
+    console.error('Message reaction error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })

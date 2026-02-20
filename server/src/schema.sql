@@ -91,6 +91,14 @@ create table if not exists messages (
   created_at timestamptz default now()
 );
 
+create table if not exists message_reactions (
+  message_id uuid references messages(id) on delete cascade,
+  user_id uuid references users(id) on delete cascade,
+  emoji text not null,
+  created_at timestamptz default now(),
+  primary key (message_id, user_id, emoji)
+);
+
 create table if not exists posts (
   id uuid primary key default gen_random_uuid(),
   author_id uuid references users(id) on delete cascade,
@@ -141,6 +149,7 @@ create index if not exists idx_members_user on conversation_members (user_id);
 create index if not exists idx_members_user_favorite on conversation_members (user_id, is_favorite);
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
 create index if not exists idx_messages_conversation on messages (conversation_id, created_at);
+create index if not exists idx_message_reactions_message on message_reactions (message_id);
 create index if not exists idx_posts_created on posts (created_at desc);
 create index if not exists idx_post_comments_post on post_comments (post_id, created_at);
 

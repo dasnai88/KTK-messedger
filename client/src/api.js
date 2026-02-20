@@ -255,6 +255,13 @@ export async function deleteMessage(messageId) {
   return request(`/messages/${messageId}`, { method: 'DELETE' })
 }
 
+export async function toggleMessageReaction(messageId, emoji) {
+  return request(`/messages/${messageId}/reactions`, {
+    method: 'POST',
+    body: { emoji }
+  })
+}
+
 export async function editPost(postId, body) {
   return request(`/posts/${postId}`, { method: 'PATCH', body: { body } })
 }
