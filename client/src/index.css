@@ -2069,7 +2069,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -2089,7 +2089,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 
@@ -2100,7 +2100,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: none;
   }
 }
 
@@ -2111,7 +2111,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: translateX(0) translateY(0);
+    transform: none;
   }
 }
 
@@ -2122,7 +2122,7 @@ body {
   }
   to {
     opacity: 1;
-    transform: translateX(0) translateY(0);
+    transform: none;
   }
 }
 
@@ -2133,7 +2133,18 @@ body {
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: none;
+  }
+}
+
+@keyframes rail-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-50% + 10px));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%);
   }
 }
 
@@ -2184,7 +2195,7 @@ body {
 }
 
 .icon-rail {
-  animation: fade-up var(--motion-slow) var(--ease-out) both;
+  animation: rail-in var(--motion-slow) var(--ease-out) both;
   animation-delay: 80ms;
 }
 
