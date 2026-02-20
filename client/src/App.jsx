@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { io } from 'socket.io-client'
 import {
   createConversation,
@@ -2613,12 +2614,38 @@ export default function App() {
     }
   }
 
-  const getMenuAnchorFromEvent = (event) => {
+  const getElementAnchor = (element, options = {}) => {
+    if (!element || typeof element.getBoundingClientRect !== 'function') return null
+    const { preferHorizontal = 'right' } = options
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight
+    const rect = element.getBoundingClientRect()
+    const edgeOffset = 8
+    const rawX = preferHorizontal === 'left' ? rect.left + edgeOffset : rect.right - edgeOffset
+    const rawY = rect.top + (rect.height / 2)
+    return {
+      anchorX: clampValue(rawX, 0, viewportWidth),
+      anchorY: clampValue(rawY, 0, viewportHeight)
+    }
+  }
+
+  const getMenuAnchorFromEvent = (event, options = {}) => {
+    const {
+      fallbackElement = null,
+      preferHorizontal = 'right'
+    } = options
     const pointX = Number(event && event.clientX)
     const pointY = Number(event && event.clientY)
     if (Number.isFinite(pointX) && Number.isFinite(pointY) && (pointX !== 0 || pointY !== 0)) {
       return { anchorX: pointX, anchorY: pointY }
     }
+    const preferredAnchor = getElementAnchor(fallbackElement, { preferHorizontal })
+    if (preferredAnchor) return preferredAnchor
+    const target = event && event.target && typeof event.target.closest === 'function'
+      ? event.target.closest('.message-bubble')
+      : null
+    const bubbleAnchor = getElementAnchor(target, { preferHorizontal })
+    if (bubbleAnchor) return bubbleAnchor
     if (event && event.currentTarget && typeof event.currentTarget.getBoundingClientRect === 'function') {
       const rect = event.currentTarget.getBoundingClientRect()
       return {
@@ -2659,7 +2686,13 @@ export default function App() {
     event.stopPropagation()
     setPostMenu(INITIAL_POST_MENU_STATE)
     setChatMenu(INITIAL_CHAT_MENU_STATE)
-    const { anchorX, anchorY } = getMenuAnchorFromEvent(event)
+    const bubbleNode = event && event.target && typeof event.target.closest === 'function'
+      ? event.target.closest('.message-bubble')
+      : null
+    const { anchorX, anchorY } = getMenuAnchorFromEvent(event, {
+      fallbackElement: bubbleNode,
+      preferHorizontal: msg.senderId === user.id ? 'right' : 'left'
+    })
     const pos = getMenuPosition(anchorX, anchorY, 340, 240)
     setContextMenu({
       open: true,
@@ -2701,7 +2734,13 @@ export default function App() {
     event.stopPropagation()
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setChatMenu(INITIAL_CHAT_MENU_STATE)
-    const { anchorX, anchorY } = getMenuAnchorFromEvent(event)
+    const cardNode = event && event.target && typeof event.target.closest === 'function'
+      ? event.target.closest('.feed-card')
+      : null
+    const { anchorX, anchorY } = getMenuAnchorFromEvent(event, {
+      fallbackElement: cardNode,
+      preferHorizontal: 'right'
+    })
     const pos = getMenuPosition(anchorX, anchorY, 260, 180)
     setPostMenu({
       open: true,
@@ -2887,7 +2926,7 @@ export default function App() {
     event.stopPropagation()
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setPostMenu(INITIAL_POST_MENU_STATE)
-    const { anchorX, anchorY } = getMenuAnchorFromEvent(event)
+    const { anchorX, anchorY } = getMenuAnchorFromEvent(event, { preferHorizontal: 'right' })
     const pos = getMenuPosition(anchorX, anchorY, 260, 220)
     setChatMenu({
       open: true,
@@ -3681,7 +3720,7 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                {contextMenu.open && contextMenu.message && (
+                {contextMenu.open && contextMenu.message && typeof document !== 'undefined' && createPortal(
                   <div
                     ref={contextMenuRef}
                     className="message-menu with-reactions"
@@ -3742,8 +3781,9 @@ export default function App() {
                           Удалить
                         </button>
                       )}
-                    </div>
-                  )}
+                    </div>,
+                  document.body
+                )}
                   <form className={`composer ${isChatBlocked ? 'disabled' : ''}`} onSubmit={handleSendMessage}>
                     <input
                       type="text"
@@ -4479,7 +4519,7 @@ export default function App() {
           </div>
         )}
 
-        {postMenu.open && postMenu.post && (
+        {postMenu.open && postMenu.post && typeof document !== 'undefined' && createPortal(
           <div
             ref={postMenuRef}
             className="message-menu compact"
@@ -4506,10 +4546,11 @@ export default function App() {
                 Удалить
               </button>
             )}
-          </div>
+          </div>,
+          document.body
         )}
 
-        {chatMenu.open && activeConversation && !activeConversation.isGroup && (
+        {chatMenu.open && activeConversation && !activeConversation.isGroup && typeof document !== 'undefined' && createPortal(
           <div
             ref={chatMenuRef}
             className="message-menu compact"
@@ -4543,7 +4584,8 @@ export default function App() {
             <button type="button" className="danger" onClick={toggleChatBlock}>
               {isChatBlocked ? 'Разблокировать' : 'Заблокировать'}
             </button>
-          </div>
+          </div>,
+          document.body
         )}
 
         {callState.status === 'incoming' && (
