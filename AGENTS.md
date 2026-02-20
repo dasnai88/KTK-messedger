@@ -39,6 +39,7 @@ Always do the full sequence below:
    - from repo root: `node --check server/src/index.js`
 4. Commit with a clear message.
 5. Push to GitHub `origin` (usually `main`).
+6. If frontend (`client/`) was changed, immediately deploy `client/dist` to production FTP (`configcorner.online`) right after push.
 
 No exceptions unless the user explicitly asks not to commit/push.
 
@@ -138,6 +139,16 @@ If UI changes are not visible after deploy:
 - Most likely old cached assets or wrong document root.
 - Confirm domain points to `/www/configcorner.online/` in ISPmanager.
 - Confirm remote `index.html` script/link hashes match uploaded files in `/assets/`.
+
+### Frontend Deploy Policy (strict)
+
+- Any task that changes frontend behavior or styles (`client/src/**`) must end with FTP deploy to `configcorner.online`.
+- Do not wait for an extra user prompt like "залей на хостинг" after frontend changes.
+- Deploy sequence is mandatory:
+  1. `npm run build` in `client/`
+  2. upload `dist/index.html`
+  3. replace all files in remote `/assets/` with current `dist/assets/*`
+  4. verify hashes in remote `index.html` match uploaded assets
 
 ## 7) Coding Standards for This Repo
 
