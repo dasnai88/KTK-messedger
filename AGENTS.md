@@ -100,6 +100,45 @@ Security note:
 - Health endpoint (typical): `/api/health`
 - If feature depends on schema and backend returns migration errors, apply `server/src/schema.sql` to Render DB and redeploy/restart service.
 
+## 6.1) Frontend Hosting (REG.RU / ISPmanager)
+
+Current production web domain:
+- `configcorner.online`
+
+Current hosting setup (frontend static files):
+- FTP host: `31.31.196.45`
+- FTP port: `21`
+- FTP user: `u3046522_gpt`
+- Document root for this site: `/www/configcorner.online/`
+
+Critical boundary:
+- Deploy only `configcorner.online`.
+- Do not touch other folders under `/www` unless explicitly requested.
+
+Security:
+- Never store FTP passwords/tokens in git.
+- Read credentials from user input or secure env vars at runtime.
+- If credentials were shared in chat, recommend rotating them after deployment.
+
+### Frontend Deploy Procedure (must follow exactly)
+
+1. Build latest frontend:
+   - `cd client`
+   - `npm run build`
+2. Upload `client/dist/index.html` to `/www/configcorner.online/index.html`.
+3. Clear old remote bundle files in `/www/configcorner.online/assets/`.
+4. Upload fresh files from `client/dist/assets/*` to `/www/configcorner.online/assets/`.
+5. Verify remote `index.html` references the same uploaded hashed files in `/assets/`.
+6. Validate in browser with cache-bypass:
+   - Open `https://configcorner.online/?v=<timestamp>`
+   - Hard refresh (`Ctrl+F5`)
+   - DevTools -> Network -> `Disable cache` during verification.
+
+If UI changes are not visible after deploy:
+- Most likely old cached assets or wrong document root.
+- Confirm domain points to `/www/configcorner.online/` in ISPmanager.
+- Confirm remote `index.html` script/link hashes match uploaded files in `/assets/`.
+
 ## 7) Coding Standards for This Repo
 
 - Keep changes minimal and local to affected modules.
