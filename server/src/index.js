@@ -613,6 +613,13 @@ function isMessageForwardSchemaError(err) {
   return message.includes('message_forwards')
 }
 
+function isMessageBookmarksSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('message_bookmarks')
+}
+
 function normalizePollQuestion(value) {
   return String(value || '').trim().slice(0, pollQuestionMaxLength)
 }
@@ -2360,6 +2367,86 @@ app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) 
   }
 })
 
+app.get('/api/conversations/:id/bookmarks', auth, ensureNotBanned, async (req, res) => {
+  const conversationId = req.params.id
+  try {
+    const membership = await pool.query(
+      'select 1 from conversation_members where conversation_id = $1 and user_id = $2',
+      [conversationId, req.userId]
+    )
+    if (membership.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    const queryWithPolls = `select mb.message_id,
+              mb.created_at as saved_at,
+              m.body,
+              m.attachment_url,
+              m.attachment_kind,
+              m.created_at as message_created_at,
+              m.sender_id,
+              u.username as sender_username,
+              u.display_name as sender_display_name,
+              mp.question as poll_question
+       from message_bookmarks mb
+       join messages m on m.id = mb.message_id
+       left join users u on u.id = m.sender_id
+       left join message_polls mp on mp.message_id = m.id
+       where mb.user_id = $1
+         and mb.conversation_id = $2
+         and m.deleted_at is null
+       order by mb.created_at desc
+       limit 200`
+
+    const queryWithoutPolls = `select mb.message_id,
+              mb.created_at as saved_at,
+              m.body,
+              m.attachment_url,
+              m.attachment_kind,
+              m.created_at as message_created_at,
+              m.sender_id,
+              u.username as sender_username,
+              u.display_name as sender_display_name,
+              null::text as poll_question
+       from message_bookmarks mb
+       join messages m on m.id = mb.message_id
+       left join users u on u.id = m.sender_id
+       where mb.user_id = $1
+         and mb.conversation_id = $2
+         and m.deleted_at is null
+       order by mb.created_at desc
+       limit 200`
+
+    let result
+    try {
+      result = await pool.query(queryWithPolls, [req.userId, conversationId])
+    } catch (err) {
+      if (!isMessagePollSchemaError(err)) throw err
+      result = await pool.query(queryWithoutPolls, [req.userId, conversationId])
+    }
+
+    const bookmarks = result.rows.map((row) => ({
+      messageId: row.message_id,
+      savedAt: row.saved_at,
+      messageCreatedAt: row.message_created_at,
+      senderId: row.sender_id || null,
+      senderUsername: row.sender_username || null,
+      senderDisplayName: row.sender_display_name || null,
+      preview: row.poll_question
+        ? `📊 ${normalizePollQuestion(row.poll_question)}`
+        : getMessagePreviewText(row.body, row.attachment_url, row.attachment_kind)
+    }))
+
+    res.json({ bookmarks })
+  } catch (err) {
+    if (isMessageBookmarksSchemaError(err)) {
+      return res.status(503).json({ error: 'Bookmarks feature is unavailable: database migration required' })
+    }
+    console.error('Conversation bookmarks error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 app.post('/api/conversations/:id/polls', messageLimiter, auth, ensureNotBanned, async (req, res) => {
   const conversationId = req.params.id
   const question = normalizePollQuestion(req.body && req.body.question)
@@ -3263,6 +3350,100 @@ app.delete('/api/messages/:id', auth, ensureNotBanned, async (req, res) => {
     res.json({ ok: true })
   } catch (err) {
     console.error('Delete message error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/messages/:id/bookmark', auth, ensureNotBanned, async (req, res) => {
+  const messageId = req.params.id
+  try {
+    const messageResult = await pool.query(
+      `select m.id,
+              m.conversation_id,
+              m.body,
+              m.attachment_url,
+              m.attachment_kind,
+              m.created_at,
+              m.deleted_at,
+              m.sender_id,
+              u.username as sender_username,
+              u.display_name as sender_display_name
+       from messages m
+       left join users u on u.id = m.sender_id
+       join conversation_members cm
+         on cm.conversation_id = m.conversation_id
+        and cm.user_id = $2
+       where m.id = $1
+       limit 1`,
+      [messageId, req.userId]
+    )
+    if (messageResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Message not found' })
+    }
+
+    const messageRow = messageResult.rows[0]
+    if (messageRow.deleted_at) {
+      return res.status(400).json({ error: 'Message is deleted' })
+    }
+
+    const inserted = await pool.query(
+      `insert into message_bookmarks (user_id, message_id, conversation_id)
+       values ($1, $2, $3)
+       on conflict do nothing
+       returning message_id, created_at`,
+      [req.userId, messageId, messageRow.conversation_id]
+    )
+
+    const active = inserted.rowCount > 0
+    let savedAt = null
+    if (active) {
+      savedAt = inserted.rows[0].created_at
+    } else {
+      const deleted = await pool.query(
+        `delete from message_bookmarks
+         where user_id = $1 and message_id = $2
+         returning created_at`,
+        [req.userId, messageId]
+      )
+      savedAt = deleted.rowCount > 0 ? deleted.rows[0].created_at : null
+    }
+
+    let pollQuestion = ''
+    try {
+      const pollResult = await pool.query(
+        `select question from message_polls where message_id = $1 limit 1`,
+        [messageId]
+      )
+      if (pollResult.rowCount > 0) {
+        pollQuestion = normalizePollQuestion(pollResult.rows[0].question)
+      }
+    } catch (err) {
+      if (!isMessagePollSchemaError(err)) throw err
+    }
+
+    const bookmark = {
+      messageId,
+      savedAt: savedAt || new Date().toISOString(),
+      messageCreatedAt: messageRow.created_at,
+      senderId: messageRow.sender_id || null,
+      senderUsername: messageRow.sender_username || null,
+      senderDisplayName: messageRow.sender_display_name || null,
+      preview: pollQuestion
+        ? `📊 ${pollQuestion}`
+        : getMessagePreviewText(messageRow.body, messageRow.attachment_url, messageRow.attachment_kind)
+    }
+
+    res.json({
+      ok: true,
+      active,
+      conversationId: messageRow.conversation_id,
+      bookmark
+    })
+  } catch (err) {
+    if (isMessageBookmarksSchemaError(err)) {
+      return res.status(503).json({ error: 'Bookmarks feature is unavailable: database migration required' })
+    }
+    console.error('Message bookmark error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })

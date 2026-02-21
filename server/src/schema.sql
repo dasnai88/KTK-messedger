@@ -120,6 +120,14 @@ create table if not exists message_reactions (
   primary key (message_id, user_id, emoji)
 );
 
+create table if not exists message_bookmarks (
+  user_id uuid references users(id) on delete cascade,
+  message_id uuid references messages(id) on delete cascade,
+  conversation_id uuid references conversations(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (user_id, message_id)
+);
+
 create table if not exists message_forwards (
   message_id uuid primary key references messages(id) on delete cascade,
   source_message_id uuid references messages(id) on delete set null,
@@ -200,6 +208,7 @@ create index if not exists idx_members_user_favorite on conversation_members (us
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
 create index if not exists idx_messages_conversation on messages (conversation_id, created_at);
 create index if not exists idx_message_reactions_message on message_reactions (message_id);
+create index if not exists idx_message_bookmarks_user_conversation on message_bookmarks (user_id, conversation_id, created_at desc);
 create index if not exists idx_message_forwards_source_message on message_forwards (source_message_id);
 create index if not exists idx_message_poll_votes_message on message_poll_votes (message_id);
 create index if not exists idx_message_poll_votes_user on message_poll_votes (user_id);
@@ -313,6 +322,26 @@ DO $$ BEGIN
   ALTER TABLE message_forwards ADD COLUMN source_message_id uuid;
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_bookmarks ADD COLUMN conversation_id uuid;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_bookmarks ADD COLUMN created_at timestamptz default now();
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  UPDATE message_bookmarks mb
+  SET conversation_id = m.conversation_id
+  FROM messages m
+  WHERE mb.message_id = m.id
+    AND mb.conversation_id IS NULL;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE message_forwards ADD COLUMN source_sender_id uuid;

@@ -57,7 +57,9 @@ import {
   sendGif,
   createPoll,
   votePoll,
-  forwardMessage as forwardMessageApi
+  forwardMessage as forwardMessageApi,
+  getConversationBookmarks,
+  toggleMessageBookmark
 } from './api.js'
 
 const icons = {
@@ -294,6 +296,28 @@ const FEED_FILTERS = {
   mine: 'mine',
   bookmarks: 'bookmarks'
 }
+const FEED_POST_TEMPLATES = [
+  {
+    id: 'announce',
+    label: 'Анонс',
+    text: '📢 Анонс:\n\n📅 Дата:\n📍 Место:\n🕒 Время:\n\nПодробности:'
+  },
+  {
+    id: 'question',
+    label: 'Вопрос',
+    text: '❓ Нужен совет:\n\nСитуация:\nЧто лучше сделать?'
+  },
+  {
+    id: 'project',
+    label: 'Проект',
+    text: '🚀 Апдейт по проекту:\n\nСделано:\nДальше:\nНужна помощь:'
+  },
+  {
+    id: 'event',
+    label: 'Ивент',
+    text: '🎉 Ивент в колледже:\n\nКогда:\nДля кого:\nЧто будет:'
+  }
+]
 const CHAT_WALLPAPERS = [
   { value: 'default', label: 'Классика' },
   { value: 'aurora', label: 'Аврора' },
@@ -687,6 +711,10 @@ export default function App() {
   const [messages, setMessages] = useState([])
   const [messageText, setMessageText] = useState('')
   const [replyMessage, setReplyMessage] = useState(null)
+  const [bookmarkPanelOpen, setBookmarkPanelOpen] = useState(false)
+  const [bookmarkPanelLoading, setBookmarkPanelLoading] = useState(false)
+  const [conversationBookmarks, setConversationBookmarks] = useState([])
+  const [bookmarkedMessageIdsByConversation, setBookmarkedMessageIdsByConversation] = useState({})
   const [forwardDialogOpen, setForwardDialogOpen] = useState(false)
   const [forwardSourceMessage, setForwardSourceMessage] = useState(null)
   const [forwardConversationId, setForwardConversationId] = useState('')
@@ -759,6 +787,7 @@ export default function App() {
   const [feedFilter, setFeedFilter] = useState(FEED_FILTERS.all)
   const [feedQuery, setFeedQuery] = useState('')
   const [activeFeedTag, setActiveFeedTag] = useState('')
+  const [feedAuthorFilter, setFeedAuthorFilter] = useState('')
   const [bookmarkedPostIds, setBookmarkedPostIds] = useState(() => {
     try {
       const raw = JSON.parse(localStorage.getItem(FEED_BOOKMARKS_STORAGE_KEY) || '[]')
@@ -961,6 +990,11 @@ export default function App() {
     const found = CHAT_WALLPAPERS.find((item) => item.value === storedValue)
     return found || CHAT_WALLPAPERS[0]
   }, [activeConversation, chatWallpaperByConversation])
+  const activeConversationBookmarkedMessageIds = useMemo(() => {
+    if (!activeConversation) return new Set()
+    const list = bookmarkedMessageIdsByConversation[activeConversation.id] || []
+    return new Set(list)
+  }, [activeConversation, bookmarkedMessageIdsByConversation])
   const stickerById = useMemo(() => (
     new Map(myStickers.map((sticker) => [sticker.id, sticker]))
   ), [myStickers])
@@ -1055,6 +1089,55 @@ export default function App() {
       .slice(0, 8)
       .map(([tag, count]) => ({ tag, count }))
   }, [posts])
+  const topFeedAuthors = useMemo(() => {
+    const authorStats = new Map()
+    posts.forEach((post) => {
+      const author = post && post.author ? post.author : null
+      if (!author || !author.id) return
+      const existing = authorStats.get(author.id) || {
+        id: author.id,
+        username: author.username || '',
+        displayName: author.displayName || '',
+        avatarUrl: author.avatarUrl || '',
+        posts: 0,
+        engagement: 0
+      }
+      const engagement = (Number(post.likesCount || 0) * 3) + Number(post.commentsCount || 0) + (Number(post.repostsCount || 0) * 4)
+      existing.posts += 1
+      existing.engagement += engagement
+      authorStats.set(author.id, existing)
+    })
+    return Array.from(authorStats.values())
+      .sort((a, b) => {
+        if (b.engagement !== a.engagement) return b.engagement - a.engagement
+        if (b.posts !== a.posts) return b.posts - a.posts
+        return (a.username || '').localeCompare(b.username || '')
+      })
+      .slice(0, 5)
+  }, [posts])
+  const hotFeedPosts = useMemo(() => {
+    const now = Date.now()
+    const oneDayMs = 24 * 60 * 60 * 1000
+    return posts
+      .map((post) => {
+        const createdAt = Date.parse(post.createdAt || '') || 0
+        const ageMs = Math.max(0, now - createdAt)
+        const recentBoost = ageMs <= oneDayMs ? 1 : 0
+        const score = (
+          (Number(post.likesCount || 0) * 3) +
+          Number(post.commentsCount || 0) +
+          (Number(post.repostsCount || 0) * 4) +
+          (recentBoost ? 8 : 0)
+        )
+        return { post, score, ageMs }
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score
+        return a.ageMs - b.ageMs
+      })
+      .slice(0, 5)
+  }, [posts])
   const feedMetrics = useMemo(() => {
     const total = posts.length
     const mine = posts.reduce((acc, post) => acc + (post.author && user && post.author.id === user.id ? 1 : 0), 0)
@@ -1081,6 +1164,9 @@ export default function App() {
     if (tagFilter) {
       list = list.filter((post) => extractHashtags(post.body).includes(tagFilter))
     }
+    if (feedAuthorFilter) {
+      list = list.filter((post) => post.author && post.author.id === feedAuthorFilter)
+    }
     if (feedQueryNormalized) {
       list = list.filter((post) => {
         const body = String(post.body || '').toLowerCase()
@@ -1097,7 +1183,7 @@ export default function App() {
       })
     }
     return list
-  }, [posts, feedFilter, user, bookmarkedPostIds, activeFeedTag, feedQueryNormalized])
+  }, [posts, feedFilter, user, bookmarkedPostIds, activeFeedTag, feedAuthorFilter, feedQueryNormalized])
   const isActiveConversationFavorite = useMemo(() => {
     if (!activeConversation) return false
     return favoriteConversationSet.has(activeConversation.id)
@@ -2214,11 +2300,14 @@ export default function App() {
     if (!activeConversation) {
       setMessages([])
       setPollVoteLoadingByMessage({})
+      setConversationBookmarks([])
+      setBookmarkPanelOpen(false)
       return
     }
     setPollVoteLoadingByMessage({})
     setPollComposerOpen(false)
     setPollDraft(INITIAL_POLL_DRAFT)
+    setBookmarkPanelOpen(false)
     const loadMessages = async () => {
       try {
         const data = await getMessages(activeConversation.id)
@@ -2228,6 +2317,7 @@ export default function App() {
         setStatus({ type: 'error', message: err.message })
       }
     }
+    loadConversationBookmarks(activeConversation.id, { silent: true })
     loadMessages()
   }, [activeConversation])
 
@@ -3384,6 +3474,10 @@ export default function App() {
     setMediaPanelOpen(false)
     setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
     setMediaPanelQuery('')
+    setBookmarkPanelOpen(false)
+    setBookmarkPanelLoading(false)
+    setConversationBookmarks([])
+    setBookmarkedMessageIdsByConversation({})
     setForwardDialogOpen(false)
     setForwardSourceMessage(null)
     setForwardConversationId('')
@@ -3403,6 +3497,7 @@ export default function App() {
     setTrackTitle('')
     setTrackArtist('')
     setTrackFile(null)
+    setFeedAuthorFilter('')
     setPushState((prev) => ({
       ...prev,
       enabled: false,
@@ -3844,6 +3939,117 @@ export default function App() {
     setFeedFilter(FEED_FILTERS.all)
     setFeedQuery('')
     setActiveFeedTag('')
+    setFeedAuthorFilter('')
+  }
+
+  const applyFeedTemplate = (templateId) => {
+    const template = FEED_POST_TEMPLATES.find((item) => item.id === templateId)
+    if (!template) return
+    setPostText(template.text)
+    setStatus({ type: 'info', message: `Шаблон "${template.label}" применен.` })
+  }
+
+  const toggleFeedAuthorFilter = (authorId) => {
+    if (!authorId) return
+    setFeedAuthorFilter((prev) => (prev === authorId ? '' : authorId))
+  }
+
+  const loadConversationBookmarks = async (conversationId, { silent = false } = {}) => {
+    if (!conversationId) {
+      setConversationBookmarks([])
+      return
+    }
+    if (!silent) {
+      setBookmarkPanelLoading(true)
+    }
+    try {
+      const data = await getConversationBookmarks(conversationId)
+      const bookmarks = Array.isArray(data.bookmarks) ? data.bookmarks : []
+      const ids = bookmarks
+        .map((bookmark) => bookmark && bookmark.messageId)
+        .filter(Boolean)
+      setBookmarkedMessageIdsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: ids
+      }))
+      if (activeConversationRef.current && activeConversationRef.current.id === conversationId) {
+        setConversationBookmarks(bookmarks)
+      }
+    } catch (err) {
+      if (!silent) {
+        setStatus({ type: 'error', message: err.message })
+      }
+    } finally {
+      if (!silent) {
+        setBookmarkPanelLoading(false)
+      }
+    }
+  }
+
+  const isMessageBookmarked = (messageId) => {
+    if (!messageId) return false
+    return activeConversationBookmarkedMessageIds.has(messageId)
+  }
+
+  const jumpToMessage = (messageId) => {
+    if (!messageId) return
+    const target = document.getElementById(`message-${messageId}`)
+    if (!target) {
+      setStatus({ type: 'info', message: 'Сообщение не найдено в текущей истории.' })
+      return
+    }
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target.classList.add('message-jump-highlight')
+    window.setTimeout(() => {
+      target.classList.remove('message-jump-highlight')
+    }, 1300)
+  }
+
+  const handleToggleMessageBookmark = async (msg, { closeMenu = false } = {}) => {
+    if (!msg || !msg.id || !activeConversation) return
+    try {
+      const data = await toggleMessageBookmark(msg.id)
+      const isActive = data && data.active === true
+      const bookmark = data && data.bookmark ? data.bookmark : null
+      const conversationId = activeConversation.id
+      setBookmarkedMessageIdsByConversation((prev) => {
+        const current = new Set(prev[conversationId] || [])
+        if (isActive) {
+          current.add(msg.id)
+        } else {
+          current.delete(msg.id)
+        }
+        return {
+          ...prev,
+          [conversationId]: Array.from(current)
+        }
+      })
+      setConversationBookmarks((prev) => {
+        if (isActive) {
+          const source = bookmark || {
+            messageId: msg.id,
+            savedAt: new Date().toISOString(),
+            messageCreatedAt: msg.createdAt,
+            senderId: msg.senderId || null,
+            senderUsername: msg.senderUsername || null,
+            senderDisplayName: msg.senderDisplayName || null,
+            preview: getMessagePreview(msg)
+          }
+          const next = [source, ...prev.filter((item) => item.messageId !== msg.id)]
+          return next.slice(0, 200)
+        }
+        return prev.filter((item) => item.messageId !== msg.id)
+      })
+      setStatus({
+        type: 'info',
+        message: isActive ? 'Сообщение добавлено в сохраненные.' : 'Сообщение удалено из сохраненных.'
+      })
+      if (closeMenu) {
+        setContextMenu(INITIAL_MESSAGE_MENU_STATE)
+      }
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
   }
 
   const applyStatusEmojiPreset = (emoji) => {
@@ -4011,6 +4217,18 @@ export default function App() {
       .then(() => {
         setReplyMessage((prev) => (prev && prev.id === msg.id ? null : prev))
         setMessages((prev) => prev.filter((m) => m.id !== msg.id))
+        if (activeConversation) {
+          setBookmarkedMessageIdsByConversation((prev) => {
+            const current = new Set(prev[activeConversation.id] || [])
+            if (!current.has(msg.id)) return prev
+            current.delete(msg.id)
+            return {
+              ...prev,
+              [activeConversation.id]: Array.from(current)
+            }
+          })
+          setConversationBookmarks((prev) => prev.filter((item) => item.messageId !== msg.id))
+        }
         if (pinnedMessage && pinnedMessage.id === msg.id && activeConversation) {
           setPinnedByConversation((prev) => {
             const next = { ...prev }
@@ -4942,6 +5160,20 @@ export default function App() {
                         </button>
                         <button
                           type="button"
+                          className={`chat-action ${bookmarkPanelOpen ? 'favorite' : ''}`.trim()}
+                          onClick={() => {
+                            const nextOpen = !bookmarkPanelOpen
+                            setBookmarkPanelOpen(nextOpen)
+                            if (nextOpen && activeConversation) {
+                              loadConversationBookmarks(activeConversation.id)
+                            }
+                          }}
+                          title={bookmarkPanelOpen ? 'Скрыть сохраненные' : 'Показать сохраненные'}
+                        >
+                          🔖
+                        </button>
+                        <button
+                          type="button"
                           className="chat-action"
                           onClick={cycleChatWallpaper}
                           title={`Тема чата: ${activeChatWallpaper.label}`}
@@ -4998,6 +5230,36 @@ export default function App() {
                     {typingLabel && (
                       <div className="chat-typing">{typingLabel}</div>
                     )}
+                    {bookmarkPanelOpen && (
+                      <div className="chat-bookmarks-panel">
+                        <div className="chat-bookmarks-head">
+                          <strong>Сохраненные сообщения</strong>
+                          <span>{conversationBookmarks.length}</span>
+                        </div>
+                        {bookmarkPanelLoading ? (
+                          <div className="empty small">Загрузка...</div>
+                        ) : conversationBookmarks.length === 0 ? (
+                          <div className="empty small">Пока ничего не сохранено</div>
+                        ) : (
+                          <div className="chat-bookmarks-list">
+                            {conversationBookmarks.map((bookmark) => (
+                              <button
+                                key={`bookmark-${bookmark.messageId}`}
+                                type="button"
+                                className="chat-bookmark-item"
+                                onClick={() => jumpToMessage(bookmark.messageId)}
+                              >
+                                <div>
+                                  <strong>{bookmark.senderDisplayName || bookmark.senderUsername || 'Пользователь'}</strong>
+                                  <p>{bookmark.preview || 'Сообщение'}</p>
+                                </div>
+                                <time>{formatTime(bookmark.messageCreatedAt || bookmark.savedAt)}</time>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className={`chat-messages ${chatShaking ? 'nudge-shake' : ''}`.trim()} ref={chatMessagesRef}>
                     {filteredMessages.length === 0 && (
@@ -5008,6 +5270,7 @@ export default function App() {
                   {filteredMessages.map((msg) => (
                       <div
                         key={msg.id}
+                        id={`message-${msg.id}`}
                         className={`message-row ${msg.senderId === user.id ? 'mine' : ''}`}
                         onContextMenu={(event) => openMessageMenu(event, msg)}
                       >
@@ -5110,6 +5373,7 @@ export default function App() {
                           {msg.poll && renderPollCard(msg)}
                           <div className="message-meta">
                             {msg.editedAt && <span className="message-edited">изменено</span>}
+                            {isMessageBookmarked(msg.id) && <span className="message-bookmarked">🔖</span>}
                             <time className="message-time">{formatTime(msg.createdAt)}</time>
                             {msg.senderId === user.id && activeConversation && !activeConversation.isGroup && (
                               <span className={`message-status ${msg.readByOther ? 'read' : ''}`}>
@@ -5207,6 +5471,12 @@ export default function App() {
                           ))}
                         </div>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleMessageBookmark(contextMenu.message, { closeMenu: true })}
+                      >
+                        {isMessageBookmarked(contextMenu.message.id) ? 'Убрать из сохраненных' : 'Сохранить сообщение'}
+                      </button>
                       <button type="button" onClick={() => openForwardDialog(contextMenu.message)}>
                         Переслать
                       </button>
@@ -5733,6 +6003,18 @@ export default function App() {
                 onChange={(event) => setPostText(event.target.value)}
                 placeholder="Что нового в колледже?"
               />
+              <div className="feed-template-row">
+                {FEED_POST_TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    className="feed-template-btn"
+                    onClick={() => applyFeedTemplate(template.id)}
+                  >
+                    {template.label}
+                  </button>
+                ))}
+              </div>
               <div className="feed-actions">
                 <label className="file-btn">
                   📷
@@ -5823,7 +6105,7 @@ export default function App() {
                   onChange={(event) => setFeedQuery(event.target.value)}
                   placeholder="Search posts, authors, or #tags..."
                 />
-                {(feedQuery || activeFeedTag || feedFilter !== FEED_FILTERS.all) && (
+                {(feedQuery || activeFeedTag || feedAuthorFilter || feedFilter !== FEED_FILTERS.all) && (
                   <button type="button" className="ghost" onClick={resetFeedFilters}>
                     Reset
                   </button>
@@ -5844,6 +6126,55 @@ export default function App() {
                   ))}
                 </div>
               )}
+
+              <div className="feed-radar">
+                <div className="feed-radar-card">
+                  <div className="feed-radar-head">
+                    <strong>Топ авторы</strong>
+                    <span>по вовлечению</span>
+                  </div>
+                  {topFeedAuthors.length === 0 ? (
+                    <div className="empty small">Пока нет данных</div>
+                  ) : (
+                    <div className="feed-author-list">
+                      {topFeedAuthors.map((author) => (
+                        <button
+                          key={`feed-top-author-${author.id}`}
+                          type="button"
+                          className={`feed-author-item ${feedAuthorFilter === author.id ? 'active' : ''}`.trim()}
+                          onClick={() => toggleFeedAuthorFilter(author.id)}
+                        >
+                          <span>{author.displayName || author.username}</span>
+                          <small>{author.engagement} pts</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="feed-radar-card">
+                  <div className="feed-radar-head">
+                    <strong>Горячие посты</strong>
+                    <span>live</span>
+                  </div>
+                  {hotFeedPosts.length === 0 ? (
+                    <div className="empty small">Пока тихо</div>
+                  ) : (
+                    <div className="feed-hot-list">
+                      {hotFeedPosts.map((item) => (
+                        <button
+                          key={`feed-hot-${item.post.id}`}
+                          type="button"
+                          className="feed-hot-item"
+                          onClick={() => openProfile(item.post.author.username)}
+                        >
+                          <span>{item.post.author.displayName || item.post.author.username}</span>
+                          <small>{item.score} pts</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </section>
 
             <div className="feed-list">

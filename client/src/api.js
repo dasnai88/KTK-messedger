@@ -383,6 +383,16 @@ export async function forwardMessage(messageId, payload) {
   })
 }
 
+export async function getConversationBookmarks(conversationId) {
+  return request(`/conversations/${conversationId}/bookmarks`)
+}
+
+export async function toggleMessageBookmark(messageId) {
+  return request(`/messages/${messageId}/bookmark`, {
+    method: 'POST'
+  })
+}
+
 export async function uploadProfileTrack(file, meta = {}) {
   const token = getToken()
   const formData = new FormData()
