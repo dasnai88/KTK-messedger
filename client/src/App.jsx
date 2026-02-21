@@ -171,6 +171,8 @@ const CHAT_ALIAS_STORAGE_KEY = 'ktk_chat_aliases'
 const RECENT_STICKERS_STORAGE_KEY = 'ktk_recent_stickers'
 const RECENT_GIFS_STORAGE_KEY = 'ktk_recent_gifs'
 const RECENT_EMOJIS_STORAGE_KEY = 'ktk_recent_emojis'
+const UI_PREFERENCES_STORAGE_KEY = 'ktk_ui_preferences_v1'
+const PROFILE_SHOWCASE_STORAGE_KEY = 'ktk_profile_showcase_v1'
 const MEDIA_PANEL_TABS = {
   emoji: 'emoji',
   stickers: 'stickers',
@@ -327,6 +329,68 @@ const CHAT_WALLPAPERS = [
   { value: 'grid', label: 'Сетка' }
 ]
 const STATUS_EMOJI_PRESETS = ['🔥', '😎', '✨', '🌙', '🎯', '🚀', '💡', '🎧', '🤝', '🎮']
+const STATUS_TEXT_PRESETS = [
+  'на связи',
+  'в потоке',
+  'занят проектом',
+  'вдохновлен',
+  'в учебе',
+  'на перерыве'
+]
+const BIO_TEXT_PRESETS = [
+  'Люблю делать красивые и быстрые интерфейсы.',
+  'Учусь, экспериментирую и собираю сильное портфолио.',
+  'Чаты, проекты, дизайн и немного хаоса каждый день.'
+]
+const PROFILE_COLOR_PRESETS = [
+  { value: '#7a1f1d', label: 'Ruby' },
+  { value: '#1f3f7a', label: 'Ocean' },
+  { value: '#145c49', label: 'Forest' },
+  { value: '#5c2d91', label: 'Violet' },
+  { value: '#9a3412', label: 'Sunset' },
+  { value: '#374151', label: 'Steel' }
+]
+const PROFILE_HERO_THEMES = [
+  { value: 'default', label: 'Классика' },
+  { value: 'sunset', label: 'Закат' },
+  { value: 'ocean', label: 'Океан' },
+  { value: 'forest', label: 'Лес' },
+  { value: 'neon', label: 'Неон' }
+]
+const PROFILE_BADGE_OPTIONS = [
+  { id: 'builder', emoji: '🛠️', label: 'Builder' },
+  { id: 'designer', emoji: '🎨', label: 'Designer' },
+  { id: 'mentor', emoji: '🧠', label: 'Mentor' },
+  { id: 'gamer', emoji: '🎮', label: 'Gamer' },
+  { id: 'music', emoji: '🎧', label: 'Music' },
+  { id: 'rapid', emoji: '⚡', label: 'Rapid' },
+  { id: 'night', emoji: '🌙', label: 'Night Owl' },
+  { id: 'communicator', emoji: '💬', label: 'Communicator' }
+]
+const UI_STYLE_OPTIONS = [
+  { value: 'glass', label: 'Glass' },
+  { value: 'neo', label: 'Neo' },
+  { value: 'classic', label: 'Classic' }
+]
+const UI_DENSITY_OPTIONS = [
+  { value: 'compact', label: 'Compact' },
+  { value: 'comfortable', label: 'Comfort' },
+  { value: 'spacious', label: 'Spacious' }
+]
+const DEFAULT_UI_PREFERENCES = {
+  style: 'glass',
+  density: 'comfortable',
+  ambient: 58,
+  radius: 22,
+  syncAccent: true
+}
+const DEFAULT_PROFILE_SHOWCASE = {
+  headline: '',
+  heroTheme: 'default',
+  skills: [],
+  badges: [],
+  links: []
+}
 const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
 const MENU_VIEWPORT_PADDING = 12
@@ -364,6 +428,194 @@ const ALL_MESSAGE_REACTIONS = Array.from(new Set([
   '🤗', '🤤', '🤮', '🍾', '🍓', '🌭', '⚡', '🏆', '💋', '🤡',
   '💘', '🎯', '🫠', '😐', '😶', '🙃', '🫢', '🤌', '✌️', '👋'
 ]))
+
+function clampNumber(value, min, max) {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return min
+  return Math.min(max, Math.max(min, num))
+}
+
+function normalizeHexColor(value, fallback = '#7a1f1d') {
+  const raw = String(value || '').trim()
+  if (/^#([0-9a-fA-F]{6})$/.test(raw)) return raw.toLowerCase()
+  if (/^#([0-9a-fA-F]{3})$/.test(raw)) {
+    const short = raw.slice(1)
+    return `#${short[0]}${short[0]}${short[1]}${short[1]}${short[2]}${short[2]}`.toLowerCase()
+  }
+  return fallback
+}
+
+function hexToRgb(hex) {
+  const value = normalizeHexColor(hex).slice(1)
+  return {
+    r: Number.parseInt(value.slice(0, 2), 16),
+    g: Number.parseInt(value.slice(2, 4), 16),
+    b: Number.parseInt(value.slice(4, 6), 16)
+  }
+}
+
+function mixRgbColor(rgbA, rgbB, ratio) {
+  const mixRatio = clampNumber(ratio, 0, 1)
+  return {
+    r: Math.round(rgbA.r + (rgbB.r - rgbA.r) * mixRatio),
+    g: Math.round(rgbA.g + (rgbB.g - rgbA.g) * mixRatio),
+    b: Math.round(rgbA.b + (rgbB.b - rgbA.b) * mixRatio)
+  }
+}
+
+function rgbToHex(rgb) {
+  const toHex = (channel) => clampNumber(channel, 0, 255).toString(16).padStart(2, '0')
+  return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`
+}
+
+function rgbToCssTriplet(rgb) {
+  return `${clampNumber(rgb.r, 0, 255)} ${clampNumber(rgb.g, 0, 255)} ${clampNumber(rgb.b, 0, 255)}`
+}
+
+function normalizeUiPreferences(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const style = UI_STYLE_OPTIONS.some((item) => item.value === source.style)
+    ? source.style
+    : DEFAULT_UI_PREFERENCES.style
+  const density = UI_DENSITY_OPTIONS.some((item) => item.value === source.density)
+    ? source.density
+    : DEFAULT_UI_PREFERENCES.density
+  const ambient = clampNumber(source.ambient, 0, 100)
+  const radius = clampNumber(source.radius, 12, 36)
+  const syncAccent = source.syncAccent !== false
+  return {
+    style,
+    density,
+    ambient,
+    radius,
+    syncAccent
+  }
+}
+
+function normalizeProfileShowcase(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const heroTheme = PROFILE_HERO_THEMES.some((item) => item.value === source.heroTheme)
+    ? source.heroTheme
+    : DEFAULT_PROFILE_SHOWCASE.heroTheme
+  const headline = String(source.headline || '').trim().slice(0, 120)
+  const skills = Array.isArray(source.skills)
+    ? source.skills
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .slice(0, 8)
+    : []
+  const allowedBadgeIds = new Set(PROFILE_BADGE_OPTIONS.map((item) => item.id))
+  const badges = Array.isArray(source.badges)
+    ? source.badges
+      .map((item) => String(item || '').trim())
+      .filter((item) => allowedBadgeIds.has(item))
+      .slice(0, 6)
+    : []
+  const links = Array.isArray(source.links)
+    ? source.links
+      .map((item) => {
+        const label = String(item && item.label || '').trim().slice(0, 30)
+        const url = String(item && item.url || '').trim().slice(0, 240)
+        if (!label || !url) return null
+        const normalizedUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`
+        return { label, url: normalizedUrl }
+      })
+      .filter(Boolean)
+      .slice(0, 2)
+    : []
+  return {
+    headline,
+    heroTheme,
+    skills,
+    badges,
+    links
+  }
+}
+
+function mapShowcaseToForm(showcase) {
+  const normalized = normalizeProfileShowcase(showcase)
+  return {
+    headline: normalized.headline,
+    heroTheme: normalized.heroTheme,
+    skillsInput: normalized.skills.join(', '),
+    badges: normalized.badges,
+    linkPrimaryLabel: normalized.links[0] ? normalized.links[0].label : '',
+    linkPrimaryUrl: normalized.links[0] ? normalized.links[0].url : '',
+    linkSecondaryLabel: normalized.links[1] ? normalized.links[1].label : '',
+    linkSecondaryUrl: normalized.links[1] ? normalized.links[1].url : ''
+  }
+}
+
+function mapFormToShowcase(formValue) {
+  const form = formValue && typeof formValue === 'object' ? formValue : {}
+  const skills = String(form.skillsInput || '')
+    .split(',')
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 8)
+  const badges = Array.isArray(form.badges) ? form.badges : []
+  const links = []
+  const firstLabel = String(form.linkPrimaryLabel || '').trim().slice(0, 30)
+  const firstUrl = String(form.linkPrimaryUrl || '').trim().slice(0, 240)
+  const secondLabel = String(form.linkSecondaryLabel || '').trim().slice(0, 30)
+  const secondUrl = String(form.linkSecondaryUrl || '').trim().slice(0, 240)
+  if (firstLabel && firstUrl) {
+    links.push({ label: firstLabel, url: firstUrl })
+  }
+  if (secondLabel && secondUrl) {
+    links.push({ label: secondLabel, url: secondUrl })
+  }
+  return normalizeProfileShowcase({
+    headline: String(form.headline || '').trim().slice(0, 120),
+    heroTheme: form.heroTheme,
+    skills,
+    badges,
+    links
+  })
+}
+
+function normalizeProfileShowcaseMap(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return Object.keys(source).reduce((acc, key) => {
+    const normalizedKey = String(key || '').trim()
+    if (!normalizedKey) return acc
+    acc[normalizedKey] = normalizeProfileShowcase(source[key])
+    return acc
+  }, {})
+}
+
+function calculateProfilePowerScore(profile, postsCount, tracksCount, showcase) {
+  if (!profile) return 0
+  let score = 0
+  if (profile.avatarUrl) score += 12
+  if (profile.bannerUrl) score += 10
+  if (String(profile.bio || '').trim().length >= 40) score += 14
+  if (String(profile.statusText || '').trim()) score += 8
+  if (String(profile.statusEmoji || '').trim()) score += 4
+  if (Number(profile.subscribersCount || 0) >= 10) score += 12
+  if (Number(profile.subscribersCount || 0) >= 50) score += 8
+  if (postsCount >= 3) score += 10
+  if (postsCount >= 10) score += 5
+  if (tracksCount >= 2) score += 8
+  if (tracksCount >= 6) score += 5
+  if (showcase && showcase.headline) score += 2
+  if (showcase && showcase.skills && showcase.skills.length >= 3) score += 2
+  return clampNumber(Math.round(score), 0, 100)
+}
+
+function buildProfileAchievements(profile, postsCount, tracksCount, showcase) {
+  if (!profile) return []
+  const badges = []
+  if (profile.avatarUrl) badges.push({ id: 'avatar', emoji: '🧿', label: 'Узнаваемый профиль' })
+  if (profile.bannerUrl) badges.push({ id: 'banner', emoji: '🖼️', label: 'С обложкой' })
+  if (String(profile.bio || '').trim().length >= 40) badges.push({ id: 'bio', emoji: '✍️', label: 'Развернутый bio' })
+  if (Number(profile.subscribersCount || 0) >= 10) badges.push({ id: 'social', emoji: '📈', label: 'Рост аудитории' })
+  if (tracksCount >= 3) badges.push({ id: 'music', emoji: '🎵', label: 'Музыкальная витрина' })
+  if (postsCount >= 5) badges.push({ id: 'posts', emoji: '📰', label: 'Активный автор' })
+  if (showcase && showcase.skills && showcase.skills.length >= 3) badges.push({ id: 'skills', emoji: '🧩', label: 'Showcase skills' })
+  if (showcase && showcase.badges && showcase.badges.length >= 2) badges.push({ id: 'showcase', emoji: '✨', label: 'Прокачанный стиль' })
+  return badges.slice(0, 8)
+}
 const MESSAGE_REACTION_SORT = (a, b) => {
   if (b.count !== a.count) return b.count - a.count
   return a.emoji.localeCompare(b.emoji)
@@ -704,6 +956,25 @@ export default function App() {
     }
     return 'dark'
   })
+  const [uiPreferences, setUiPreferences] = useState(() => {
+    if (typeof window === 'undefined') return { ...DEFAULT_UI_PREFERENCES }
+    try {
+      const parsed = JSON.parse(localStorage.getItem(UI_PREFERENCES_STORAGE_KEY) || '{}')
+      return normalizeUiPreferences(parsed)
+    } catch (err) {
+      return { ...DEFAULT_UI_PREFERENCES }
+    }
+  })
+  const [profileShowcaseByUserId, setProfileShowcaseByUserId] = useState(() => {
+    if (typeof window === 'undefined') return {}
+    try {
+      const parsed = JSON.parse(localStorage.getItem(PROFILE_SHOWCASE_STORAGE_KEY) || '{}')
+      return normalizeProfileShowcaseMap(parsed)
+    } catch (err) {
+      return {}
+    }
+  })
+  const [profileShowcaseForm, setProfileShowcaseForm] = useState(() => mapShowcaseToForm(DEFAULT_PROFILE_SHOWCASE))
   const [toasts, setToasts] = useState([])
   const [loading, setLoading] = useState(false)
 
@@ -810,6 +1081,7 @@ export default function App() {
   const [profileBackView, setProfileBackView] = useState('feed')
   const [profilePosts, setProfilePosts] = useState([])
   const [profileTracks, setProfileTracks] = useState([])
+  const [profilePostFilter, setProfilePostFilter] = useState('all')
   const [myTracks, setMyTracks] = useState([])
   const [trackTitle, setTrackTitle] = useState('')
   const [trackArtist, setTrackArtist] = useState('')
@@ -973,6 +1245,57 @@ export default function App() {
   }, [conversations, chatAliasByConversation, forwardQueryNormalized])
   const userMoodLabel = useMemo(() => getProfileMoodLabel(user), [user])
   const profileViewMoodLabel = useMemo(() => getProfileMoodLabel(profileView), [profileView])
+  const myPostsCount = useMemo(() => {
+    if (!user || !user.id) return 0
+    return posts.reduce((count, post) => (
+      post && post.author && post.author.id === user.id ? count + 1 : count
+    ), 0)
+  }, [posts, user ? user.id : null])
+  const currentUserShowcase = useMemo(() => {
+    if (!user || !user.id) return normalizeProfileShowcase(DEFAULT_PROFILE_SHOWCASE)
+    return normalizeProfileShowcase(profileShowcaseByUserId[user.id])
+  }, [profileShowcaseByUserId, user ? user.id : null])
+  const profileShowcase = useMemo(() => {
+    if (!profileView || !profileView.id) return normalizeProfileShowcase(DEFAULT_PROFILE_SHOWCASE)
+    return normalizeProfileShowcase(profileShowcaseByUserId[profileView.id])
+  }, [profileShowcaseByUserId, profileView ? profileView.id : null])
+  const profileEditorChecklist = useMemo(() => {
+    const showcaseDraft = mapFormToShowcase(profileShowcaseForm)
+    return [
+      { id: 'avatar', label: 'Аватар установлен', done: Boolean(user && user.avatarUrl) },
+      { id: 'banner', label: 'Обложка добавлена', done: Boolean(user && user.bannerUrl) },
+      { id: 'name', label: 'Есть отображаемое имя', done: String(profileForm.displayName || '').trim().length >= 2 },
+      { id: 'status', label: 'Заполнен статус', done: String(profileForm.statusText || '').trim().length >= 3 },
+      { id: 'bio', label: 'Bio 40+ символов', done: String(profileForm.bio || '').trim().length >= 40 },
+      { id: 'theme', label: 'Выбрана тема профиля', done: Boolean(profileForm.themeColor) },
+      { id: 'tracks', label: 'Есть музыка в профиле', done: myTracks.length > 0 },
+      { id: 'posts', label: 'Опубликованы посты', done: myPostsCount > 0 },
+      { id: 'showcase', label: 'Настроен Showcase', done: Boolean(showcaseDraft.headline || showcaseDraft.skills.length || showcaseDraft.badges.length || showcaseDraft.links.length) }
+    ]
+  }, [profileShowcaseForm, profileForm, myTracks.length, myPostsCount, user])
+  const profileEditorScore = useMemo(() => {
+    if (profileEditorChecklist.length === 0) return 0
+    const done = profileEditorChecklist.filter((item) => item.done).length
+    return Math.round((done / profileEditorChecklist.length) * 100)
+  }, [profileEditorChecklist])
+  const visibleProfilePosts = useMemo(() => {
+    if (profilePostFilter === 'media') {
+      return profilePosts.filter((post) => Boolean(post.imageUrl))
+    }
+    if (profilePostFilter === 'text') {
+      return profilePosts.filter((post) => !post.imageUrl && !post.repostOf)
+    }
+    if (profilePostFilter === 'reposts') {
+      return profilePosts.filter((post) => Boolean(post.repostOf))
+    }
+    return profilePosts
+  }, [profilePosts, profilePostFilter])
+  const profilePowerScore = useMemo(() => {
+    return calculateProfilePowerScore(profileView, profilePosts.length, profileTracks.length, profileShowcase)
+  }, [profileView, profilePosts.length, profileTracks.length, profileShowcase])
+  const profileAchievements = useMemo(() => {
+    return buildProfileAchievements(profileView, profilePosts.length, profileTracks.length, profileShowcase)
+  }, [profileView, profilePosts.length, profileTracks.length, profileShowcase])
   const activeChatMoodLabel = useMemo(() => {
     if (!activeConversation || activeConversation.isGroup || !activeConversation.other) return ''
     return getProfileMoodLabel(activeConversation.other)
@@ -1437,6 +1760,57 @@ export default function App() {
       // ignore storage errors
     }
   }, [theme])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    const normalized = normalizeUiPreferences(uiPreferences)
+    const radius = Math.round(normalized.radius)
+    const ambientOpacity = (0.04 + (normalized.ambient / 100) * 0.2).toFixed(3)
+    root.dataset.uiStyle = normalized.style
+    root.dataset.uiDensity = normalized.density
+    root.style.setProperty('--ambient-opacity', ambientOpacity)
+    root.style.setProperty('--surface-radius', `${radius}px`)
+    root.style.setProperty('--surface-radius-md', `${Math.max(12, radius - 4)}px`)
+    root.style.setProperty('--surface-radius-sm', `${Math.max(10, radius - 8)}px`)
+    root.style.setProperty('--bubble-radius', `${Math.max(14, radius - 3)}px`)
+
+    const accentSource = normalized.syncAccent
+      ? normalizeHexColor(profileForm.themeColor || (user && user.themeColor) || '#7a1f1d')
+      : '#7a1f1d'
+    const accentRgb = hexToRgb(accentSource)
+    const accent2Rgb = mixRgbColor(accentRgb, { r: 255, g: 255, b: 255 }, theme === 'light' ? 0.05 : 0.16)
+    const accent3Rgb = mixRgbColor(accentRgb, { r: 255, g: 255, b: 255 }, theme === 'light' ? 0.12 : 0.3)
+
+    root.style.setProperty('--accent', accentSource)
+    root.style.setProperty('--accent-2', rgbToHex(accent2Rgb))
+    root.style.setProperty('--accent-3', rgbToHex(accent3Rgb))
+    root.style.setProperty('--accent-rgb', rgbToCssTriplet(accentRgb))
+    root.style.setProperty('--accent-2-rgb', rgbToCssTriplet(accent2Rgb))
+
+    try {
+      localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify(normalized))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [uiPreferences, profileForm.themeColor, user ? user.themeColor : null, theme])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PROFILE_SHOWCASE_STORAGE_KEY, JSON.stringify(profileShowcaseByUserId))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [profileShowcaseByUserId])
+
+  useEffect(() => {
+    if (!user || !user.id) {
+      setProfileShowcaseForm(mapShowcaseToForm(DEFAULT_PROFILE_SHOWCASE))
+      return
+    }
+    const saved = profileShowcaseByUserId[user.id] || DEFAULT_PROFILE_SHOWCASE
+    setProfileShowcaseForm(mapShowcaseToForm(saved))
+  }, [user ? user.id : null, profileShowcaseByUserId])
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
@@ -3110,6 +3484,7 @@ export default function App() {
     setStatus({ type: 'info', message: '' })
     try {
       const data = await updateMe(profileForm)
+      const showcaseSnapshot = mapFormToShowcase(profileShowcaseForm)
       setUser(data.user)
       setProfileForm({
         username: data.user.username || '',
@@ -3120,7 +3495,13 @@ export default function App() {
         role: data.user.role || '',
         themeColor: data.user.themeColor || '#7a1f1d'
       })
-      setStatus({ type: 'success', message: 'Профиль обновлен.' })
+      if (data.user && data.user.id) {
+        setProfileShowcaseByUserId((prev) => ({
+          ...prev,
+          [data.user.id]: showcaseSnapshot
+        }))
+      }
+      setStatus({ type: 'success', message: 'Профиль и оформление обновлены.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -3245,6 +3626,7 @@ export default function App() {
     setProfileView(null)
     setProfilePosts([])
     setProfileTracks([])
+    setProfilePostFilter('all')
     setActiveTrackId(null)
     setView('profile-view')
     setProfileLoading(true)
@@ -3495,6 +3877,7 @@ export default function App() {
     setProfileView(null)
     setProfilePosts([])
     setProfileTracks([])
+    setProfilePostFilter('all')
     setMyTracks([])
     setActiveTrackId(null)
     setProfileBackView('feed')
@@ -3640,6 +4023,41 @@ export default function App() {
       setStatus({ type: 'error', message: err.message })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleMessageFromProfile = async () => {
+    if (!profileView || !profileView.username) return
+    if (user && profileView.id === user.id) {
+      setView('chats')
+      return
+    }
+    setLoading(true)
+    try {
+      const data = await createConversation(profileView.username)
+      const list = await getConversations()
+      setConversations(list.conversations || [])
+      if (data.conversation) {
+        setActiveConversation(data.conversation)
+      }
+      setView('chats')
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCopyProfileUsername = async () => {
+    if (!profileView || !profileView.username || typeof navigator === 'undefined' || !navigator.clipboard) {
+      setStatus({ type: 'info', message: profileView && profileView.username ? `@${profileView.username}` : 'Username недоступен.' })
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(`@${profileView.username}`)
+      setStatus({ type: 'success', message: 'Username скопирован.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: 'Не удалось скопировать username.' })
     }
   }
 
@@ -4063,6 +4481,63 @@ export default function App() {
   const applyRandomStatusEmoji = () => {
     const next = STATUS_EMOJI_PRESETS[Math.floor(Math.random() * STATUS_EMOJI_PRESETS.length)] || ''
     setProfileForm((prev) => ({ ...prev, statusEmoji: next }))
+  }
+
+  const applyStatusTextPreset = (text) => {
+    setProfileForm((prev) => ({ ...prev, statusText: String(text || '').slice(0, 80) }))
+  }
+
+  const applyBioPreset = (text) => {
+    setProfileForm((prev) => ({ ...prev, bio: String(text || '').slice(0, 260) }))
+  }
+
+  const applyProfileColorPreset = (color) => {
+    setProfileForm((prev) => ({
+      ...prev,
+      themeColor: normalizeHexColor(color, prev.themeColor || '#7a1f1d')
+    }))
+  }
+
+  const updateUiPreference = (key, value) => {
+    setUiPreferences((prev) => normalizeUiPreferences({ ...prev, [key]: value }))
+  }
+
+  const resetUiPreferences = () => {
+    setUiPreferences({ ...DEFAULT_UI_PREFERENCES })
+  }
+
+  const toggleShowcaseBadge = (badgeId) => {
+    setProfileShowcaseForm((prev) => {
+      const current = Array.isArray(prev.badges) ? prev.badges : []
+      const next = current.includes(badgeId)
+        ? current.filter((item) => item !== badgeId)
+        : [...current, badgeId]
+      return {
+        ...prev,
+        badges: next.slice(0, 6)
+      }
+    })
+  }
+
+  const handleSaveProfileShowcase = () => {
+    if (!user || !user.id) return
+    const normalized = mapFormToShowcase(profileShowcaseForm)
+    setProfileShowcaseByUserId((prev) => ({
+      ...prev,
+      [user.id]: normalized
+    }))
+    setStatus({ type: 'success', message: 'Оформление профиля сохранено.' })
+  }
+
+  const handleResetProfileShowcase = () => {
+    setProfileShowcaseForm(mapShowcaseToForm(DEFAULT_PROFILE_SHOWCASE))
+    if (!user || !user.id) return
+    setProfileShowcaseByUserId((prev) => {
+      const next = { ...prev }
+      delete next[user.id]
+      return next
+    })
+    setStatus({ type: 'info', message: 'Оформление профиля сброшено.' })
   }
 
   const setChatWallpaper = (wallpaperValue, { closeMenu = false } = {}) => {
@@ -4705,6 +5180,19 @@ export default function App() {
   const profileFollowing = Number(profileView && profileView.subscriptionsCount ? profileView.subscriptionsCount : 0)
   const profileTracksCount = Number(profileView && profileView.tracksCount ? profileView.tracksCount : profileTracks.length)
   const profileJoinedAt = profileView ? formatDate(profileView.createdAt) : ''
+  const profileHeroThemeClass = profileShowcase && profileShowcase.heroTheme
+    ? `profile-theme-${profileShowcase.heroTheme}`
+    : 'profile-theme-default'
+  const profileShowcaseHasContent = Boolean(
+    profileShowcase.headline ||
+    profileShowcase.skills.length ||
+    profileShowcase.badges.length ||
+    profileShowcase.links.length
+  )
+  const profileShowcaseBadgeMap = new Map(PROFILE_BADGE_OPTIONS.map((item) => [item.id, item]))
+  const profileShowcaseBadges = profileShowcase.badges
+    .map((badgeId) => profileShowcaseBadgeMap.get(badgeId))
+    .filter(Boolean)
 
   return (
     <div className="page">
@@ -6360,7 +6848,7 @@ export default function App() {
             {profileView && (
               <>
                 <div
-                  className="profile-hero profile-hero-expanded"
+                  className={`profile-hero profile-hero-expanded ${profileHeroThemeClass}`.trim()}
                   style={{
                     backgroundColor: profileView.themeColor || '#7a1f1d',
                     backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
@@ -6379,31 +6867,120 @@ export default function App() {
                       <span>@{profileView.username}</span>
                     </div>
                     {profileViewMoodLabel && <div className="profile-mood-chip profile-mood-profile">{profileViewMoodLabel}</div>}
+                    {profileShowcase.headline && <p className="profile-headline">{profileShowcase.headline}</p>}
                     {profileView.bio && <p>{profileView.bio}</p>}
+                    {profileShowcaseBadges.length > 0 && (
+                      <div className="profile-showcase-badges">
+                        {profileShowcaseBadges.map((badge) => (
+                          <span key={badge.id}>
+                            {badge.emoji} {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {profileShowcase.skills.length > 0 && (
+                      <div className="profile-showcase-skills">
+                        {profileShowcase.skills.map((skill) => (
+                          <span key={`${profileView.id}-skill-${skill}`}>#{skill}</span>
+                        ))}
+                      </div>
+                    )}
+                    {profileShowcase.links.length > 0 && (
+                      <div className="profile-showcase-links">
+                        {profileShowcase.links.map((link) => (
+                          <a key={`${profileView.id}-link-${link.url}`} href={link.url} target="_blank" rel="noreferrer">
+                            {link.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                     <div className="profile-stats">
                       <span><strong>{profileFollowers}</strong> followers</span>
                       <span><strong>{profileFollowing}</strong> following</span>
                       <span><strong>{profileTracksCount}</strong> tracks</span>
+                      <span><strong>{profilePosts.length}</strong> posts</span>
                       {profileJoinedAt && <span>since {profileJoinedAt}</span>}
                     </div>
                   </div>
                   <div className="profile-actions-row">
-                    {canSubscribeProfile ? (
-                      <button
-                        type="button"
-                        className={`primary profile-subscribe ${profileView.isSubscribed ? 'subscribed' : ''}`.trim()}
-                        onClick={handleToggleSubscription}
-                        disabled={loading}
-                      >
-                        {profileView.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
-                      </button>
-                    ) : (
+                    {canSubscribeProfile && (
+                      <>
+                        <button
+                          type="button"
+                          className={`primary profile-subscribe ${profileView.isSubscribed ? 'subscribed' : ''}`.trim()}
+                          onClick={handleToggleSubscription}
+                          disabled={loading}
+                        >
+                          {profileView.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+                        </button>
+                        <button type="button" className="ghost" onClick={handleMessageFromProfile} disabled={loading}>
+                          Написать
+                        </button>
+                      </>
+                    )}
+                    {!canSubscribeProfile && (
                       <button type="button" className="ghost" onClick={() => setView('profile')}>
                         Edit profile
                       </button>
                     )}
+                    <button type="button" className="ghost" onClick={handleCopyProfileUsername}>
+                      Copy @username
+                    </button>
                   </div>
                 </div>
+                <section className="profile-insights-grid">
+                  <article className="profile-power-card">
+                    <div className="profile-power-head">
+                      <h3>Profile Power</h3>
+                      <strong>{profilePowerScore}%</strong>
+                    </div>
+                    <div className="profile-power-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={profilePowerScore}>
+                      <span style={{ width: `${profilePowerScore}%` }}></span>
+                    </div>
+                    <p>
+                      {profilePowerScore >= 80
+                        ? 'Профиль выглядит максимально прокачанным.'
+                        : profilePowerScore >= 50
+                          ? 'Сильный профиль. Можно добавить пару штрихов.'
+                          : 'Есть потенциал: заполни оформление и активности.'}
+                    </p>
+                  </article>
+                  <article className="profile-achievements-card">
+                    <div className="profile-achievements-head">
+                      <h3>Достижения</h3>
+                      <span>{profileAchievements.length}</span>
+                    </div>
+                    {profileAchievements.length === 0 ? (
+                      <div className="empty small">Достижения появятся после активности и оформления.</div>
+                    ) : (
+                      <div className="profile-achievements-list">
+                        {profileAchievements.map((item) => (
+                          <span key={item.id}>
+                            {item.emoji} {item.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                </section>
+                {profileShowcaseHasContent && (
+                  <section className="profile-showcase-card">
+                    <div className="profile-showcase-card-head">
+                      <h3>Showcase</h3>
+                      <span>{profileShowcase.heroTheme}</span>
+                    </div>
+                    <p>
+                      {profileShowcase.headline || 'Пользователь настроил персональное оформление профиля.'}
+                    </p>
+                    {profileShowcase.skills.length > 0 && (
+                      <div className="profile-showcase-skills">
+                        {profileShowcase.skills.map((skill) => (
+                          <span key={`${profileView.id}-showcase-${skill}`}>#{skill}</span>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
                 <section className="music-panel">
                   <div className="music-panel-head">
                     <h3>Music</h3>
@@ -6439,11 +7016,41 @@ export default function App() {
                     />
                   )}
                 </section>
+                <div className="profile-post-filters">
+                  <button
+                    type="button"
+                    className={profilePostFilter === 'all' ? 'active' : ''}
+                    onClick={() => setProfilePostFilter('all')}
+                  >
+                    Все <span>{profilePosts.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={profilePostFilter === 'media' ? 'active' : ''}
+                    onClick={() => setProfilePostFilter('media')}
+                  >
+                    Медиа <span>{profilePosts.filter((post) => Boolean(post.imageUrl)).length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={profilePostFilter === 'text' ? 'active' : ''}
+                    onClick={() => setProfilePostFilter('text')}
+                  >
+                    Текст <span>{profilePosts.filter((post) => !post.imageUrl && !post.repostOf).length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={profilePostFilter === 'reposts' ? 'active' : ''}
+                    onClick={() => setProfilePostFilter('reposts')}
+                  >
+                    Репосты <span>{profilePosts.filter((post) => Boolean(post.repostOf)).length}</span>
+                  </button>
+                </div>
                 <div className="feed-list">
-                  {profilePosts.length === 0 && (
+                  {visibleProfilePosts.length === 0 && (
                     <div className="empty">No posts yet.</div>
                   )}
-                  {profilePosts.map((post) => (
+                  {visibleProfilePosts.map((post) => (
                     <article
                       key={post.id}
                       className="feed-card"
@@ -6800,6 +7407,237 @@ export default function App() {
                 placeholder="Пару слов о себе"
               />
             </label>
+            <div className="profile-pro-grid">
+              <section className="profile-pro-card">
+                <div className="profile-pro-head">
+                  <h3>Быстрые пресеты</h3>
+                  <span>{profileEditorScore}% готовности</span>
+                </div>
+                <div className="profile-progress">
+                  <span style={{ width: `${profileEditorScore}%` }}></span>
+                </div>
+                <div className="profile-preset-group">
+                  <strong>Цветовые темы</strong>
+                  <div className="profile-color-preset-row">
+                    {PROFILE_COLOR_PRESETS.map((preset) => (
+                      <button
+                        key={preset.value}
+                        type="button"
+                        className={normalizeHexColor(profileForm.themeColor) === normalizeHexColor(preset.value) ? 'active' : ''}
+                        onClick={() => applyProfileColorPreset(preset.value)}
+                        title={preset.label}
+                        style={{ '--swatch-color': preset.value }}
+                      >
+                        <span></span>
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="profile-preset-group">
+                  <strong>Шаблоны статуса</strong>
+                  <div className="profile-chip-row">
+                    {STATUS_TEXT_PRESETS.map((preset) => (
+                      <button key={preset} type="button" onClick={() => applyStatusTextPreset(preset)}>
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="profile-preset-group">
+                  <strong>Шаблоны bio</strong>
+                  <div className="profile-chip-row">
+                    {BIO_TEXT_PRESETS.map((preset) => (
+                      <button key={preset} type="button" onClick={() => applyBioPreset(preset)}>
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
+              <section className="profile-pro-card">
+                <div className="profile-pro-head">
+                  <h3>Чеклист профиля</h3>
+                  <span>{profileEditorChecklist.filter((item) => item.done).length}/{profileEditorChecklist.length}</span>
+                </div>
+                <div className="profile-checklist">
+                  {profileEditorChecklist.map((item) => (
+                    <div key={item.id} className={item.done ? 'done' : ''}>
+                      <span>{item.done ? '✓' : '•'}</span>
+                      {item.label}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+            <section className="profile-showcase-editor">
+              <div className="profile-showcase-head">
+                <h3>Showcase</h3>
+                <span>Дополнительное оформление профиля</span>
+              </div>
+              <label>
+                Слоган профиля
+                <input
+                  type="text"
+                  value={profileShowcaseForm.headline}
+                  onChange={(event) => setProfileShowcaseForm((prev) => ({ ...prev, headline: event.target.value }))}
+                  placeholder="Frontend dev | Music lover | Team player"
+                  maxLength={120}
+                />
+              </label>
+              <label>
+                Тема публичной карточки
+                <select
+                  value={profileShowcaseForm.heroTheme}
+                  onChange={(event) => setProfileShowcaseForm((prev) => ({ ...prev, heroTheme: event.target.value }))}
+                >
+                  {PROFILE_HERO_THEMES.map((themeOption) => (
+                    <option key={themeOption.value} value={themeOption.value}>
+                      {themeOption.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Skills (через запятую)
+                <input
+                  type="text"
+                  value={profileShowcaseForm.skillsInput}
+                  onChange={(event) => setProfileShowcaseForm((prev) => ({ ...prev, skillsInput: event.target.value }))}
+                  placeholder="React, UI, Motion, PostgreSQL"
+                />
+              </label>
+              <div className="showcase-badge-picker">
+                <span>Бейджи</span>
+                <div className="showcase-badge-grid">
+                  {PROFILE_BADGE_OPTIONS.map((badge) => (
+                    <button
+                      key={badge.id}
+                      type="button"
+                      className={(Array.isArray(profileShowcaseForm.badges) && profileShowcaseForm.badges.includes(badge.id)) ? 'active' : ''}
+                      onClick={() => toggleShowcaseBadge(badge.id)}
+                    >
+                      {badge.emoji} {badge.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="showcase-links-grid">
+                <label>
+                  Ссылка #1 (название)
+                  <input
+                    type="text"
+                    value={profileShowcaseForm.linkPrimaryLabel}
+                    onChange={(event) => setProfileShowcaseForm((prev) => ({ ...prev, linkPrimaryLabel: event.target.value }))}
+                    placeholder="Telegram"
+                    maxLength={30}
+                  />
+                </label>
+                <label>
+                  Ссылка #1 (url)
+                  <input
+                    type="url"
+                    value={profileShowcaseForm.linkPrimaryUrl}
+                    onChange={(event) => setProfileShowcaseForm((prev) => ({ ...prev, linkPrimaryUrl: event.target.value }))}
+                    placeholder="t.me/username"
+                    maxLength={240}
+                  />
+                </label>
+                <label>
+                  Ссылка #2 (название)
+                  <input
+                    type="text"
+                    value={profileShowcaseForm.linkSecondaryLabel}
+                    onChange={(event) => setProfileShowcaseForm((prev) => ({ ...prev, linkSecondaryLabel: event.target.value }))}
+                    placeholder="GitHub"
+                    maxLength={30}
+                  />
+                </label>
+                <label>
+                  Ссылка #2 (url)
+                  <input
+                    type="url"
+                    value={profileShowcaseForm.linkSecondaryUrl}
+                    onChange={(event) => setProfileShowcaseForm((prev) => ({ ...prev, linkSecondaryUrl: event.target.value }))}
+                    placeholder="github.com/username"
+                    maxLength={240}
+                  />
+                </label>
+              </div>
+              <div className="showcase-editor-actions">
+                <button type="button" className="primary" onClick={handleSaveProfileShowcase}>Сохранить Showcase</button>
+                <button type="button" className="ghost" onClick={handleResetProfileShowcase}>Сбросить</button>
+              </div>
+              {(currentUserShowcase.headline || currentUserShowcase.skills.length || currentUserShowcase.badges.length) && (
+                <div className="showcase-saved-preview">
+                  <strong>Текущее сохраненное оформление</strong>
+                  <p>{currentUserShowcase.headline || 'Слоган не задан'}</p>
+                </div>
+              )}
+            </section>
+            <section className="ui-studio">
+              <div className="ui-studio-head">
+                <h3>UI Studio</h3>
+                <span>Глобальный дизайн интерфейса</span>
+              </div>
+              <div className="ui-studio-grid">
+                <label>
+                  Стиль
+                  <select
+                    value={uiPreferences.style}
+                    onChange={(event) => updateUiPreference('style', event.target.value)}
+                  >
+                    {UI_STYLE_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Плотность
+                  <select
+                    value={uiPreferences.density}
+                    onChange={(event) => updateUiPreference('density', event.target.value)}
+                  >
+                    {UI_DENSITY_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Интенсивность фона: {uiPreferences.ambient}
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={uiPreferences.ambient}
+                    onChange={(event) => updateUiPreference('ambient', Number(event.target.value))}
+                  />
+                </label>
+                <label>
+                  Скругление карточек: {Math.round(uiPreferences.radius)}px
+                  <input
+                    type="range"
+                    min={12}
+                    max={36}
+                    step={1}
+                    value={uiPreferences.radius}
+                    onChange={(event) => updateUiPreference('radius', Number(event.target.value))}
+                  />
+                </label>
+              </div>
+              <label className="ui-studio-toggle">
+                <input
+                  type="checkbox"
+                  checked={uiPreferences.syncAccent}
+                  onChange={(event) => updateUiPreference('syncAccent', event.target.checked)}
+                />
+                Использовать цвет профиля как акцент интерфейса
+              </label>
+              <div className="ui-studio-actions">
+                <button type="button" className="ghost" onClick={resetUiPreferences}>Сбросить UI Studio</button>
+              </div>
+            </section>
             <div className="music-editor">
               <h3>Profile music</h3>
               <div className="music-upload-form">
