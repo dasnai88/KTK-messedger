@@ -372,6 +372,8 @@ const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
 const MENU_VIEWPORT_PADDING = 12
 const MENU_ANCHOR_GAP = 8
+const TOUCH_CONTEXT_MENU_DELAY_MS = 460
+const TOUCH_CONTEXT_MENU_MOVE_THRESHOLD = 14
 const INITIAL_MESSAGE_MENU_STATE = {
   open: false,
   x: 0,
@@ -1338,6 +1340,15 @@ export default function App() {
   const previousViewRef = useRef(view)
   const profileThemeWheelRef = useRef(null)
   const profileThemeWheelPointerRef = useRef(null)
+  const touchContextMenuRef = useRef({
+    timer: null,
+    startX: 0,
+    startY: 0,
+    target: null,
+    currentTarget: null,
+    onTrigger: null,
+    triggered: false
+  })
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -5164,6 +5175,93 @@ export default function App() {
     return { anchorX: window.innerWidth / 2, anchorY: window.innerHeight / 2 }
   }
 
+  const clearTouchContextMenuTimer = () => {
+    const state = touchContextMenuRef.current
+    if (state && state.timer) {
+      window.clearTimeout(state.timer)
+      state.timer = null
+    }
+  }
+
+  const resetTouchContextMenuState = ({ keepTriggered = false } = {}) => {
+    const state = touchContextMenuRef.current
+    if (!state) return
+    clearTouchContextMenuTimer()
+    state.startX = 0
+    state.startY = 0
+    state.target = null
+    state.currentTarget = null
+    state.onTrigger = null
+    if (!keepTriggered) {
+      state.triggered = false
+    }
+  }
+
+  const createTouchContextMenuEvent = (state) => ({
+    clientX: state.startX,
+    clientY: state.startY,
+    target: state.target,
+    currentTarget: state.currentTarget,
+    preventDefault: () => {},
+    stopPropagation: () => {}
+  })
+
+  const handleTouchContextMenuStart = (event, onTrigger) => {
+    if (!event || !event.touches || event.touches.length !== 1 || typeof onTrigger !== 'function') return
+    const touch = event.touches[0]
+    const state = touchContextMenuRef.current
+    resetTouchContextMenuState()
+    state.startX = touch.clientX
+    state.startY = touch.clientY
+    state.target = event.target
+    state.currentTarget = event.currentTarget
+    state.onTrigger = onTrigger
+    state.triggered = false
+    state.timer = window.setTimeout(() => {
+      const nextState = touchContextMenuRef.current
+      if (!nextState || typeof nextState.onTrigger !== 'function') return
+      nextState.triggered = true
+      nextState.timer = null
+      nextState.onTrigger(createTouchContextMenuEvent(nextState))
+    }, TOUCH_CONTEXT_MENU_DELAY_MS)
+  }
+
+  const handleTouchContextMenuMove = (event) => {
+    const state = touchContextMenuRef.current
+    if (!state || state.triggered || !state.onTrigger || !event || !event.touches || event.touches.length !== 1) return
+    const touch = event.touches[0]
+    const deltaX = Math.abs(touch.clientX - state.startX)
+    const deltaY = Math.abs(touch.clientY - state.startY)
+    if (deltaX > TOUCH_CONTEXT_MENU_MOVE_THRESHOLD || deltaY > TOUCH_CONTEXT_MENU_MOVE_THRESHOLD) {
+      resetTouchContextMenuState()
+    }
+  }
+
+  const handleTouchContextMenuEnd = (event) => {
+    const state = touchContextMenuRef.current
+    const wasTriggered = Boolean(state && state.triggered)
+    resetTouchContextMenuState({ keepTriggered: true })
+    if (wasTriggered) {
+      if (event && event.cancelable) {
+        event.preventDefault()
+      }
+      if (event && typeof event.stopPropagation === 'function') {
+        event.stopPropagation()
+      }
+    }
+    window.setTimeout(() => {
+      touchContextMenuRef.current.triggered = false
+    }, 0)
+  }
+
+  const handleTouchContextMenuCancel = () => {
+    resetTouchContextMenuState()
+  }
+
+  useEffect(() => () => {
+    resetTouchContextMenuState()
+  }, [])
+
   const toggleContextMenuReactions = () => {
     setContextMenu((prev) => {
       if (!prev.open) return prev
@@ -5190,8 +5288,12 @@ export default function App() {
   const openMessageMenu = (event, msg) => {
     if (!activeConversation) return
     if (editingMessageId === msg.id) return
-    event.preventDefault()
-    event.stopPropagation()
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault()
+    }
+    if (event && typeof event.stopPropagation === 'function') {
+      event.stopPropagation()
+    }
     setPostMenu(INITIAL_POST_MENU_STATE)
     setChatMenu(INITIAL_CHAT_MENU_STATE)
     const bubbleNode = event && event.target && typeof event.target.closest === 'function'
@@ -5252,8 +5354,12 @@ export default function App() {
   const openPostMenu = (event, post) => {
     if (!post || editingPostId === post.id) return
     if (event.target && event.target.closest('input, textarea')) return
-    event.preventDefault()
-    event.stopPropagation()
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault()
+    }
+    if (event && typeof event.stopPropagation === 'function') {
+      event.stopPropagation()
+    }
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setChatMenu(INITIAL_CHAT_MENU_STATE)
     const cardNode = event && event.target && typeof event.target.closest === 'function'
@@ -5444,8 +5550,12 @@ export default function App() {
   }
 
   const openChatMenu = (event) => {
-    event.preventDefault()
-    event.stopPropagation()
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault()
+    }
+    if (event && typeof event.stopPropagation === 'function') {
+      event.stopPropagation()
+    }
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setPostMenu(INITIAL_POST_MENU_STATE)
     const { anchorX, anchorY } = getMenuAnchorFromEvent(event, { preferHorizontal: 'right' })
@@ -6311,6 +6421,10 @@ export default function App() {
                         id={`message-${msg.id}`}
                         className={`message-row ${msg.senderId === user.id ? 'mine' : ''}`}
                         onContextMenu={(event) => openMessageMenu(event, msg)}
+                        onTouchStart={(event) => handleTouchContextMenuStart(event, (menuEvent) => openMessageMenu(menuEvent, msg))}
+                        onTouchMove={handleTouchContextMenuMove}
+                        onTouchEnd={handleTouchContextMenuEnd}
+                        onTouchCancel={handleTouchContextMenuCancel}
                       >
                         {msg.senderId !== user.id && (
                           <button
@@ -7226,6 +7340,10 @@ export default function App() {
                   key={post.id}
                   className="feed-card"
                   onContextMenu={(event) => openPostMenu(event, post)}
+                  onTouchStart={(event) => handleTouchContextMenuStart(event, (menuEvent) => openPostMenu(menuEvent, post))}
+                  onTouchMove={handleTouchContextMenuMove}
+                  onTouchEnd={handleTouchContextMenuEnd}
+                  onTouchCancel={handleTouchContextMenuCancel}
                 >
                   {post.repostOf && (
                     <div className="repost-badge">? Репост</div>
@@ -7608,6 +7726,10 @@ export default function App() {
                       key={post.id}
                       className="feed-card"
                       onContextMenu={(event) => openPostMenu(event, post)}
+                      onTouchStart={(event) => handleTouchContextMenuStart(event, (menuEvent) => openPostMenu(menuEvent, post))}
+                      onTouchMove={handleTouchContextMenuMove}
+                      onTouchEnd={handleTouchContextMenuEnd}
+                      onTouchCancel={handleTouchContextMenuCancel}
                     >
                       {post.repostOf && (
                         <div className="repost-badge">Repost</div>
