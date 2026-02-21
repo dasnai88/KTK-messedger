@@ -43,6 +43,7 @@ const pollQuestionMaxLength = 240
 const pollOptionMaxLength = 120
 const pollOptionMinCount = 2
 const pollOptionMaxCount = 10
+const PERSONAL_FAVORITES_TITLE = 'Избранное'
 
 if (webPushEnabled) {
   webpush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey)
@@ -578,6 +579,7 @@ function mapConversation(row) {
     title: row.title,
     isGroup: row.is_group,
     isFavorite: row.is_favorite === true,
+    isPersonalFavorites: row.is_personal_favorites === true,
     other: row.other_id ? mapOtherUser(row) : null,
     lastMessage: getMessagePreviewText(row.last_body, row.last_attachment_url, row.last_attachment_kind),
     lastAt: row.last_at,
@@ -1001,11 +1003,96 @@ async function getPostByIdForViewer(postId, viewerId) {
   return mapPost(result.rows[0])
 }
 
+async function getPersonalFavoritesConversationId(client, userId) {
+  const result = await client.query(
+    `select c.id
+     from conversations c
+     join conversation_members me on me.conversation_id = c.id and me.user_id = $1
+     where c.is_group = true
+       and c.title = $2
+       and not exists (
+         select 1
+         from conversation_members other
+         where other.conversation_id = c.id
+           and other.user_id <> $1
+       )
+     order by c.created_at asc
+     limit 1`,
+    [userId, PERSONAL_FAVORITES_TITLE]
+  )
+  if (result.rowCount === 0) return null
+  return result.rows[0].id
+}
+
+async function setConversationFavoriteIfSupported(client, conversationId, userId) {
+  try {
+    await client.query(
+      `update conversation_members
+       set is_favorite = true
+       where conversation_id = $1 and user_id = $2`,
+      [conversationId, userId]
+    )
+  } catch (err) {
+    if (!err || err.code !== '42703') throw err
+  }
+}
+
+async function ensurePersonalFavoritesConversation(userId) {
+  if (!isValidUuid(userId)) return null
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    await client.query('select pg_advisory_xact_lock(hashtext($1))', [`personal-favorites:${userId}`])
+
+    let conversationId = await getPersonalFavoritesConversationId(client, userId)
+    if (!conversationId) {
+      const createdConversation = await client.query(
+        'insert into conversations (title, is_group) values ($1, true) returning id',
+        [PERSONAL_FAVORITES_TITLE]
+      )
+      conversationId = createdConversation.rows[0].id
+    }
+
+    await client.query(
+      `insert into conversation_members (conversation_id, user_id, role)
+       values ($1, $2, 'owner')
+       on conflict (conversation_id, user_id) do nothing`,
+      [conversationId, userId]
+    )
+
+    await setConversationFavoriteIfSupported(client, conversationId, userId)
+
+    await client.query('commit')
+    return conversationId
+  } catch (err) {
+    await client.query('rollback')
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
 async function getUserConversations(userId) {
+  try {
+    await ensurePersonalFavoritesConversation(userId)
+  } catch (err) {
+    console.error('Ensure personal favorites conversation error', err)
+  }
+
   const queryWithFavorites = `select c.id,
             c.title,
             c.is_group,
             me.is_favorite,
+            (
+              c.is_group = true
+              and c.title = $2
+              and not exists (
+                select 1
+                from conversation_members personal_members
+                where personal_members.conversation_id = c.id
+                  and personal_members.user_id <> $1
+              )
+            ) as is_personal_favorites,
             u.id as other_id,
             u.username as other_username,
             u.display_name as other_display_name,
@@ -1036,12 +1123,22 @@ async function getUserConversations(userId) {
         order by m.created_at desc
         limit 1
       ) lm on true
-     order by me.is_favorite desc, lm.created_at desc nulls last, c.created_at desc`
+     order by is_personal_favorites desc, me.is_favorite desc, lm.created_at desc nulls last, c.created_at desc`
 
   const queryWithoutFavorites = `select c.id,
             c.title,
             c.is_group,
             false as is_favorite,
+            (
+              c.is_group = true
+              and c.title = $2
+              and not exists (
+                select 1
+                from conversation_members personal_members
+                where personal_members.conversation_id = c.id
+                  and personal_members.user_id <> $1
+              )
+            ) as is_personal_favorites,
             u.id as other_id,
             u.username as other_username,
             u.display_name as other_display_name,
@@ -1072,14 +1169,14 @@ async function getUserConversations(userId) {
         order by m.created_at desc
         limit 1
       ) lm on true
-     order by lm.created_at desc nulls last, c.created_at desc`
+     order by is_personal_favorites desc, lm.created_at desc nulls last, c.created_at desc`
 
   try {
-    const result = await pool.query(queryWithFavorites, [userId])
+    const result = await pool.query(queryWithFavorites, [userId, PERSONAL_FAVORITES_TITLE])
     return result.rows.map(mapConversation)
   } catch (err) {
     if (!err || err.code !== '42703') throw err
-    const fallback = await pool.query(queryWithoutFavorites, [userId])
+    const fallback = await pool.query(queryWithoutFavorites, [userId, PERSONAL_FAVORITES_TITLE])
     return fallback.rows.map(mapConversation)
   }
 }

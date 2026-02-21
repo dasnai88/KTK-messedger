@@ -149,6 +149,7 @@ function normalizeChatAlias(value) {
 
 function getConversationDisplayName(conversation, aliasByConversation = {}) {
   if (!conversation || typeof conversation !== 'object') return 'Пользователь'
+  if (conversation.isPersonalFavorites) return conversation.title || 'Избранное'
   if (conversation.isGroup) return conversation.title || 'Групповой чат'
   const alias = normalizeChatAlias(aliasByConversation[conversation.id])
   if (alias) return alias
@@ -938,6 +939,9 @@ export default function App() {
   ), [conversations, favoriteConversationSet])
   const visibleConversations = useMemo(() => {
     const sorted = [...conversations].sort((a, b) => {
+      const aPersonalFavorites = a.isPersonalFavorites === true
+      const bPersonalFavorites = b.isPersonalFavorites === true
+      if (aPersonalFavorites !== bPersonalFavorites) return aPersonalFavorites ? -1 : 1
       const aFavorite = favoriteConversationSet.has(a.id)
       const bFavorite = favoriteConversationSet.has(b.id)
       if (aFavorite !== bFavorite) return aFavorite ? -1 : 1
@@ -5101,7 +5105,7 @@ export default function App() {
                           </div>
                           <div>
                             <h3>{activeConversation.title}</h3>
-                            <span>Групповой чат</span>
+                            <span>{activeConversation.isPersonalFavorites ? 'Личный чат для заметок и пересылок' : 'Групповой чат'}</span>
                           </div>
                         </div>
                       ) : (
@@ -5193,13 +5197,18 @@ export default function App() {
                     </div>
                     {pinnedMessage && (
                       <div className="pinned-banner">
-                        <div>
+                        <button
+                          type="button"
+                          className="pinned-banner-main"
+                          onClick={() => jumpToMessage(pinnedMessage.id)}
+                          title="Перейти к сообщению"
+                        >
                           <span className="pinned-label">Закрепленное сообщение</span>
                           {pinnedMessage.senderUsername && (
                             <span className="pinned-author">@{pinnedMessage.senderUsername}</span>
                           )}
                           <p>{getMessagePreview(pinnedMessage)}</p>
-                        </div>
+                        </button>
                         <button type="button" onClick={() => togglePinMessage(pinnedMessage)} title="Открепить">
                           ?
                         </button>
@@ -5290,14 +5299,19 @@ export default function App() {
                         )}
                         <div className={`message-bubble ${msg.attachmentKind === 'sticker' ? 'sticker' : ''} ${msg.attachmentKind === 'gif' ? 'gif' : ''}`.trim()}>
                           {msg.replyTo && (
-                            <div className="message-reply">
+                            <button
+                              type="button"
+                              className="message-reply message-reply-link"
+                              onClick={() => jumpToMessage(msg.replyTo.id)}
+                              title="Перейти к сообщению"
+                            >
                               <span className="message-reply-author">
                                 {getReplyAuthorLabel(msg.replyTo)}
                               </span>
                               <p className="message-reply-text">
                                 {msg.replyTo.deletedAt ? 'Сообщение удалено' : getMessagePreview(msg.replyTo)}
                               </p>
-                            </div>
+                            </button>
                           )}
                           {msg.forwardedFrom && (
                             <div className="message-forwarded">
@@ -5513,7 +5527,14 @@ export default function App() {
                             ×
                           </button>
                         </div>
-                        <p>{getMessagePreview(replyMessage)}</p>
+                        <button
+                          type="button"
+                          className="composer-reply-jump"
+                          onClick={() => jumpToMessage(replyMessage.id)}
+                          title="Перейти к сообщению"
+                        >
+                          {getMessagePreview(replyMessage)}
+                        </button>
                       </div>
                     )}
                     {pollComposerOpen && (

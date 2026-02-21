@@ -989,6 +989,29 @@ body {
   background: rgba(var(--accent-rgb), 0.08);
 }
 
+.pinned-banner-main {
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  flex: 1;
+}
+
+.pinned-banner-main:hover .pinned-label,
+.pinned-banner-main:hover p {
+  color: var(--text);
+}
+
+.pinned-banner-main:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.5);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
 .pinned-banner p {
   margin: 4px 0 0;
   color: var(--text);
@@ -1465,6 +1488,24 @@ body {
   border-radius: 12px;
   border: 1px solid rgba(var(--accent-rgb), 0.3);
   background: rgba(var(--accent-rgb), 0.1);
+}
+
+.message-reply-link {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.message-reply-link:hover {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.16);
+}
+
+.message-reply-link:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.5);
+  outline-offset: 2px;
 }
 
 .message-reply-author {
@@ -2027,6 +2068,30 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.composer-reply-jump {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.composer-reply-jump:hover {
+  color: var(--text);
+}
+
+.composer-reply-jump:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.5);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 .composer-poll {
