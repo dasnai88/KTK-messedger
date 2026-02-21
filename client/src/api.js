@@ -38,6 +38,44 @@ async function request(path, options = {}) {
   return data
 }
 
+function hasVideoFileExtension(name) {
+  return /\.(mp4|webm|ogv|ogg|mov|m4v|mkv|3gp|3g2)$/i.test(String(name || ''))
+}
+
+function isVideoLikeFile(file) {
+  if (!file) return false
+  const mime = String(file.type || '').trim().toLowerCase()
+  if (mime.startsWith('video/')) return true
+  if (mime === 'application/mp4') return true
+  return hasVideoFileExtension(file.name || '')
+}
+
+async function createVideoFallbackFile(file) {
+  const buffer = await file.arrayBuffer()
+  const rawName = String(file.name || '').trim()
+  const baseName = rawName ? rawName.replace(/\.[^.]+$/, '') : `video-${Date.now()}`
+  return new File([buffer], `${baseName || `video-${Date.now()}`}.webm`, { type: 'video/webm' })
+}
+
+async function postMessageMultipart(conversationId, file, token, body, attachmentKind, replyToMessageId) {
+  const formData = new FormData()
+  formData.append('body', body || '')
+  formData.append('file', file)
+  if (attachmentKind) {
+    formData.append('attachmentKind', attachmentKind)
+  }
+  if (replyToMessageId) {
+    formData.append('replyToMessageId', replyToMessageId)
+  }
+  const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData
+  })
+  const data = await response.json().catch(() => ({}))
+  return { response, data }
+}
+
 export async function getHealth() {
   return request('/health')
 }
@@ -115,21 +153,34 @@ export async function sendMessage(conversationId, body, file, options = {}) {
   const replyToMessageId = typeof options.replyToMessageId === 'string' ? options.replyToMessageId.trim() : ''
   if (file) {
     const token = getToken()
-    const formData = new FormData()
-    formData.append('body', body || '')
-    formData.append('file', file)
-    if (attachmentKind) {
-      formData.append('attachmentKind', attachmentKind)
+    let { response, data } = await postMessageMultipart(
+      conversationId,
+      file,
+      token,
+      body,
+      attachmentKind,
+      replyToMessageId
+    )
+    if (!response.ok) {
+      const message = data.error || 'Unexpected error'
+      const lowerMessage = String(message).toLowerCase()
+      const shouldRetryAsVideo = isVideoLikeFile(file) && (
+        lowerMessage.includes('only images') || lowerMessage.includes('только изображения')
+      )
+      if (shouldRetryAsVideo) {
+        const fallbackVideoFile = await createVideoFallbackFile(file)
+        const retry = await postMessageMultipart(
+          conversationId,
+          fallbackVideoFile,
+          token,
+          body,
+          attachmentKind,
+          replyToMessageId
+        )
+        response = retry.response
+        data = retry.data
+      }
     }
-    if (replyToMessageId) {
-      formData.append('replyToMessageId', replyToMessageId)
-    }
-    const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      body: formData
-    })
-    const data = await response.json().catch(() => ({}))
     if (!response.ok) {
       throw new Error(data.error || 'Unexpected error')
     }

@@ -1646,14 +1646,24 @@ body {
   background: #000;
 }
 
-.video-note-player {
+.video-note-shell {
   width: 180px;
   height: 180px;
-  max-width: 180px;
-  max-height: 180px;
-  border-radius: 999px !important;
-  object-fit: cover !important;
+  border-radius: 999px;
+  overflow: hidden;
   border: 1px solid var(--line);
+  background: #000;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.video-note-player {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+  max-height: none;
+  border-radius: 0 !important;
+  object-fit: cover !important;
+  background: #000;
 }
 
 .feed-image {
@@ -2077,6 +2087,11 @@ body {
   height: 72px;
   object-fit: cover;
   border-radius: 12px;
+}
+
+.upload-preview .video-note-shell {
+  width: 90px;
+  height: 90px;
 }
 
 .feed-list {

@@ -86,7 +86,12 @@ function createUpload({
       const mimePrefixAllowed = normalizedMimePrefixes.some((prefix) => rawMime.startsWith(prefix) || mime.startsWith(prefix))
       const extAllowed = allowedExtensions.has(ext)
       const noExtAllowed = allowWithoutExtension && !ext
-      const octetStreamFallback = allowOctetStreamByExtension && mime === 'application/octet-stream' && extAllowed
+      const octetLikeMime = (
+        mime === 'application/octet-stream' ||
+        mime === 'application/octetstream' ||
+        mime === 'binary/octet-stream'
+      )
+      const octetStreamFallback = allowOctetStreamByExtension && octetLikeMime && extAllowed
       const unknownMimeFallback = allowUnknownMimeByExtension && !mime && extAllowed
       const extAccepted = extAllowed || noExtAllowed || (allowAnyExtensionWhenMimePrefix && mimePrefixAllowed)
       const mimeAccepted = mimeAllowed || mimePrefixAllowed
@@ -119,6 +124,7 @@ const messageUpload = createUpload({
     'image/jpeg',
     'image/png',
     'image/webp',
+    'image/gif',
     'video/mp4',
     'video/webm',
     'video/ogg',
@@ -127,7 +133,7 @@ const messageUpload = createUpload({
     'video/3gpp',
     'video/3gpp2'
   ],
-  extensions: ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.webm', '.ogv', '.ogg', '.mov', '.m4v', '.mkv', '.3gp', '.3g2'],
+  extensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.webm', '.ogv', '.ogg', '.mov', '.m4v', '.mkv', '.3gp', '.3g2'],
   maxFileSizeMb: 30,
   errorMessage: 'Only image or video attachments are allowed',
   allowWithoutExtension: true,
@@ -271,14 +277,26 @@ function getMessagePreviewText(body, attachmentUrl, attachmentKind) {
   return 'New message'
 }
 
+const imageAttachmentExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif'])
+const videoAttachmentExtensions = new Set(['.mp4', '.webm', '.ogv', '.ogg', '.mov', '.m4v', '.mkv', '.3gp', '.3g2'])
+
 function normalizeMessageAttachmentKind(file, requestedKind) {
   if (!file) return null
   const mime = String(file.mimetype || '').toLowerCase()
   const requested = typeof requestedKind === 'string' ? requestedKind.trim().toLowerCase() : ''
+  const extension = path.extname(file.originalname || '').toLowerCase()
   if (mime.startsWith('video/')) {
     return requested === 'video-note' ? 'video-note' : 'video'
   }
   if (mime.startsWith('image/')) return 'image'
+  if (videoAttachmentExtensions.has(extension)) {
+    return requested === 'video-note' ? 'video-note' : 'video'
+  }
+  if (imageAttachmentExtensions.has(extension)) {
+    return 'image'
+  }
+  if (requested === 'video-note' || requested === 'video') return requested === 'video-note' ? 'video-note' : 'video'
+  if (requested === 'image') return 'image'
   return null
 }
 

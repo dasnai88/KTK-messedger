@@ -315,11 +315,40 @@ function getSupportedVideoNoteMimeType() {
   return supported || ''
 }
 
+function normalizeVideoNoteMimeType(mimeType) {
+  const raw = String(mimeType || '').trim().toLowerCase()
+  const normalized = raw.split(';')[0]
+  if (!normalized) return 'video/webm'
+  if (normalized.startsWith('video/')) return normalized
+  if (normalized === 'application/mp4') return 'video/mp4'
+  if (normalized === 'application/octet-stream' || normalized === 'binary/octet-stream') {
+    return 'video/webm'
+  }
+  return 'video/webm'
+}
+
 function getVideoExtensionFromMime(mimeType) {
-  const normalized = String(mimeType || '').toLowerCase()
+  const normalized = normalizeVideoNoteMimeType(mimeType)
   if (normalized.includes('mp4')) return 'mp4'
+  if (normalized.includes('quicktime')) return 'mov'
+  if (normalized.includes('matroska')) return 'mkv'
+  if (normalized.includes('3gpp2')) return '3g2'
+  if (normalized.includes('3gpp')) return '3gp'
+  if (normalized.includes('m4v')) return 'm4v'
   if (normalized.includes('ogg')) return 'ogv'
   return 'webm'
+}
+
+function hasVideoFileExtension(name) {
+  return /\.(mp4|webm|ogv|ogg|mov|m4v|mkv|3gp|3g2)$/i.test(String(name || ''))
+}
+
+function isVideoFileLike(file) {
+  if (!file) return false
+  const mime = String(file.type || '').trim().toLowerCase()
+  if (mime.startsWith('video/')) return true
+  if (mime === 'application/mp4') return true
+  return hasVideoFileExtension(file.name || '')
 }
 
 function isVideoMessageAttachment(message) {
@@ -894,7 +923,7 @@ export default function App() {
       recorder.onstop = () => {
         const shouldDiscard = videoNoteDiscardRef.current
         const firstChunk = videoChunksRef.current[0]
-        const mimeType = (firstChunk && firstChunk.type) || recorder.mimeType || preferredMimeType || 'video/webm'
+        const mimeType = normalizeVideoNoteMimeType((firstChunk && firstChunk.type) || recorder.mimeType || preferredMimeType)
         const blob = new Blob(videoChunksRef.current, { type: mimeType })
         clearVideoNoteTimer()
         stopVideoNoteStream()
@@ -907,8 +936,8 @@ export default function App() {
           setStatus({ type: 'error', message: 'Кружок пустой. Запишите снова.' })
           return
         }
-        const extension = getVideoExtensionFromMime(blob.type || mimeType)
-        const file = new File([blob], `video-note-${Date.now()}.${extension}`, { type: blob.type || mimeType })
+        const extension = getVideoExtensionFromMime(mimeType)
+        const file = new File([blob], `video-note-${Date.now()}.${extension}`, { type: mimeType })
         const previewUrl = URL.createObjectURL(blob)
         setMessageFile(file)
         setMessageAttachmentKind(VIDEO_NOTE_KIND)
@@ -4011,13 +4040,25 @@ export default function App() {
                           )}
                           {msg.attachmentUrl && (
                             isVideoMessageAttachment(msg) ? (
-                              <video
-                                src={resolveMediaUrl(msg.attachmentUrl)}
-                                className={`media-thumb ${msg.attachmentKind === VIDEO_NOTE_KIND ? 'video-note-player' : ''}`.trim()}
-                                controls
-                                playsInline
-                                preload="metadata"
-                              />
+                              msg.attachmentKind === VIDEO_NOTE_KIND ? (
+                                <div className="video-note-shell">
+                                  <video
+                                    src={resolveMediaUrl(msg.attachmentUrl)}
+                                    className="video-note-player"
+                                    controls
+                                    playsInline
+                                    preload="metadata"
+                                  />
+                                </div>
+                              ) : (
+                                <video
+                                  src={resolveMediaUrl(msg.attachmentUrl)}
+                                  className="media-thumb"
+                                  controls
+                                  playsInline
+                                  preload="metadata"
+                                />
+                              )
                             ) : (
                               <img
                                 src={resolveMediaUrl(msg.attachmentUrl)}
@@ -4215,7 +4256,7 @@ export default function App() {
                             return
                           }
                           stopVideoNoteRecording(true)
-                          const isVideo = String(file.type || '').toLowerCase().startsWith('video/')
+                          const isVideo = isVideoFileLike(file)
                           setMessageFile(file)
                           setMessageAttachmentKind(isVideo ? 'video' : 'image')
                           setMessagePreviewType(isVideo ? 'video' : 'image')
@@ -4242,13 +4283,24 @@ export default function App() {
                   {messagePreview && (
                     <div className="upload-preview">
                       {messagePreviewType === 'video' ? (
-                        <video
-                          src={messagePreview}
-                          className={messageAttachmentKind === VIDEO_NOTE_KIND ? 'video-note-player' : ''}
-                          controls
-                          playsInline
-                          preload="metadata"
-                        />
+                        messageAttachmentKind === VIDEO_NOTE_KIND ? (
+                          <div className="video-note-shell">
+                            <video
+                              src={messagePreview}
+                              className="video-note-player"
+                              controls
+                              playsInline
+                              preload="metadata"
+                            />
+                          </div>
+                        ) : (
+                          <video
+                            src={messagePreview}
+                            controls
+                            playsInline
+                            preload="metadata"
+                          />
+                        )
                       ) : (
                         <img src={messagePreview} alt="preview" />
                       )}
