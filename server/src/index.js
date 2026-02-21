@@ -2796,6 +2796,35 @@ app.use((err, req, res, next) => {
 })
 
 const port = process.env.PORT || 4000
-server.listen(port, () => {
-  console.log('Server listening on http://localhost:' + port)
-})
+const autoApplySchema = String(process.env.AUTO_APPLY_SCHEMA || 'true').toLowerCase() !== 'false'
+
+async function applySchemaOnStartup() {
+  if (!autoApplySchema) {
+    console.log('AUTO_APPLY_SCHEMA=false, skipping schema apply on startup')
+    return
+  }
+
+  const schemaPath = path.join(__dirname, 'schema.sql')
+  const schemaSql = fs.readFileSync(schemaPath, 'utf8')
+  const client = await pool.connect()
+  try {
+    await client.query(schemaSql)
+    console.log('Database schema applied successfully')
+  } finally {
+    client.release()
+  }
+}
+
+async function startServer() {
+  try {
+    await applySchemaOnStartup()
+    server.listen(port, () => {
+      console.log('Server listening on http://localhost:' + port)
+    })
+  } catch (err) {
+    console.error('Startup failed:', err)
+    process.exit(1)
+  }
+}
+
+startServer()
