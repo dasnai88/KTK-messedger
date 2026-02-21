@@ -5167,6 +5167,23 @@ body {
   }
 }
 
+@media (hover: none) and (pointer: coarse) {
+  .message-row,
+  .message-bubble,
+  .feed-card,
+  .repost-card {
+    -webkit-touch-callout: none;
+  }
+
+  .message-text,
+  .feed-card p,
+  .repost-card p,
+  .repost-meta {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
