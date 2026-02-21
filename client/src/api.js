@@ -258,6 +258,21 @@ export async function getProfile(username) {
   return request(`/users/${username}`)
 }
 
+export async function getProfileShowcase(username) {
+  return request(`/users/${username}/showcase`)
+}
+
+export async function getMyProfileShowcase() {
+  return request('/me/showcase')
+}
+
+export async function saveMyProfileShowcase(showcase) {
+  return request('/me/showcase', {
+    method: 'PUT',
+    body: { showcase }
+  })
+}
+
 export async function getProfilePosts(username) {
   return request(`/users/${username}/posts`)
 }

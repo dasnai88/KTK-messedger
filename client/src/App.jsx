@@ -11,6 +11,7 @@ import {
   markConversationRead,
   setConversationFavorite,
   getProfile,
+  getProfileShowcase,
   getProfilePosts,
   getProfileTracks,
   getPosts,
@@ -55,6 +56,8 @@ import {
   uploadGif,
   deleteGif,
   sendGif,
+  getMyProfileShowcase,
+  saveMyProfileShowcase,
   createPoll,
   votePoll,
   forwardMessage as forwardMessageApi,
@@ -341,6 +344,11 @@ const BIO_TEXT_PRESETS = [
   'Люблю делать красивые и быстрые интерфейсы.',
   'Учусь, экспериментирую и собираю сильное портфолио.',
   'Чаты, проекты, дизайн и немного хаоса каждый день.'
+]
+const PROFILE_WAVE_TEMPLATES = [
+  '👋 Привет! Залетел в профиль и решил написать.',
+  '⚡ Йо! У тебя крутой профиль, давай общаться.',
+  '🔥 Хэй! Понравился стиль, хочу пообщаться.'
 ]
 const PROFILE_COLOR_PRESETS = [
   { value: '#7a1f1d', label: 'Ruby' },
@@ -2541,6 +2549,33 @@ export default function App() {
   }, [user ? user.username : null])
 
   useEffect(() => {
+    if (!user || !user.id) return
+    let cancelled = false
+    const loadMyShowcase = async () => {
+      try {
+        const data = await getMyProfileShowcase()
+        if (cancelled) return
+        const showcase = normalizeProfileShowcase(data && data.showcase)
+        setProfileShowcaseByUserId((prev) => ({
+          ...prev,
+          [user.id]: showcase
+        }))
+        setProfileShowcaseForm(mapShowcaseToForm(showcase))
+      } catch (err) {
+        if (cancelled) return
+        const known = profileShowcaseByUserId[user.id]
+        if (known) {
+          setProfileShowcaseForm(mapShowcaseToForm(known))
+        }
+      }
+    }
+    loadMyShowcase()
+    return () => {
+      cancelled = true
+    }
+  }, [user ? user.id : null])
+
+  useEffect(() => {
     if (!user) return
     const allowed = ['feed', 'chats', 'profile']
     if (user.isAdmin) allowed.push('admin')
@@ -3485,6 +3520,14 @@ export default function App() {
     try {
       const data = await updateMe(profileForm)
       const showcaseSnapshot = mapFormToShowcase(profileShowcaseForm)
+      let savedShowcase = showcaseSnapshot
+      let showcaseSaveError = ''
+      try {
+        const showcaseResponse = await saveMyProfileShowcase(showcaseSnapshot)
+        savedShowcase = normalizeProfileShowcase(showcaseResponse && showcaseResponse.showcase)
+      } catch (showcaseErr) {
+        showcaseSaveError = showcaseErr.message
+      }
       setUser(data.user)
       setProfileForm({
         username: data.user.username || '',
@@ -3498,10 +3541,14 @@ export default function App() {
       if (data.user && data.user.id) {
         setProfileShowcaseByUserId((prev) => ({
           ...prev,
-          [data.user.id]: showcaseSnapshot
+          [data.user.id]: savedShowcase
         }))
       }
-      setStatus({ type: 'success', message: 'Профиль и оформление обновлены.' })
+      if (showcaseSaveError) {
+        setStatus({ type: 'info', message: `Профиль обновлен, но Showcase не сохранен: ${showcaseSaveError}` })
+      } else {
+        setStatus({ type: 'success', message: 'Профиль и оформление обновлены.' })
+      }
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -3631,14 +3678,22 @@ export default function App() {
     setView('profile-view')
     setProfileLoading(true)
     try {
-      const [data, postsData, tracksData] = await Promise.all([
+      const [data, postsData, tracksData, showcaseData] = await Promise.all([
         getProfile(username),
         getProfilePosts(username),
-        getProfileTracks(username)
+        getProfileTracks(username),
+        getProfileShowcase(username).catch(() => ({ showcase: null }))
       ])
       setProfileView(data.user)
       setProfilePosts(postsData.posts || [])
       setProfileTracks(tracksData.tracks || [])
+      if (data.user && data.user.id) {
+        const showcase = normalizeProfileShowcase(showcaseData && showcaseData.showcase)
+        setProfileShowcaseByUserId((prev) => ({
+          ...prev,
+          [data.user.id]: showcase
+        }))
+      }
       setActiveTrackId(null)
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
@@ -4041,6 +4096,30 @@ export default function App() {
         setActiveConversation(data.conversation)
       }
       setView('chats')
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSendProfileWave = async () => {
+    if (!profileView || !profileView.username || !user || profileView.id === user.id) return
+    setLoading(true)
+    try {
+      const data = await createConversation(profileView.username)
+      const targetConversationId = data && data.conversation ? data.conversation.id : ''
+      if (targetConversationId) {
+        const waveMessage = PROFILE_WAVE_TEMPLATES[Math.floor(Math.random() * PROFILE_WAVE_TEMPLATES.length)] || PROFILE_WAVE_TEMPLATES[0]
+        await sendMessage(targetConversationId, waveMessage)
+      }
+      const list = await getConversations()
+      setConversations(list.conversations || [])
+      if (data && data.conversation) {
+        setActiveConversation(data.conversation)
+      }
+      setView('chats')
+      setStatus({ type: 'success', message: 'Вейв отправлен в чат.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -4491,6 +4570,32 @@ export default function App() {
     setProfileForm((prev) => ({ ...prev, bio: String(text || '').slice(0, 260) }))
   }
 
+  const applyRandomProfilePack = () => {
+    const randomColor = PROFILE_COLOR_PRESETS[Math.floor(Math.random() * PROFILE_COLOR_PRESETS.length)] || PROFILE_COLOR_PRESETS[0]
+    const randomEmoji = STATUS_EMOJI_PRESETS[Math.floor(Math.random() * STATUS_EMOJI_PRESETS.length)] || STATUS_EMOJI_PRESETS[0]
+    const randomStatus = STATUS_TEXT_PRESETS[Math.floor(Math.random() * STATUS_TEXT_PRESETS.length)] || STATUS_TEXT_PRESETS[0]
+    const randomBio = BIO_TEXT_PRESETS[Math.floor(Math.random() * BIO_TEXT_PRESETS.length)] || BIO_TEXT_PRESETS[0]
+    const randomTheme = PROFILE_HERO_THEMES[Math.floor(Math.random() * PROFILE_HERO_THEMES.length)] || PROFILE_HERO_THEMES[0]
+    const shuffledBadges = [...PROFILE_BADGE_OPTIONS]
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3)
+      .map((item) => item.id)
+
+    setProfileForm((prev) => ({
+      ...prev,
+      themeColor: normalizeHexColor(randomColor.value, prev.themeColor || '#7a1f1d'),
+      statusEmoji: randomEmoji,
+      statusText: randomStatus,
+      bio: randomBio
+    }))
+    setProfileShowcaseForm((prev) => ({
+      ...prev,
+      heroTheme: randomTheme.value,
+      badges: shuffledBadges
+    }))
+    setStatus({ type: 'info', message: 'Случайный профиль-пак применен.' })
+  }
+
   const applyProfileColorPreset = (color) => {
     setProfileForm((prev) => ({
       ...prev,
@@ -4519,25 +4624,43 @@ export default function App() {
     })
   }
 
-  const handleSaveProfileShowcase = () => {
+  const handleSaveProfileShowcase = async () => {
     if (!user || !user.id) return
-    const normalized = mapFormToShowcase(profileShowcaseForm)
-    setProfileShowcaseByUserId((prev) => ({
-      ...prev,
-      [user.id]: normalized
-    }))
-    setStatus({ type: 'success', message: 'Оформление профиля сохранено.' })
+    setLoading(true)
+    try {
+      const normalized = mapFormToShowcase(profileShowcaseForm)
+      const data = await saveMyProfileShowcase(normalized)
+      const saved = normalizeProfileShowcase(data && data.showcase)
+      setProfileShowcaseByUserId((prev) => ({
+        ...prev,
+        [user.id]: saved
+      }))
+      setProfileShowcaseForm(mapShowcaseToForm(saved))
+      setStatus({ type: 'success', message: 'Оформление профиля сохранено.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const handleResetProfileShowcase = () => {
-    setProfileShowcaseForm(mapShowcaseToForm(DEFAULT_PROFILE_SHOWCASE))
+  const handleResetProfileShowcase = async () => {
     if (!user || !user.id) return
-    setProfileShowcaseByUserId((prev) => {
-      const next = { ...prev }
-      delete next[user.id]
-      return next
-    })
-    setStatus({ type: 'info', message: 'Оформление профиля сброшено.' })
+    setLoading(true)
+    try {
+      const data = await saveMyProfileShowcase(DEFAULT_PROFILE_SHOWCASE)
+      const saved = normalizeProfileShowcase(data && data.showcase)
+      setProfileShowcaseByUserId((prev) => ({
+        ...prev,
+        [user.id]: saved
+      }))
+      setProfileShowcaseForm(mapShowcaseToForm(saved))
+      setStatus({ type: 'info', message: 'Оформление профиля сброшено.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const setChatWallpaper = (wallpaperValue, { closeMenu = false } = {}) => {
@@ -6916,6 +7039,9 @@ export default function App() {
                         <button type="button" className="ghost" onClick={handleMessageFromProfile} disabled={loading}>
                           Написать
                         </button>
+                        <button type="button" className="ghost" onClick={handleSendProfileWave} disabled={loading}>
+                          Wave 👋
+                        </button>
                       </>
                     )}
                     {!canSubscribeProfile && (
@@ -7413,6 +7539,9 @@ export default function App() {
                   <h3>Быстрые пресеты</h3>
                   <span>{profileEditorScore}% готовности</span>
                 </div>
+                <button type="button" className="ghost profile-random-pack" onClick={applyRandomProfilePack}>
+                  🎲 Случайный профиль-пак
+                </button>
                 <div className="profile-progress">
                   <span style={{ width: `${profileEditorScore}%` }}></span>
                 </div>

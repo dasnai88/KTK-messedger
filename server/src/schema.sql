@@ -69,6 +69,16 @@ create table if not exists user_gifs (
   created_at timestamptz default now()
 );
 
+create table if not exists user_profile_showcases (
+  user_id uuid primary key references users(id) on delete cascade,
+  headline text,
+  hero_theme text default 'default',
+  skills jsonb not null default '[]'::jsonb,
+  badges jsonb not null default '[]'::jsonb,
+  links jsonb not null default '[]'::jsonb,
+  updated_at timestamptz default now()
+);
+
 create table if not exists conversations (
   id uuid primary key default gen_random_uuid(),
   title text,
@@ -203,6 +213,7 @@ create index if not exists idx_subscriptions_subscriber on user_subscriptions (s
 create index if not exists idx_profile_tracks_user on profile_tracks (user_id, created_at desc);
 create index if not exists idx_user_stickers_user on user_stickers (user_id, created_at desc);
 create index if not exists idx_user_gifs_user on user_gifs (user_id, created_at desc);
+create index if not exists idx_user_profile_showcases_updated on user_profile_showcases (updated_at desc);
 create index if not exists idx_members_user on conversation_members (user_id);
 create index if not exists idx_members_user_favorite on conversation_members (user_id, is_favorite);
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
@@ -312,6 +323,90 @@ DO $$ BEGIN
   ALTER TABLE user_gifs ADD COLUMN mime_type text;
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ADD COLUMN headline text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ADD COLUMN hero_theme text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ADD COLUMN skills jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ADD COLUMN badges jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ADD COLUMN links jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ADD COLUMN updated_at timestamptz default now();
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ALTER COLUMN hero_theme SET DEFAULT 'default';
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ALTER COLUMN skills SET DEFAULT '[]'::jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ALTER COLUMN badges SET DEFAULT '[]'::jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_profile_showcases ALTER COLUMN links SET DEFAULT '[]'::jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  UPDATE user_profile_showcases SET hero_theme = 'default' WHERE hero_theme IS NULL;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  UPDATE user_profile_showcases SET skills = '[]'::jsonb WHERE skills IS NULL;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  UPDATE user_profile_showcases SET badges = '[]'::jsonb WHERE badges IS NULL;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  UPDATE user_profile_showcases SET links = '[]'::jsonb WHERE links IS NULL;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  UPDATE user_profile_showcases SET updated_at = now() WHERE updated_at IS NULL;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE message_polls ADD COLUMN question text;

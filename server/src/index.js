@@ -39,6 +39,24 @@ const profileStatusTextMaxLength = 80
 const profileStatusEmojiMaxLength = 16
 const stickerTitleMaxLength = 48
 const gifTitleMaxLength = 48
+const profileShowcaseHeadlineMaxLength = 120
+const profileShowcaseSkillMaxLength = 24
+const profileShowcaseSkillsMaxCount = 8
+const profileShowcaseBadgesMaxCount = 6
+const profileShowcaseLinksMaxCount = 2
+const profileShowcaseLinkLabelMaxLength = 30
+const profileShowcaseLinkUrlMaxLength = 240
+const profileShowcaseThemeOptions = new Set(['default', 'sunset', 'ocean', 'forest', 'neon'])
+const profileShowcaseBadgeOptions = new Set([
+  'builder',
+  'designer',
+  'mentor',
+  'gamer',
+  'music',
+  'rapid',
+  'night',
+  'communicator'
+])
 const pollQuestionMaxLength = 240
 const pollOptionMaxLength = 120
 const pollOptionMinCount = 2
@@ -463,11 +481,103 @@ function mapGif(row) {
   }
 }
 
+function normalizeProfileShowcaseTheme(value) {
+  const normalized = String(value || '').trim().toLowerCase()
+  if (!normalized) return 'default'
+  return profileShowcaseThemeOptions.has(normalized) ? normalized : 'default'
+}
+
+function normalizeProfileShowcaseSkills(value) {
+  if (!Array.isArray(value)) return []
+  const unique = new Set()
+  value.forEach((item) => {
+    if (unique.size >= profileShowcaseSkillsMaxCount) return
+    const normalized = String(item || '').trim().slice(0, profileShowcaseSkillMaxLength)
+    if (!normalized) return
+    unique.add(normalized)
+  })
+  return Array.from(unique)
+}
+
+function normalizeProfileShowcaseBadges(value) {
+  if (!Array.isArray(value)) return []
+  const unique = new Set()
+  value.forEach((item) => {
+    if (unique.size >= profileShowcaseBadgesMaxCount) return
+    const normalized = String(item || '').trim()
+    if (!normalized || !profileShowcaseBadgeOptions.has(normalized)) return
+    unique.add(normalized)
+  })
+  return Array.from(unique)
+}
+
+function normalizeProfileShowcaseLinks(value) {
+  if (!Array.isArray(value)) return []
+  const links = []
+  value.forEach((item) => {
+    if (links.length >= profileShowcaseLinksMaxCount) return
+    if (!item || typeof item !== 'object') return
+    const label = String(item.label || '').trim().slice(0, profileShowcaseLinkLabelMaxLength)
+    const rawUrl = String(item.url || '').trim().slice(0, profileShowcaseLinkUrlMaxLength)
+    if (!label || !rawUrl) return
+    let url = rawUrl
+    if (!/^https?:\/\//i.test(url)) {
+      url = `https://${url}`
+    }
+    links.push({ label, url })
+  })
+  return links
+}
+
+function normalizeProfileShowcasePayload(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    headline: String(source.headline || '').trim().slice(0, profileShowcaseHeadlineMaxLength),
+    heroTheme: normalizeProfileShowcaseTheme(source.heroTheme),
+    skills: normalizeProfileShowcaseSkills(source.skills),
+    badges: normalizeProfileShowcaseBadges(source.badges),
+    links: normalizeProfileShowcaseLinks(source.links)
+  }
+}
+
+function emptyProfileShowcase() {
+  return {
+    headline: '',
+    heroTheme: 'default',
+    skills: [],
+    badges: [],
+    links: [],
+    updatedAt: null
+  }
+}
+
+function mapProfileShowcaseRow(row) {
+  if (!row || typeof row !== 'object') return emptyProfileShowcase()
+  const normalized = normalizeProfileShowcasePayload({
+    headline: row.headline,
+    heroTheme: row.hero_theme,
+    skills: row.skills,
+    badges: row.badges,
+    links: row.links
+  })
+  return {
+    ...normalized,
+    updatedAt: row.updated_at || null
+  }
+}
+
 function isProfileFeaturesSchemaError(err) {
   if (!err || typeof err !== 'object') return false
   if (err.code !== '42P01' && err.code !== '42703') return false
   const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   return message.includes('user_subscriptions') || message.includes('profile_tracks')
+}
+
+function isProfileShowcaseSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('user_profile_showcases')
 }
 
 function isStickerFeaturesSchemaError(err) {
@@ -1594,6 +1704,71 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
   }
 })
 
+app.get('/api/me/showcase', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `select user_id, headline, hero_theme, skills, badges, links, updated_at
+       from user_profile_showcases
+       where user_id = $1
+       limit 1`,
+      [req.userId]
+    )
+    const showcase = result.rowCount > 0 ? mapProfileShowcaseRow(result.rows[0]) : emptyProfileShowcase()
+    res.json({ showcase })
+  } catch (err) {
+    if (isProfileShowcaseSchemaError(err)) {
+      return res.status(503).json({ error: 'Profile showcase feature is unavailable: database migration required' })
+    }
+    console.error('Get my showcase error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.put('/api/me/showcase', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const payload = normalizeProfileShowcasePayload(
+      req.body && typeof req.body === 'object' && req.body.showcase && typeof req.body.showcase === 'object'
+        ? req.body.showcase
+        : req.body
+    )
+    const result = await pool.query(
+      `insert into user_profile_showcases (
+         user_id,
+         headline,
+         hero_theme,
+         skills,
+         badges,
+         links,
+         updated_at
+       )
+       values ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, now())
+       on conflict (user_id) do update
+         set headline = excluded.headline,
+             hero_theme = excluded.hero_theme,
+             skills = excluded.skills,
+             badges = excluded.badges,
+             links = excluded.links,
+             updated_at = now()
+       returning user_id, headline, hero_theme, skills, badges, links, updated_at`,
+      [
+        req.userId,
+        payload.headline,
+        payload.heroTheme,
+        JSON.stringify(payload.skills),
+        JSON.stringify(payload.badges),
+        JSON.stringify(payload.links)
+      ]
+    )
+    res.json({ showcase: mapProfileShowcaseRow(result.rows[0]) })
+  } catch (err) {
+    if (isProfileShowcaseSchemaError(err)) {
+      return res.status(503).json({ error: 'Profile showcase feature is unavailable: database migration required' })
+    }
+    console.error('Save showcase error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 app.get('/api/notifications/vapid-public-key', auth, ensureNotBanned, (req, res) => {
   if (!webPushEnabled) {
     return res.status(503).json({ error: 'Web push is not configured on the server' })
@@ -1842,6 +2017,30 @@ app.get('/api/users/:username', auth, ensureNotBanned, async (req, res) => {
     })
   } catch (err) {
     console.error('Profile error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.get('/api/users/:username/showcase', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.params.username)
+    const userResult = await pool.query('select id from users where username = $1', [username])
+    if (userResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+
+    const showcaseResult = await pool.query(
+      `select user_id, headline, hero_theme, skills, badges, links, updated_at
+       from user_profile_showcases
+       where user_id = $1
+       limit 1`,
+      [userResult.rows[0].id]
+    )
+    const showcase = showcaseResult.rowCount > 0 ? mapProfileShowcaseRow(showcaseResult.rows[0]) : emptyProfileShowcase()
+    res.json({ showcase })
+  } catch (err) {
+    if (isProfileShowcaseSchemaError(err)) {
+      return res.status(503).json({ error: 'Profile showcase feature is unavailable: database migration required' })
+    }
+    console.error('Profile showcase error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
