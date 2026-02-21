@@ -940,6 +940,21 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
+.chat-mobile-back {
+  display: none;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 12px;
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
 .chat-header-link {
   border: none;
   background: transparent;
@@ -3262,6 +3277,36 @@ body {
   color: var(--muted);
 }
 
+.profile-settings-panel {
+  min-width: 0;
+}
+
+.profile-settings-panel > * {
+  min-width: 0;
+}
+
+.profile-settings-panel .profile-theme-customizer-head {
+  flex-wrap: wrap;
+}
+
+.profile-settings-panel .profile-theme-customizer-head code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.profile-settings-panel .profile-pro-head,
+.profile-settings-panel .profile-showcase-head,
+.profile-settings-panel .ui-studio-head {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.profile-settings-panel .profile-color-preset-row button {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .profile-hero {
   padding: 18px;
   display: grid;
@@ -4738,11 +4783,33 @@ body {
     gap: 12px;
     min-height: 0;
     height: auto;
+    grid-template-columns: 1fr;
   }
 
   .chat-list,
   .chat-window {
     padding: 14px 12px;
+  }
+
+  .chat-layout:not(.chat-layout-mobile-active) .chat-window {
+    display: none;
+  }
+
+  .chat-layout.chat-layout-mobile-active .chat-list {
+    display: none;
+  }
+
+  .chat-layout.chat-layout-mobile-active .chat-window {
+    display: grid;
+    min-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - var(--mobile-rail-height) - 140px);
+  }
+
+  .chat-mobile-back {
+    display: inline-flex;
+  }
+
+  .chat-header {
+    align-items: flex-start;
   }
 
   .chat-list {
@@ -4785,6 +4852,49 @@ body {
     left: calc(10px + var(--safe-left));
     bottom: calc(10px + var(--safe-bottom) + var(--mobile-rail-height));
   }
+
+  .profile-settings-panel {
+    gap: 12px;
+  }
+
+  .profile-settings-panel .profile-banner {
+    height: 124px;
+  }
+
+  .profile-settings-panel .profile-avatar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .profile-settings-panel .file-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .profile-settings-panel .profile-theme-customizer-grid,
+  .profile-settings-panel .profile-pro-grid,
+  .profile-settings-panel .ui-studio-grid,
+  .profile-settings-panel .showcase-links-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-settings-panel .profile-theme-wheel {
+    width: min(100%, 240px);
+  }
+
+  .profile-settings-panel .showcase-editor-actions .ghost,
+  .profile-settings-panel .showcase-editor-actions .primary,
+  .profile-settings-panel .ui-studio-actions .ghost,
+  .profile-settings-panel .ui-studio-actions .primary {
+    width: 100%;
+  }
+
+  .profile-settings-panel .profile-color-preset-row button {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 0;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 720px) {
@@ -4805,7 +4915,23 @@ body {
   }
 
   .chat-header {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
     gap: 8px;
+  }
+
+  .chat-mobile-back {
+    order: -1;
+  }
+
+  .chat-user {
+    min-width: 0;
+    flex: 1 1 180px;
+  }
+
+  .chat-user > div:last-child {
+    min-width: 0;
   }
 
   .chat-actions {
@@ -4816,6 +4942,9 @@ body {
 
   .chat-user h3 {
     font-size: 17px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .message-bubble {

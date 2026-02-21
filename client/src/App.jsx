@@ -5856,7 +5856,7 @@ export default function App() {
         )}
 
         {view === 'chats' && user && (
-          <div className="chat-layout">
+          <div className={`chat-layout ${activeConversation ? 'chat-layout-mobile-active' : ''}`.trim()}>
             <section className="chat-list">
               <div className="chat-search">
                 <input
@@ -6007,6 +6007,14 @@ export default function App() {
                 <>
                   <div className="chat-top">
                     <div className="chat-header">
+                      <button
+                        type="button"
+                        className="chat-mobile-back"
+                        onClick={() => setActiveConversation(null)}
+                        title="Назад к списку чатов"
+                      >
+                        ← Чаты
+                      </button>
                       {activeConversation.isGroup ? (
                         <div className="chat-user">
                           <div className="avatar small">
@@ -7689,7 +7697,7 @@ export default function App() {
         )}
 
         {view === 'profile' && user && (
-          <form className="panel" onSubmit={handleProfileSave}>
+          <form className="panel profile-settings-panel" onSubmit={handleProfileSave}>
             <div className="panel-header">
               <div>
                 <h2>Профиль</h2>
