@@ -253,6 +253,26 @@ const EMOJI_GROUP_LABELS = {
   animals: 'Животные',
   food: 'Еда'
 }
+const NUDGE_MARKER = '[[NUDGE]]'
+const EIGHT_BALL_RESPONSES = [
+  'Да, 100%',
+  'Скорее да',
+  'Есть шанс',
+  'Лучше подожди',
+  'Спроси позже',
+  'Сомнительно',
+  'Скорее нет',
+  'Нет'
+]
+const FUN_COMMANDS = [
+  { command: '/shrug', template: '/shrug', description: '¯\\_(ツ)_/¯' },
+  { command: '/flip', template: '/flip', description: 'Перевернуть стол' },
+  { command: '/unflip', template: '/unflip', description: 'Поставить стол обратно' },
+  { command: '/dice', template: '/dice', description: 'Случайное число 1-6' },
+  { command: '/8ball', template: '/8ball ', description: 'Предсказание шара' },
+  { command: '/spoiler', template: '/spoiler ', description: 'Скрытый текст' },
+  { command: '/nudge', template: '/nudge', description: 'Пнуть собеседника' }
+]
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
@@ -458,9 +478,22 @@ function isVideoMessageAttachment(message) {
   return /\.(mp4|webm|ogv|ogg|mov|m4v)(\?|$)/i.test(message.attachmentUrl)
 }
 
+function extractSpoilerText(value) {
+  const raw = String(value || '').trim()
+  if (!raw.startsWith('||') || !raw.endsWith('||') || raw.length <= 4) return ''
+  const content = raw.slice(2, -2).trim()
+  return content || ''
+}
+
+function isNudgeMessage(value) {
+  return String(value || '').trim() === NUDGE_MARKER
+}
+
 function getMessagePreviewLabel(message, emptyText = 'Сообщение') {
   if (message && typeof message.body === 'string' && message.body.trim()) {
     const text = message.body.trim()
+    if (isNudgeMessage(text)) return 'Пинок'
+    if (extractSpoilerText(text)) return 'Скрытый текст'
     return text.length > 120 ? `${text.slice(0, 117)}...` : text
   }
   if (message && message.attachmentUrl) {
@@ -607,6 +640,8 @@ export default function App() {
   const [mediaPanelOpen, setMediaPanelOpen] = useState(false)
   const [mediaPanelTab, setMediaPanelTab] = useState(MEDIA_PANEL_TABS.emoji)
   const [mediaPanelQuery, setMediaPanelQuery] = useState('')
+  const [chatShaking, setChatShaking] = useState(false)
+  const [revealedSpoilers, setRevealedSpoilers] = useState(() => new Set())
   const [recentStickerIds, setRecentStickerIds] = useState(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem(RECENT_STICKERS_STORAGE_KEY) || '[]')
@@ -912,6 +947,15 @@ export default function App() {
     })
     return Array.from(groups.entries())
   }, [visibleEmojis])
+  const commandSuggestions = useMemo(() => {
+    if (!activeConversation || isChatBlocked || messageFile) return []
+    const raw = String(messageText || '').trimStart()
+    if (!raw.startsWith('/')) return []
+    const query = raw.slice(1).toLowerCase()
+    return FUN_COMMANDS
+      .filter((item) => item.command.slice(1).includes(query))
+      .slice(0, 6)
+  }, [activeConversation, isChatBlocked, messageFile, messageText])
   const feedQueryNormalized = feedQuery.trim().toLowerCase()
   const trendingTags = useMemo(() => {
     const tagCounts = new Map()
@@ -1474,6 +1518,95 @@ export default function App() {
         // ignore cursor update errors
       }
     })
+  }
+
+  const applyCommandSuggestion = (template) => {
+    if (!activeConversation || isChatBlocked || !template) return
+    setMessageText(template)
+    syncTypingStateByValue(template)
+    window.requestAnimationFrame(() => {
+      if (!composerInputRef.current) return
+      composerInputRef.current.focus()
+      const caret = template.length
+      try {
+        composerInputRef.current.setSelectionRange(caret, caret)
+      } catch (err) {
+        // ignore cursor update errors
+      }
+    })
+  }
+
+  const resolveFunCommand = (rawText) => {
+    const trimmed = String(rawText || '').trim()
+    if (!trimmed.startsWith('/')) {
+      return { ok: true, text: trimmed }
+    }
+    const firstSpace = trimmed.indexOf(' ')
+    const command = (firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace)).toLowerCase()
+    const tail = firstSpace === -1 ? '' : trimmed.slice(firstSpace + 1).trim()
+
+    if (command === '/shrug') return { ok: true, text: '¯\\_(ツ)_/¯' }
+    if (command === '/flip') return { ok: true, text: '(╯°□°)╯︵ ┻━┻' }
+    if (command === '/unflip') return { ok: true, text: '┬─┬ ノ( ゜-゜ノ)' }
+    if (command === '/dice') return { ok: true, text: `🎲 Выпало: ${Math.floor(Math.random() * 6) + 1}` }
+    if (command === '/8ball') {
+      if (!tail) return { ok: false, error: 'Напишите вопрос после /8ball' }
+      const answer = EIGHT_BALL_RESPONSES[Math.floor(Math.random() * EIGHT_BALL_RESPONSES.length)]
+      return { ok: true, text: `🎱 ${answer}` }
+    }
+    if (command === '/spoiler') {
+      if (!tail) return { ok: false, error: 'Напишите текст после /spoiler' }
+      return { ok: true, text: `||${tail}||` }
+    }
+    if (command === '/nudge') return { ok: true, text: NUDGE_MARKER }
+    return { ok: false, error: `Неизвестная команда: ${command}` }
+  }
+
+  const triggerChatShake = () => {
+    setChatShaking(false)
+    window.requestAnimationFrame(() => {
+      setChatShaking(true)
+    })
+  }
+
+  const revealSpoiler = (messageId) => {
+    if (!messageId) return
+    setRevealedSpoilers((prev) => {
+      if (prev.has(messageId)) return prev
+      const next = new Set(prev)
+      next.add(messageId)
+      return next
+    })
+  }
+
+  const renderMessageBody = (msg) => {
+    if (!msg || !msg.body) return null
+    if (isNudgeMessage(msg.body)) {
+      return (
+        <button type="button" className="message-nudge" onClick={triggerChatShake}>
+          <span>👋</span>
+          <span>{msg.senderId === user.id ? 'Пинок отправлен' : 'Тебя пнули'}</span>
+        </button>
+      )
+    }
+
+    const spoilerText = extractSpoilerText(msg.body)
+    if (spoilerText) {
+      const revealed = revealedSpoilers.has(msg.id)
+      return (
+        <button
+          type="button"
+          className={`message-spoiler ${revealed ? 'revealed' : ''}`.trim()}
+          onClick={() => {
+            if (!revealed) revealSpoiler(msg.id)
+          }}
+        >
+          {revealed ? spoilerText : 'Скрытый текст. Нажми, чтобы открыть'}
+        </button>
+      )
+    }
+
+    return <p className="message-text">{msg.body}</p>
   }
 
   const isPushSupported = () => (
@@ -2143,6 +2276,7 @@ export default function App() {
     setMediaPanelOpen(false)
     setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
     setMediaPanelQuery('')
+    setRevealedSpoilers(new Set())
     if (!activeConversation) {
       setMessageText('')
       setReplyMessage(null)
@@ -2160,6 +2294,12 @@ export default function App() {
       setMediaPanelQuery('')
     }
   }, [mediaPanelOpen, mediaPanelQuery])
+
+  useEffect(() => {
+    if (!chatShaking) return undefined
+    const timer = setTimeout(() => setChatShaking(false), 460)
+    return () => clearTimeout(timer)
+  }, [chatShaking])
 
   useEffect(() => {
     if (!activeConversation) return
@@ -2357,6 +2497,7 @@ export default function App() {
     const handleIncomingMessage = (payload) => {
       if (!payload || !payload.message) return
       const message = normalizeChatMessage(payload.message)
+      const isNudge = isNudgeMessage(message.body)
       const conversationId = payload.conversationId
       updateConversationPreview(conversationId, message)
       if (message.senderId) {
@@ -2373,6 +2514,9 @@ export default function App() {
         if (!isMine) {
           clearConversationUnread(conversationId)
           playMessageSound()
+          if (isNudge) {
+            triggerChatShake()
+          }
         }
         return
       }
@@ -2387,7 +2531,7 @@ export default function App() {
           playNotificationSound()
           pushToast({
             title: title || message.senderDisplayName || message.senderUsername || 'New message',
-            message: getConversationPreview(message),
+            message: isNudge ? '👋 Тебя пнули' : getConversationPreview(message),
             type: 'message'
           })
         }
@@ -3315,8 +3459,21 @@ export default function App() {
       setStatus({ type: 'error', message: 'Вы заблокировали пользователя.' })
       return
     }
-    const text = messageText.trim()
-    if (!text && !messageFile) return
+    const rawText = messageText.trim()
+    if (!rawText && !messageFile) return
+    let text = rawText
+    if (!messageFile && rawText.startsWith('/')) {
+      const commandResult = resolveFunCommand(rawText)
+      if (!commandResult.ok) {
+        setStatus({ type: 'error', message: commandResult.error || 'Не удалось выполнить команду.' })
+        return
+      }
+      text = commandResult.text
+      if (!text) {
+        setStatus({ type: 'error', message: 'Команда вернула пустой текст.' })
+        return
+      }
+    }
     stopTyping(activeConversation.id)
     setLoading(true)
     try {
@@ -3329,6 +3486,9 @@ export default function App() {
         if (createdMessage && prev.some((msg) => msg.id === createdMessage.id)) return prev
         return createdMessage ? [...prev, createdMessage] : prev
       })
+      if (createdMessage && isNudgeMessage(createdMessage.body)) {
+        triggerChatShake()
+      }
       setMessageText('')
       setReplyMessage(null)
       clearMessageAttachment()
@@ -4491,7 +4651,7 @@ export default function App() {
                       <div className="chat-typing">{typingLabel}</div>
                     )}
                   </div>
-                  <div className="chat-messages" ref={chatMessagesRef}>
+                  <div className={`chat-messages ${chatShaking ? 'nudge-shake' : ''}`.trim()} ref={chatMessagesRef}>
                     {filteredMessages.length === 0 && (
                       <div className="empty">
                         {chatSearchQuery ? 'Сообщения не найдены.' : 'Напишите первое сообщение.'}
@@ -4591,7 +4751,7 @@ export default function App() {
                               </button>
                             </div>
                           ) : (
-                            msg.body ? <p className="message-text">{msg.body}</p> : null
+                            renderMessageBody(msg)
                           )}
                           <div className="message-meta">
                             {msg.editedAt && <span className="message-edited">изменено</span>}
@@ -4785,6 +4945,20 @@ export default function App() {
                     </button>
                     <button className="primary" type="submit" disabled={loading || isChatBlocked}>Отправить</button>
                   </form>
+                  {commandSuggestions.length > 0 && !mediaPanelOpen && (
+                    <div className="command-hints">
+                      {commandSuggestions.map((item) => (
+                        <button
+                          key={item.command}
+                          type="button"
+                          onClick={() => applyCommandSuggestion(item.template)}
+                        >
+                          <code>{item.command}</code>
+                          <span>{item.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {mediaPanelOpen && (
                     <div className="sticker-panel media-panel">
                       <div className="media-panel-headline">

@@ -1333,6 +1333,10 @@ body {
   background: var(--surface-subtle);
 }
 
+.chat-messages.nudge-shake {
+  animation: chat-nudge-shake 460ms var(--ease-out);
+}
+
 .message-row {
   display: flex;
   align-items: flex-end;
@@ -1478,6 +1482,41 @@ body {
   line-height: 1.45;
   word-break: break-word;
   white-space: pre-wrap;
+}
+
+.message-spoiler,
+.message-nudge {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  border-radius: 12px;
+  min-height: 38px;
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.message-spoiler:hover,
+.message-nudge:hover {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.message-spoiler.revealed {
+  cursor: default;
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-nudge {
+  text-transform: uppercase;
+  letter-spacing: 0.25px;
 }
 
 .message-meta {
@@ -1816,6 +1855,49 @@ body {
 .composer.disabled .record-btn {
   pointer-events: none;
   opacity: 0.6;
+}
+
+.command-hints {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.command-hints button {
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  border-radius: 10px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.command-hints button:hover {
+  border-color: rgba(var(--accent-rgb), 0.45);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.command-hints code {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-soft);
+  background: rgba(var(--accent-rgb), 0.18);
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.command-hints span {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .file-btn {
@@ -2793,6 +2875,15 @@ body {
     opacity: 1;
     transform: none;
   }
+}
+
+@keyframes chat-nudge-shake {
+  0% { transform: translateX(0); }
+  18% { transform: translateX(-6px); }
+  36% { transform: translateX(6px); }
+  54% { transform: translateX(-4px); }
+  72% { transform: translateX(4px); }
+  100% { transform: translateX(0); }
 }
 
 @keyframes fade-in {
