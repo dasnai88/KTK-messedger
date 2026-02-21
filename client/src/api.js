@@ -376,6 +376,13 @@ export async function votePoll(messageId, optionId) {
   })
 }
 
+export async function forwardMessage(messageId, payload) {
+  return request(`/messages/${messageId}/forward`, {
+    method: 'POST',
+    body: payload
+  })
+}
+
 export async function uploadProfileTrack(file, meta = {}) {
   const token = getToken()
   const formData = new FormData()

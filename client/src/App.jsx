@@ -56,7 +56,8 @@ import {
   deleteGif,
   sendGif,
   createPoll,
-  votePoll
+  votePoll,
+  forwardMessage as forwardMessageApi
 } from './api.js'
 
 const icons = {
@@ -582,11 +583,23 @@ function normalizeReplyMessage(replyTo) {
   }
 }
 
+function normalizeForwardedFrom(value) {
+  if (!value || typeof value !== 'object') return null
+  return {
+    sourceMessageId: value.sourceMessageId || null,
+    sourceSenderId: value.sourceSenderId || null,
+    sourceSenderUsername: value.sourceSenderUsername || null,
+    sourceSenderDisplayName: value.sourceSenderDisplayName || null,
+    sourceConversationId: value.sourceConversationId || null
+  }
+}
+
 function normalizeChatMessage(message) {
   if (!message || typeof message !== 'object') return message
   return {
     ...message,
     replyTo: normalizeReplyMessage(message.replyTo),
+    forwardedFrom: normalizeForwardedFrom(message.forwardedFrom),
     reactions: normalizeMessageReactions(message.reactions),
     poll: normalizePollData(message.poll)
   }
@@ -674,6 +687,12 @@ export default function App() {
   const [messages, setMessages] = useState([])
   const [messageText, setMessageText] = useState('')
   const [replyMessage, setReplyMessage] = useState(null)
+  const [forwardDialogOpen, setForwardDialogOpen] = useState(false)
+  const [forwardSourceMessage, setForwardSourceMessage] = useState(null)
+  const [forwardConversationId, setForwardConversationId] = useState('')
+  const [forwardQuery, setForwardQuery] = useState('')
+  const [forwardComment, setForwardComment] = useState('')
+  const [forwardLoading, setForwardLoading] = useState(false)
   const [pollComposerOpen, setPollComposerOpen] = useState(false)
   const [pollDraft, setPollDraft] = useState(INITIAL_POLL_DRAFT)
   const [pollVoteLoadingByMessage, setPollVoteLoadingByMessage] = useState({})
@@ -905,6 +924,20 @@ export default function App() {
     }
     return sorted
   }, [conversations, favoriteConversationSet, chatListFilter])
+  const forwardQueryNormalized = forwardQuery.trim().toLowerCase()
+  const forwardConversationOptions = useMemo(() => {
+    const base = [...conversations].sort((a, b) => {
+      const aTime = Date.parse(a.lastAt || '') || 0
+      const bTime = Date.parse(b.lastAt || '') || 0
+      return bTime - aTime
+    })
+    if (!forwardQueryNormalized) return base
+    return base.filter((conversation) => {
+      const title = getConversationDisplayName(conversation, chatAliasByConversation).toLowerCase()
+      const username = String(conversation && conversation.other && conversation.other.username || '').toLowerCase()
+      return title.includes(forwardQueryNormalized) || username.includes(forwardQueryNormalized)
+    })
+  }, [conversations, chatAliasByConversation, forwardQueryNormalized])
   const userMoodLabel = useMemo(() => getProfileMoodLabel(user), [user])
   const profileViewMoodLabel = useMemo(() => getProfileMoodLabel(profileView), [profileView])
   const activeChatMoodLabel = useMemo(() => {
@@ -3351,6 +3384,12 @@ export default function App() {
     setMediaPanelOpen(false)
     setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
     setMediaPanelQuery('')
+    setForwardDialogOpen(false)
+    setForwardSourceMessage(null)
+    setForwardConversationId('')
+    setForwardQuery('')
+    setForwardComment('')
+    setForwardLoading(false)
     setPollComposerOpen(false)
     setPollDraft(INITIAL_POLL_DRAFT)
     setPollVoteLoadingByMessage({})
@@ -4262,6 +4301,13 @@ export default function App() {
     return msg.senderDisplayName || msg.senderUsername || 'Пользователь'
   }
 
+  const getForwardSourceLabel = (msg) => {
+    if (!msg || !msg.forwardedFrom) return 'Пользователь'
+    const source = msg.forwardedFrom
+    if (user && source.sourceSenderId && source.sourceSenderId === user.id) return 'Вы'
+    return source.sourceSenderDisplayName || source.sourceSenderUsername || 'Пользователь'
+  }
+
   const startReplyMessage = (msg) => {
     if (!msg || !msg.id) return
     setReplyMessage({
@@ -4276,6 +4322,74 @@ export default function App() {
       senderAvatarUrl: msg.senderAvatarUrl || null
     })
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
+  }
+
+  const closeForwardDialog = (force = false) => {
+    if (forwardLoading && !force) return
+    setForwardDialogOpen(false)
+    setForwardSourceMessage(null)
+    setForwardConversationId('')
+    setForwardQuery('')
+    setForwardComment('')
+  }
+
+  const openForwardDialog = (msg) => {
+    if (!msg || !msg.id) return
+    const defaultConversation = (
+      conversations.find((conversation) => !activeConversation || conversation.id !== activeConversation.id) ||
+      activeConversation ||
+      conversations[0] ||
+      null
+    )
+    setForwardSourceMessage(msg)
+    setForwardConversationId(defaultConversation ? defaultConversation.id : '')
+    setForwardQuery('')
+    setForwardComment('')
+    setForwardDialogOpen(true)
+    setContextMenu(INITIAL_MESSAGE_MENU_STATE)
+  }
+
+  const handleForwardMessage = async (event) => {
+    if (event && typeof event.preventDefault === 'function') {
+      event.preventDefault()
+    }
+    if (!forwardSourceMessage || !forwardSourceMessage.id) return
+    if (!forwardConversationId) {
+      setStatus({ type: 'error', message: 'Выберите чат для пересылки.' })
+      return
+    }
+    setForwardLoading(true)
+    try {
+      const data = await forwardMessageApi(forwardSourceMessage.id, {
+        targetConversationId: forwardConversationId,
+        comment: forwardComment
+      })
+      const payloadMessages = [data.commentMessage, data.message]
+        .filter(Boolean)
+        .map((item) => normalizeChatMessage(item))
+
+      if (activeConversation && activeConversation.id === forwardConversationId && payloadMessages.length > 0) {
+        setMessages((prev) => {
+          const next = [...prev]
+          payloadMessages.forEach((message) => {
+            if (message && message.id && !next.some((item) => item.id === message.id)) {
+              next.push(message)
+            }
+          })
+          return next
+        })
+        await clearConversationUnread(forwardConversationId)
+      }
+
+      const list = await getConversations()
+      setConversations(list.conversations || [])
+      closeForwardDialog(true)
+      setStatus({ type: 'success', message: 'Сообщение переслано.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setForwardLoading(false)
+    }
   }
 
   const togglePinMessage = (msg) => {
@@ -4922,6 +5036,12 @@ export default function App() {
                               </p>
                             </div>
                           )}
+                          {msg.forwardedFrom && (
+                            <div className="message-forwarded">
+                              <span>Переслано</span>
+                              <strong>{getForwardSourceLabel(msg)}</strong>
+                            </div>
+                          )}
                           {msg.attachmentUrl && (
                             isVideoMessageAttachment(msg) ? (
                               msg.attachmentKind === VIDEO_NOTE_KIND ? (
@@ -5087,6 +5207,9 @@ export default function App() {
                           ))}
                         </div>
                       )}
+                      <button type="button" onClick={() => openForwardDialog(contextMenu.message)}>
+                        Переслать
+                      </button>
                       <button type="button" onClick={() => startReplyMessage(contextMenu.message)}>
                         Ответить
                       </button>
@@ -6578,6 +6701,79 @@ export default function App() {
       )}
 
       <audio ref={remoteAudioRef} autoPlay playsInline />
+
+      {forwardDialogOpen && forwardSourceMessage && (
+        <div
+          className="modal-overlay"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              closeForwardDialog()
+            }
+          }}
+        >
+          <div className="modal-card forward-modal-card">
+            <h3>Переслать сообщение</h3>
+            <div className="forward-preview">
+              <span>Предпросмотр</span>
+              <p>{getMessagePreview(forwardSourceMessage)}</p>
+            </div>
+            <form className="forward-form" onSubmit={handleForwardMessage}>
+              <label>
+                Поиск чата
+                <input
+                  type="text"
+                  value={forwardQuery}
+                  onChange={(event) => setForwardQuery(event.target.value)}
+                  placeholder="Найти чат по имени или username"
+                />
+              </label>
+              <div className="forward-list">
+                {forwardConversationOptions.length === 0 && (
+                  <div className="empty small">Чаты не найдены</div>
+                )}
+                {forwardConversationOptions.map((conversation) => (
+                  <button
+                    key={`forward-target-${conversation.id}`}
+                    type="button"
+                    className={`forward-item ${forwardConversationId === conversation.id ? 'active' : ''}`.trim()}
+                    onClick={() => setForwardConversationId(conversation.id)}
+                  >
+                    <div>
+                      <strong>{getConversationDisplayName(conversation, chatAliasByConversation)}</strong>
+                      <span>
+                        {conversation.isGroup
+                          ? 'Групповой чат'
+                          : conversation.other && conversation.other.username
+                            ? `@${conversation.other.username}`
+                            : 'Личный чат'}
+                      </span>
+                    </div>
+                    {conversation.lastAt && <time>{formatTime(conversation.lastAt)}</time>}
+                  </button>
+                ))}
+              </div>
+              <label>
+                Комментарий (необязательно)
+                <input
+                  type="text"
+                  value={forwardComment}
+                  onChange={(event) => setForwardComment(event.target.value)}
+                  placeholder="Добавить подпись перед пересланным сообщением"
+                  maxLength={1000}
+                />
+              </label>
+              <div className="modal-actions">
+                <button type="button" className="ghost" onClick={() => closeForwardDialog()} disabled={forwardLoading}>
+                  Отмена
+                </button>
+                <button type="submit" className="primary" disabled={forwardLoading || !forwardConversationId}>
+                  {forwardLoading ? 'Пересылаю...' : 'Переслать'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {avatarModalOpen && (
         <div className="modal-overlay">

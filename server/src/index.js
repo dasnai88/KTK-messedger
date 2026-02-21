@@ -606,6 +606,13 @@ function isMessagePollSchemaError(err) {
   return message.includes('message_polls') || message.includes('message_poll_votes') || message.includes('poll')
 }
 
+function isMessageForwardSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('message_forwards')
+}
+
 function normalizePollQuestion(value) {
   return String(value || '').trim().slice(0, pollQuestionMaxLength)
 }
@@ -882,6 +889,52 @@ async function attachPollDataToMessages(messages, viewerId) {
     })
   } catch (err) {
     if (isMessagePollSchemaError(err)) {
+      return messages
+    }
+    throw err
+  }
+}
+
+async function attachForwardDataToMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages
+  const messageIds = messages
+    .map((message) => message && message.id)
+    .filter((id) => typeof id === 'string')
+  if (messageIds.length === 0) return messages
+
+  try {
+    const result = await pool.query(
+      `select mf.message_id,
+              mf.source_message_id,
+              mf.source_sender_id,
+              mf.source_sender_username,
+              mf.source_sender_display_name,
+              mf.source_conversation_id
+       from message_forwards mf
+       where mf.message_id = any($1::uuid[])`,
+      [messageIds]
+    )
+    if (result.rowCount === 0) return messages
+
+    const forwardedByMessageId = new Map()
+    result.rows.forEach((row) => {
+      forwardedByMessageId.set(row.message_id, {
+        sourceMessageId: row.source_message_id || null,
+        sourceSenderId: row.source_sender_id || null,
+        sourceSenderUsername: row.source_sender_username || null,
+        sourceSenderDisplayName: row.source_sender_display_name || null,
+        sourceConversationId: row.source_conversation_id || null
+      })
+    })
+
+    return messages.map((message) => {
+      if (!message || !message.id) return message
+      const forwardedFrom = forwardedByMessageId.get(message.id)
+      if (!forwardedFrom) return message
+      return { ...message, forwardedFrom }
+    })
+  } catch (err) {
+    if (isMessageForwardSchemaError(err)) {
       return messages
     }
     throw err
@@ -2261,7 +2314,8 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
     }
 
     const mappedMessages = result.rows.map(mapMessageRow)
-    const messages = await attachPollDataToMessages(mappedMessages, req.userId)
+    const withPolls = await attachPollDataToMessages(mappedMessages, req.userId)
+    const messages = await attachForwardDataToMessages(withPolls)
 
     res.json({ messages })
   } catch (err) {
@@ -3331,6 +3385,257 @@ app.post('/api/messages/:id/poll-vote', auth, ensureNotBanned, async (req, res) 
     }
     console.error('Poll vote error', err)
     res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/messages/:id/forward', messageLimiter, auth, ensureNotBanned, async (req, res) => {
+  const sourceMessageId = req.params.id
+  const targetConversationId = typeof req.body.targetConversationId === 'string'
+    ? req.body.targetConversationId.trim()
+    : ''
+  const comment = String(req.body.comment || '').trim()
+
+  if (!targetConversationId || !isValidUuid(targetConversationId)) {
+    return res.status(400).json({ error: 'Target conversation id is invalid' })
+  }
+  if (comment && !isValidMessage(comment)) {
+    return res.status(400).json({ error: 'Comment is invalid' })
+  }
+
+  const client = await pool.connect()
+  try {
+    const sourceResult = await client.query(
+      `select m.id,
+              m.conversation_id,
+              m.body,
+              m.attachment_url,
+              m.attachment_mime,
+              m.attachment_kind,
+              m.deleted_at,
+              m.sender_id as source_sender_id,
+              u.username as source_sender_username,
+              u.display_name as source_sender_display_name
+       from messages m
+       left join users u on u.id = m.sender_id
+       join conversation_members cm
+         on cm.conversation_id = m.conversation_id
+        and cm.user_id = $2
+       where m.id = $1
+       limit 1`,
+      [sourceMessageId, req.userId]
+    )
+    if (sourceResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Message not found' })
+    }
+    const source = sourceResult.rows[0]
+    if (source.deleted_at) {
+      return res.status(400).json({ error: 'Message is deleted' })
+    }
+
+    const targetConversationResult = await client.query(
+      `select c.id, c.is_group, c.title
+       from conversations c
+       join conversation_members cm
+         on cm.conversation_id = c.id
+        and cm.user_id = $2
+       where c.id = $1
+       limit 1`,
+      [targetConversationId, req.userId]
+    )
+    if (targetConversationResult.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    const membersResult = await client.query(
+      `select cm.user_id
+       from conversation_members cm
+       where cm.conversation_id = $1`,
+      [targetConversationId]
+    )
+
+    const senderResult = await client.query(
+      'select username, display_name, avatar_url from users where id = $1',
+      [req.userId]
+    )
+    const sender = senderResult.rows[0] || {}
+
+    let commentRow = null
+    let forwardedRow = null
+    let forwardedPoll = null
+    await client.query('begin')
+    try {
+      if (comment) {
+        const insertedComment = await client.query(
+          `insert into messages (conversation_id, sender_id, body)
+           values ($1, $2, $3)
+           returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
+          [targetConversationId, req.userId, comment]
+        )
+        commentRow = insertedComment.rows[0]
+      }
+
+      const insertedForwarded = await client.query(
+        `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
+        [
+          targetConversationId,
+          req.userId,
+          source.body || '',
+          source.attachment_url || null,
+          source.attachment_mime || null,
+          source.attachment_kind || null
+        ]
+      )
+      forwardedRow = insertedForwarded.rows[0]
+
+      await client.query(
+        `insert into message_forwards (
+           message_id,
+           source_message_id,
+           source_sender_id,
+           source_sender_username,
+           source_sender_display_name,
+           source_conversation_id
+         )
+         values ($1, $2, $3, $4, $5, $6)`,
+        [
+          forwardedRow.id,
+          source.id,
+          source.source_sender_id || null,
+          source.source_sender_username || null,
+          source.source_sender_display_name || null,
+          source.conversation_id
+        ]
+      )
+
+      try {
+        const sourcePollResult = await client.query(
+          `select question, options, allows_multiple
+           from message_polls
+           where message_id = $1
+           limit 1`,
+          [source.id]
+        )
+        if (sourcePollResult.rowCount > 0) {
+          const sourcePoll = sourcePollResult.rows[0]
+          await client.query(
+            `insert into message_polls (message_id, question, options, allows_multiple, created_by)
+             values ($1, $2, $3::jsonb, $4, $5)`,
+            [
+              forwardedRow.id,
+              normalizePollQuestion(sourcePoll.question),
+              JSON.stringify(normalizePollOptionsValue(sourcePoll.options)),
+              sourcePoll.allows_multiple === true,
+              req.userId
+            ]
+          )
+          forwardedPoll = buildPollPayload({
+            question: sourcePoll.question,
+            allowsMultiple: sourcePoll.allows_multiple === true,
+            options: sourcePoll.options
+          })
+        }
+      } catch (pollErr) {
+        if (!isMessagePollSchemaError(pollErr)) {
+          throw pollErr
+        }
+      }
+
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    }
+
+    const forwardedFrom = {
+      sourceMessageId: source.id,
+      sourceSenderId: source.source_sender_id || null,
+      sourceSenderUsername: source.source_sender_username || null,
+      sourceSenderDisplayName: source.source_sender_display_name || null,
+      sourceConversationId: source.conversation_id
+    }
+
+    const commentMessage = commentRow ? {
+      id: commentRow.id,
+      body: commentRow.body,
+      attachmentUrl: commentRow.attachment_url,
+      attachmentMime: commentRow.attachment_mime,
+      attachmentKind: commentRow.attachment_kind,
+      editedAt: null,
+      createdAt: commentRow.created_at,
+      senderId: req.userId,
+      senderUsername: sender.username || null,
+      senderDisplayName: sender.display_name || null,
+      senderAvatarUrl: sender.avatar_url || null,
+      readByOther: false,
+      replyTo: null,
+      reactions: [],
+      forwardedFrom: null
+    } : null
+
+    const message = {
+      id: forwardedRow.id,
+      body: forwardedRow.body,
+      attachmentUrl: forwardedRow.attachment_url,
+      attachmentMime: forwardedRow.attachment_mime,
+      attachmentKind: forwardedRow.attachment_kind,
+      editedAt: null,
+      createdAt: forwardedRow.created_at,
+      senderId: req.userId,
+      senderUsername: sender.username || null,
+      senderDisplayName: sender.display_name || null,
+      senderAvatarUrl: sender.avatar_url || null,
+      readByOther: false,
+      replyTo: null,
+      reactions: [],
+      forwardedFrom,
+      ...(forwardedPoll ? { poll: forwardedPoll } : {})
+    }
+
+    membersResult.rows.forEach((member) => {
+      if (commentMessage) {
+        emitToUser(member.user_id, 'message', { conversationId: targetConversationId, message: commentMessage })
+      }
+      emitToUser(member.user_id, 'message', { conversationId: targetConversationId, message })
+    })
+
+    const recipients = membersResult.rows
+      .map((member) => member.user_id)
+      .filter((memberId) => memberId !== req.userId)
+
+    if (recipients.length > 0) {
+      const targetConversation = targetConversationResult.rows[0]
+      const isGroup = targetConversation.is_group === true
+      const senderName = sender.display_name || sender.username || 'New message'
+      const pushTitle = isGroup
+        ? (targetConversation.title || 'New message in group')
+        : senderName
+      const pushPayload = {
+        title: pushTitle,
+        body: getMessagePreviewText(message.body, message.attachmentUrl, message.attachmentKind),
+        conversationId: targetConversationId,
+        url: `/?conversation=${targetConversationId}`,
+        tag: `conversation-${targetConversationId}`,
+        senderId: req.userId,
+        messageId: message.id,
+        createdAt: message.createdAt,
+        skipWhenVisible: true
+      }
+      void sendPushToUsers(recipients, pushPayload).catch((err) => {
+        console.error('Push send error', err)
+      })
+    }
+
+    res.json({ ok: true, message, commentMessage })
+  } catch (err) {
+    if (isMessageForwardSchemaError(err)) {
+      return res.status(503).json({ error: 'Forward feature is unavailable: database migration required' })
+    }
+    console.error('Forward message error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  } finally {
+    client.release()
   }
 })
 

@@ -120,6 +120,16 @@ create table if not exists message_reactions (
   primary key (message_id, user_id, emoji)
 );
 
+create table if not exists message_forwards (
+  message_id uuid primary key references messages(id) on delete cascade,
+  source_message_id uuid references messages(id) on delete set null,
+  source_sender_id uuid references users(id) on delete set null,
+  source_sender_username text,
+  source_sender_display_name text,
+  source_conversation_id uuid references conversations(id) on delete set null,
+  created_at timestamptz default now()
+);
+
 create table if not exists message_polls (
   message_id uuid primary key references messages(id) on delete cascade,
   question text not null,
@@ -190,6 +200,7 @@ create index if not exists idx_members_user_favorite on conversation_members (us
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
 create index if not exists idx_messages_conversation on messages (conversation_id, created_at);
 create index if not exists idx_message_reactions_message on message_reactions (message_id);
+create index if not exists idx_message_forwards_source_message on message_forwards (source_message_id);
 create index if not exists idx_message_poll_votes_message on message_poll_votes (message_id);
 create index if not exists idx_message_poll_votes_user on message_poll_votes (user_id);
 create index if not exists idx_posts_created on posts (created_at desc);
@@ -295,6 +306,36 @@ WHEN duplicate_column THEN END $$;
 
 DO $$ BEGIN
   ALTER TABLE message_polls ADD COLUMN question text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_forwards ADD COLUMN source_message_id uuid;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_forwards ADD COLUMN source_sender_id uuid;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_forwards ADD COLUMN source_sender_username text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_forwards ADD COLUMN source_sender_display_name text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_forwards ADD COLUMN source_conversation_id uuid;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_forwards ADD COLUMN created_at timestamptz default now();
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_column THEN END $$;
 
