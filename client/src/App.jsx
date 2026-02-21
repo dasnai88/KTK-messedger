@@ -1179,6 +1179,7 @@ export default function App() {
   })
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [chatSearchQuery, setChatSearchQuery] = useState('')
+  const [chatMobilePane, setChatMobilePane] = useState('list')
   const [pinnedByConversation, setPinnedByConversation] = useState({})
   const [blockedUsers, setBlockedUsers] = useState(() => {
     try {
@@ -2754,6 +2755,7 @@ export default function App() {
     const targetConversation = conversations.find((item) => item.id === pendingPushConversationId)
     if (!targetConversation) return
     setActiveConversation(targetConversation)
+    setChatMobilePane('chat')
     setView('chats')
     setPendingPushConversationId(null)
     try {
@@ -2782,6 +2784,7 @@ export default function App() {
         setConversations(list)
         if (list.length === 0) {
           setActiveConversation(null)
+          setChatMobilePane('list')
           return
         }
         let nextActive = null
@@ -2809,6 +2812,12 @@ export default function App() {
     }
     loadConversations()
   }, [user])
+
+  useEffect(() => {
+    if (!activeConversation) {
+      setChatMobilePane('list')
+    }
+  }, [activeConversation ? activeConversation.id : null])
 
   useEffect(() => {
     if (!activeConversation) {
@@ -4137,6 +4146,7 @@ export default function App() {
     setUser(null)
     setView('login')
     setActiveConversation(null)
+    setChatMobilePane('list')
     setMessages([])
     setMyStickers([])
     setMyGifs([])
@@ -4200,6 +4210,7 @@ export default function App() {
       setConversations(list.conversations || [])
       if (data.conversation) {
         setActiveConversation(data.conversation)
+        setChatMobilePane('chat')
         setView('chats')
       }
       setSearchTerm('')
@@ -4224,6 +4235,7 @@ export default function App() {
       setConversations(list.conversations || [])
       if (data.conversation) {
         setActiveConversation(data.conversation)
+        setChatMobilePane('chat')
         setView('chats')
       }
       setGroupTitle('')
@@ -4324,6 +4336,7 @@ export default function App() {
       setConversations(list.conversations || [])
       if (data.conversation) {
         setActiveConversation(data.conversation)
+        setChatMobilePane('chat')
       }
       setView('chats')
     } catch (err) {
@@ -4347,6 +4360,7 @@ export default function App() {
       setConversations(list.conversations || [])
       if (data && data.conversation) {
         setActiveConversation(data.conversation)
+        setChatMobilePane('chat')
       }
       setView('chats')
       setStatus({ type: 'success', message: 'Вейв отправлен в чат.' })
@@ -5856,7 +5870,7 @@ export default function App() {
         )}
 
         {view === 'chats' && user && (
-          <div className={`chat-layout ${activeConversation ? 'chat-layout-mobile-active' : ''}`.trim()}>
+          <div className={`chat-layout ${activeConversation && chatMobilePane === 'chat' ? 'chat-layout-mobile-active' : ''}`.trim()}>
             <section className="chat-list">
               <div className="chat-search">
                 <input
@@ -5970,7 +5984,10 @@ export default function App() {
                       type="button"
                       key={conv.id}
                       className={`chat-item ${isActive ? 'active' : ''} ${!isActive && unreadCount > 0 ? 'unread' : ''} ${isFavorite ? 'favorite' : ''}`.trim()}
-                      onClick={() => setActiveConversation(conv)}
+                      onClick={() => {
+                        setActiveConversation(conv)
+                        setChatMobilePane('chat')
+                      }}
                     >
                       <span className="avatar">
                         {conv.isGroup
@@ -6010,7 +6027,7 @@ export default function App() {
                       <button
                         type="button"
                         className="chat-mobile-back"
-                        onClick={() => setActiveConversation(null)}
+                        onClick={() => setChatMobilePane('list')}
                         title="Назад к списку чатов"
                       >
                         ← Чаты
