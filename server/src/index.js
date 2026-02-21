@@ -1,4 +1,4 @@
-﻿require('dotenv').config()
+require('dotenv').config()
 
 const path = require('path')
 const fs = require('fs')
@@ -600,6 +600,29 @@ function mapPost(row) {
       avatarUrl: row.author_avatar_url
     }
   }
+}
+
+async function getPostByIdForViewer(postId, viewerId) {
+  const result = await pool.query(
+    `select p.id, p.body, p.image_url, p.repost_of, p.edited_at, p.deleted_at, p.created_at,
+            u.id as author_id, u.username as author_username,
+            u.display_name as author_display_name, u.avatar_url as author_avatar_url,
+            ru.username as repost_author_username, ru.display_name as repost_author_display_name,
+            rp.body as repost_body, rp.image_url as repost_image_url, rp.created_at as repost_created_at,
+            (select count(*) from post_likes pl where pl.post_id = p.id) as likes_count,
+            (select count(*) from post_comments pc where pc.post_id = p.id) as comments_count,
+            (select count(*) from post_reposts pr where pr.post_id = p.id) as reposts_count,
+            exists(select 1 from post_likes pl where pl.post_id = p.id and pl.user_id = $2) as liked,
+            exists(select 1 from post_reposts pr where pr.post_id = p.id and pr.user_id = $2) as reposted
+     from posts p
+     join users u on u.id = p.author_id
+     left join posts rp on rp.id = p.repost_of
+     left join users ru on ru.id = rp.author_id
+     where p.id = $1`,
+    [postId, viewerId]
+  )
+  if (result.rowCount === 0) return null
+  return mapPost(result.rows[0])
 }
 
 async function getUserConversations(userId) {
@@ -1921,7 +1944,7 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
 app.get('/api/posts', auth, ensureNotBanned, async (req, res) => {
   try {
     const result = await pool.query(
-       `select p.id, p.body, p.image_url, p.repost_of, p.created_at,
+       `select p.id, p.body, p.image_url, p.repost_of, p.edited_at, p.deleted_at, p.created_at,
               u.id as author_id, u.username as author_username,
               u.display_name as author_display_name, u.avatar_url as author_avatar_url,
               ru.username as repost_author_username, ru.display_name as repost_author_display_name,
@@ -1960,25 +1983,7 @@ app.post('/api/posts', uploadLimiter, auth, ensureNotBanned, imageUpload.single(
        returning id, body, image_url, created_at`,
       [req.userId, body.trim(), imageUrl]
     )
-    const postRow = await pool.query(
-       `select p.id, p.body, p.image_url, p.repost_of, p.created_at,
-              u.id as author_id, u.username as author_username,
-              u.display_name as author_display_name, u.avatar_url as author_avatar_url,
-              ru.username as repost_author_username, ru.display_name as repost_author_display_name,
-              rp.body as repost_body, rp.image_url as repost_image_url, rp.created_at as repost_created_at,
-              (select count(*) from post_likes pl where pl.post_id = p.id) as likes_count,
-              (select count(*) from post_comments pc where pc.post_id = p.id) as comments_count,
-              (select count(*) from post_reposts pr where pr.post_id = p.id) as reposts_count,
-              exists(select 1 from post_likes pl where pl.post_id = p.id and pl.user_id = $2) as liked,
-              exists(select 1 from post_reposts pr where pr.post_id = p.id and pr.user_id = $2) as reposted
-       from posts p
-       join users u on u.id = p.author_id
-       left join posts rp on rp.id = p.repost_of
-       left join users ru on ru.id = rp.author_id
-       where p.id = $1`,
-      [result.rows[0].id, req.userId]
-    )
-    const post = postRow.rows[0] ? mapPost(postRow.rows[0]) : null
+    const post = await getPostByIdForViewer(result.rows[0].id, req.userId)
     if (post) {
       io.emit('post:new', { post })
     }
@@ -2042,25 +2047,7 @@ app.post('/api/posts/:id/repost', auth, ensureNotBanned, async (req, res) => {
         'insert into posts (author_id, body, image_url, repost_of) values ($1, $2, $3, $4) returning id',
         [req.userId, '', null, postId]
       )
-      const postRow = await pool.query(
-        `select p.id, p.body, p.image_url, p.repost_of, p.created_at,
-                u.id as author_id, u.username as author_username,
-                u.display_name as author_display_name, u.avatar_url as author_avatar_url,
-                ru.username as repost_author_username, ru.display_name as repost_author_display_name,
-                rp.body as repost_body, rp.image_url as repost_image_url, rp.created_at as repost_created_at,
-                (select count(*) from post_likes pl where pl.post_id = p.id) as likes_count,
-                (select count(*) from post_comments pc where pc.post_id = p.id) as comments_count,
-                (select count(*) from post_reposts pr where pr.post_id = p.id) as reposts_count,
-                exists(select 1 from post_likes pl where pl.post_id = p.id and pl.user_id = $2) as liked,
-                exists(select 1 from post_reposts pr where pr.post_id = p.id and pr.user_id = $2) as reposted
-         from posts p
-         join users u on u.id = p.author_id
-         left join posts rp on rp.id = p.repost_of
-         left join users ru on ru.id = rp.author_id
-         where p.id = $1`,
-        [created.rows[0].id, req.userId]
-      )
-      newPost = postRow.rows[0] ? mapPost(postRow.rows[0]) : null
+      newPost = await getPostByIdForViewer(created.rows[0].id, req.userId)
     }
 
     const count = await pool.query('select count(*) from post_reposts where post_id = $1', [postId])
@@ -2304,7 +2291,11 @@ app.patch('/api/posts/:id', auth, ensureNotBanned, async (req, res) => {
       'update posts set body = $1, edited_at = now() where id = $2',
       [body, postId]
     )
-    res.json({ ok: true })
+    const updatedPost = await getPostByIdForViewer(postId, req.userId)
+    if (updatedPost) {
+      io.emit('post:update', { post: updatedPost })
+    }
+    res.json({ ok: true, post: updatedPost })
   } catch (err) {
     console.error('Edit post error', err)
     res.status(500).json({ error: 'Unexpected error' })

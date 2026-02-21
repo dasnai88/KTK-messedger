@@ -1,87 +1,73 @@
 # AGENTS.md
 
-This file is the project playbook for all future coding agents and models.
-Follow it strictly for every task in this repository.
+Operational playbook for coding agents working in this repository.
+Follow these rules on every task unless user explicitly overrides.
 
-## 1) Project Reality
+## 1) Project reality
 
 - Repository: `https://github.com/dasnai88/KTK-messedger`
 - Main branch: `main`
 - Backend runtime: Render (Node.js service)
-- Database: Render PostgreSQL (external DB URL)
+- Database: Render PostgreSQL
 - Web client: React + Vite (`client/`)
 - Server: Express + Socket.IO (`server/`)
 - Mobile client: Flutter (`mobile/`)
 
-Key rule:
-- Backend is not local-first anymore; production backend lives on Render.
-- Any backend change must be committed and pushed so Render can deploy it.
+Critical rule:
+- Backend is production-first on Render. Backend changes are not complete until committed and pushed.
 
-## 2) Source of Truth
+## 2) Source of truth
 
-- Database schema source of truth: `server/src/schema.sql`
-- API/server source of truth: `server/src/index.js`
+- DB schema: `server/src/schema.sql`
+- Backend API: `server/src/index.js`
 - Web API wrapper: `client/src/api.js`
 - Main web UI: `client/src/App.jsx`
 - Main web styles: `client/src/index.css`
 
-Never invent parallel schema files or ad-hoc SQL migrations outside `server/src/schema.sql` unless explicitly requested.
+Do not create parallel schema files or ad-hoc SQL migrations outside `server/src/schema.sql` unless explicitly requested.
 
-## 3) Mandatory Workflow After Every Code Change
+## 3) Mandatory workflow after every code change
 
-Always do the full sequence below:
-
-1. Make code changes.
+1. Implement requested changes.
 2. Run frontend build check:
    - `cd client`
    - `npm run build`
-3. If backend/schema touched, perform a quick syntax sanity check when possible:
+3. If backend/schema touched, run syntax sanity check:
    - from repo root: `node --check server/src/index.js`
-4. Commit with a clear message.
-5. Push to GitHub `origin` (usually `main`).
-6. If frontend (`client/`) was changed, immediately deploy `client/dist` to production FTP (`configcorner.online`) right after push.
+4. Commit with clear message.
+5. Push to `origin` (`main` by default).
+6. If frontend changed (`client/src/**`), deploy `client/dist` to `configcorner.online` via FTP immediately after push.
 
-No exceptions unless the user explicitly asks not to commit/push.
+No exceptions unless user explicitly says not to commit/push/deploy.
 
-## 4) Git Rules
+## 4) Git rules
 
 - Keep commits focused and readable.
 - Use clear commit messages, for example:
   - `feat: add message reactions menu and realtime sync`
   - `fix: correct context menu position near cursor`
   - `refactor: extract message reaction helpers`
-- Push after each completed task so state is reproducible.
-- Do not rewrite remote history unless the user asks.
-- Do not commit generated logs, temporary artifacts, or random upload files.
+- Push after each completed task.
+- Do not rewrite remote history unless asked.
+- Do not commit logs, temporary uploads, or random artifacts.
 
-Do not commit these kinds of files:
+Never commit:
 - `.devclient.log`
 - `client/.devclient.log`
 - `client/.devclient.err.log`
-- Temporary test media in `server/uploads/*` unless explicitly requested
+- temporary media under `server/uploads/*` (unless explicitly requested)
 
-## 5) Database Change Policy
+## 5) Database change policy
 
-When changing DB structure:
+When DB structure changes:
 
 1. Update `server/src/schema.sql`.
-2. Keep SQL idempotent when possible (`create table if not exists`, safe `DO $$ BEGIN ... EXCEPTION ... END $$;` blocks).
+2. Keep SQL idempotent where possible (`create table if not exists`, safe `DO $$ ... EXCEPTION ... END $$;`).
 3. Apply schema to Render PostgreSQL.
-4. Verify expected tables/columns exist.
-5. Push code changes.
+4. Verify expected columns/tables exist.
+5. Commit + push.
 
-Render DB apply examples:
-
-### CMD + Docker (Windows)
-
-```bat
-cd /d C:\Users\Ilshat\Documents\Elia
-set "DB_URL=postgresql://<user>:<pass>@<host>/<db>?sslmode=require"
-type server\src\schema.sql | docker run --rm -i postgres:16 psql "%DB_URL%"
-docker run --rm postgres:16 psql "%DB_URL%" -c "select now();"
-```
-
-### PowerShell + Docker (Windows)
+### Apply schema (PowerShell + Docker)
 
 ```powershell
 Set-Location C:\Users\Ilshat\Documents\Elia
@@ -90,102 +76,85 @@ Get-Content -Raw .\server\src\schema.sql | docker run --rm -i postgres:16 psql "
 docker run --rm postgres:16 psql "$DB_URL" -c "select now();"
 ```
 
-Security note:
-- Never paste real credentials into committed files.
-- If credentials were exposed in chat/logs, rotate password in Render and update environment variables.
+Security:
+- Never commit credentials.
+- If credentials leaked in logs/chat, rotate them and update env vars.
 
-## 6) Render Deployment Notes
+## 6) Render deployment notes
 
-- Render deploys from GitHub push.
-- After push, ensure Render service restarts and deploy is healthy.
-- Health endpoint (typical): `/api/health`
-- If feature depends on schema and backend returns migration errors, apply `server/src/schema.sql` to Render DB and redeploy/restart service.
+- Render deploys on GitHub push.
+- After push, verify service health (`/api/health`).
+- If feature depends on schema and migration errors appear, apply `server/src/schema.sql`, then restart/redeploy service.
 
-## 6.1) Frontend Hosting (REG.RU / ISPmanager)
+## 6.1) Frontend hosting (REG.RU / ISPmanager)
 
-Current production web domain:
+Production domain:
 - `configcorner.online`
 
-Current hosting setup (frontend static files):
+Hosting target:
 - FTP host: `31.31.196.45`
 - FTP port: `21`
 - FTP user: `u3046522_gpt`
-- Document root for this site: `/www/configcorner.online/`
+- Document root: `/www/configcorner.online/`
 
-Critical boundary:
+Boundary:
 - Deploy only `configcorner.online`.
-- Do not touch other folders under `/www` unless explicitly requested.
+- Do not change other `/www/*` folders unless user explicitly requests it.
 
 Security:
-- Never store FTP passwords/tokens in git.
-- Read credentials from user input or secure env vars at runtime.
-- If credentials were shared in chat, recommend rotating them after deployment.
+- Never store FTP password/token in git.
+- Read credentials from runtime input/env.
+- If credentials were shared in plaintext, recommend rotation after deploy.
 
-### Frontend Deploy Procedure (must follow exactly)
+### Frontend deploy procedure (strict)
 
-1. Build latest frontend:
+1. Build frontend:
    - `cd client`
    - `npm run build`
 2. Upload `client/dist/index.html` to `/www/configcorner.online/index.html`.
-3. Clear old remote bundle files in `/www/configcorner.online/assets/`.
-4. Upload fresh files from `client/dist/assets/*` to `/www/configcorner.online/assets/`.
-5. Verify remote `index.html` references the same uploaded hashed files in `/assets/`.
-6. Validate in browser with cache-bypass:
-   - Open `https://configcorner.online/?v=<timestamp>`
-   - Hard refresh (`Ctrl+F5`)
-   - DevTools -> Network -> `Disable cache` during verification.
+3. Remove old files from `/www/configcorner.online/assets/`.
+4. Upload new `client/dist/assets/*` to `/www/configcorner.online/assets/`.
+5. Verify remote `index.html` references the uploaded hashed assets.
+6. Validate with cache bypass:
+   - `https://configcorner.online/?v=<timestamp>`
+   - hard refresh (`Ctrl+F5`)
+   - verify with DevTools network (`Disable cache`).
 
-If UI changes are not visible after deploy:
-- Most likely old cached assets or wrong document root.
-- Confirm domain points to `/www/configcorner.online/` in ISPmanager.
-- Confirm remote `index.html` script/link hashes match uploaded files in `/assets/`.
+If UI is not updated:
+- check remote hashes in `index.html` vs `/assets/`
+- check correct document root mapping in ISPmanager
+- clear browser cache and retry
 
-### Frontend Deploy Policy (strict)
+## 7) Coding standards
 
-- Any task that changes frontend behavior or styles (`client/src/**`) must end with FTP deploy to `configcorner.online`.
-- Do not wait for an extra user prompt like "залей на хостинг" after frontend changes.
-- Deploy sequence is mandatory:
-  1. `npm run build` in `client/`
-  2. upload `dist/index.html`
-  3. replace all files in remote `/assets/` with current `dist/assets/*`
-  4. verify hashes in remote `index.html` match uploaded assets
+- Keep changes minimal and targeted.
+- Prefer explicit readability over clever abstraction.
+- Avoid unrelated refactors.
+- Reuse existing patterns in `App.jsx` and `server/src/index.js`.
+- For UI changes, keep responsive behavior stable.
+- For realtime features, keep API payloads and socket events aligned.
 
-## 7) Coding Standards for This Repo
-
-- Keep changes minimal and local to affected modules.
-- Prefer explicit, readable code over clever abstractions.
-- Avoid large unrelated refactors in feature/fix tasks.
-- Reuse existing patterns already present in `App.jsx` and `server/src/index.js`.
-- When adding UI behavior:
-  - preserve existing visual language;
-  - ensure mobile/responsive behavior still works.
-- For realtime features:
-  - update both API response shape and socket events consistently.
-  - keep client-side normalization helpers near related message logic.
-
-## 8) Quality Checklist Before Commit
+## 8) Quality checklist before commit
 
 - Feature works in UI.
 - No obvious regressions in chat flow.
-- `npm run build` passes in `client/`.
-- Server file syntax valid (`node --check server/src/index.js`) when server touched.
+- `client` build passes (`npm run build`).
+- Backend syntax check passes when touched (`node --check server/src/index.js`).
 - `git diff` contains only intended files.
 - No secrets added.
-- No accidental binary noise/log files staged.
+- No accidental binary/log file staging.
 
-## 9) Collaboration Contract for Future Models
+## 9) Collaboration contract
 
-When asked to "do X":
+When user asks to implement something:
 
-- Execute changes end-to-end (not only suggest).
+- Execute end-to-end (not just suggestions).
 - Run required checks.
-- Commit and push unless user blocks it.
-- Report exactly what changed and where.
-- Mention if any manual step is still required (for example applying schema to Render DB).
+- Commit and push unless blocked by user.
+- Report exact files changed.
+- Mention remaining manual infra steps (for example schema apply on Render DB).
 
-When user gives infra context (Render URLs, DB info, deployment constraints), treat it as high-priority operating context for all future tasks.
-
-## 10) Quick Command Reference
+## 10) Quick command reference
 
 From repo root:
 
@@ -193,7 +162,7 @@ From repo root:
 # frontend build check
 cd client && npm run build
 
-# server syntax check
+# backend syntax check
 node --check server/src/index.js
 
 # inspect git state
@@ -206,12 +175,12 @@ git commit -m "feat: <message>"
 git push origin main
 ```
 
-## 11) Definition of Done
+## 11) Definition of done
 
-A task is done only when all are true:
+Task is done only when all are true:
 
-1. Requested behavior is implemented.
+1. Requested behavior implemented.
 2. Build check passed (`client`).
 3. Commit created.
 4. Commit pushed to GitHub.
-5. If schema changed: schema applied to Render PostgreSQL or clear manual command provided.
+5. If schema changed: schema applied to Render PostgreSQL, or exact manual apply command provided.

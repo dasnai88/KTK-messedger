@@ -95,14 +95,32 @@ class PostsController extends ChangeNotifier {
 
   Future<void> editPost(String postId, String body) async {
     final data = await _api.patchJson('/posts/$postId', {'body': body});
+    final normalizedBody = body.trim();
+    final index = posts.indexWhere((p) => p.id == postId);
     final postJson = data['post'];
     if (postJson is Map<String, dynamic>) {
-      final index = posts.indexWhere((p) => p.id == postId);
       if (index >= 0) {
         posts[index] = Post.fromJson(postJson);
       }
-      notifyListeners();
+    } else if (index >= 0) {
+      // Keep UI consistent even if backend responds with `{ ok: true }` only.
+      posts[index] = Post(
+        id: posts[index].id,
+        author: posts[index].author,
+        body: normalizedBody,
+        imageUrl: posts[index].imageUrl,
+        createdAt: posts[index].createdAt,
+        editedAt: DateTime.now(),
+        deletedAt: posts[index].deletedAt,
+        likesCount: posts[index].likesCount,
+        commentsCount: posts[index].commentsCount,
+        repostsCount: posts[index].repostsCount,
+        liked: posts[index].liked,
+        reposted: posts[index].reposted,
+        repostOf: posts[index].repostOf,
+      );
     }
+    notifyListeners();
   }
 
   Future<void> deletePost(String postId) async {

@@ -1,308 +1,221 @@
 # KTK Messenger
 
-```
- _  __ _______ _  __     __  __                             
-| |/ /|__   __| |/ /    |  \/  |                            
-| ' /    | |  | ' / ___ | \  / | ___  ___ ___  ___ _ __   
-|  <     | |  |  < / _ \| |\/| |/ _ \/ __/ __|/ _ \ '__|  
-| . \    | |  | . \ (_) | |  | |  __/\__ \__ \  __/ |     
-|_|\_\   |_|  |_|\_\___/|_|  |_|\___||___/___/\___|_|     
-```
+Monorepo for a realtime messenger with web, backend, and Flutter mobile clients.
 
-Учебный мессенджер: web + mobile клиенты + backend на Node.js.
-Проект создан для практики: от архитектуры до полной реализации.
+## Production topology
 
----
+- Backend: Render (Node.js service)
+- Database: Render PostgreSQL
+- Web frontend hosting: `https://configcorner.online` (FTP deploy of static `client/dist`)
+- Main branch: `main`
 
-## Содержание
+Important: backend is production-first on Render. Any backend change must be pushed to GitHub so Render can deploy it.
 
-- [Функциональность](#функциональность)
-- [Стек](#стек)
-- [Запуск проекта (Windows + Docker)](#запуск-проекта-windows--docker)
-- [Запуск проекта (macOS/Linux + Docker)](#запуск-проекта-macoslinux--docker)
-- [Без Docker (локальная PostgreSQL)](#без-docker-локальная-postgresql)
-- [Мобильное приложение (Flutter)](#мобильное-приложение-flutter)
-- [Web Push Notifications (Phone + PC)](#web-push-notifications-phone--pc)
-- [Адреса](#адреса)
-- [Скриншоты / Превью](#скриншоты--превью)
-- [Структура проекта](#структура-проекта)
-- [FAQ / Частые вопросы](#faq--частые-вопросы)
+## Tech stack
 
----
+- Web: React + Vite + Socket.IO client
+- Server: Node.js + Express + Socket.IO + PostgreSQL (`pg`)
+- Mobile: Flutter + Dio + Provider + Socket.IO
 
-## Функциональность
+## Repository layout
 
-- Регистрация и авторизация пользователей
-- Профиль, поиск, список контактов, диалоги
-- Приватные сообщения
-- Группы и групповые чаты
-- Мобильный клиент (Flutter)
-- real-time сообщения (socket.io)
-- Web Push уведомления на ПК и телефоны (через браузер)
-
----
-
-## Стек
-
-- Frontend: React + Vite
-- Backend: Node.js + Express
-- Database: PostgreSQL
-- Mobile: Flutter
-- Notifications: Web Push + Service Worker + VAPID (`web-push`)
-
----
-
-## Запуск проекта (Windows + Docker)
-
-### 0) Что потребуется
-
-- Git
-- Node.js 18+ (LTS)
-- Docker Desktop
-
-### 1) Клонирование
-
-```powershell
-git clone https://github.com/dasnai88/KTK-messedger.git
-cd KTK-messedger
+```text
+client/   React + Vite web app
+server/   Express + Socket.IO backend
+mobile/   Flutter mobile app
+docs/     Screenshots and docs assets
 ```
 
-### 2) Поднять PostgreSQL (Docker)
+## Source of truth files
 
-```powershell
-docker compose up -d
-```
+- DB schema: `server/src/schema.sql`
+- Main backend API: `server/src/index.js`
+- Web API wrapper: `client/src/api.js`
+- Main web UI: `client/src/App.jsx`
+- Main web styles: `client/src/index.css`
 
-### 3) Создать .env
+## Local development
 
-```powershell
-copy server\.env.example server\.env
-notepad server\.env
-```
+### Prerequisites
 
-Важно: замените значения и добавьте JWT_SECRET в .env.
+- Node.js 18+
+- npm
+- Docker (optional, for local PostgreSQL)
+- Flutter SDK (for mobile)
 
-### 4) Запустить backend
-
-```powershell
-cd server
-npm install
-npm run dev
-```
-
-### 5) Применить схему БД (один раз)
-
-```powershell
-Get-Content ..\server\src\schema.sql | docker exec -i elia_ktk_db psql -U elia -d elia_messenger
-```
-
-### 6) Запустить web-клиент
-
-```powershell
-cd ..\client
-npm install
-npm run dev
-```
-
-### 7) Открыть
-
-- http://localhost:5173
-
----
-
-## Запуск проекта (macOS/Linux + Docker)
+### 1) Clone and install
 
 ```bash
 git clone https://github.com/dasnai88/KTK-messedger.git
 cd KTK-messedger
-docker compose up -d
+cd server && npm install
+cd ../client && npm install
+cd ../mobile && flutter pub get
+```
+
+### 2) Configure backend env
+
+Create `server/.env` from template:
+
+```bash
 cp server/.env.example server/.env
-cd server && npm install && npm run dev
-cat server/src/schema.sql | docker exec -i elia_ktk_db psql -U elia -d elia_messenger
-cd ../client && npm install && npm run dev
 ```
 
-Откройте http://localhost:5173
+Set at least:
 
----
-
-## Без Docker (локальная PostgreSQL)
-
-1) Установить PostgreSQL
-2) Создать пользователя и базу
-
-```sql
-CREATE USER elia WITH PASSWORD 'elia_pass';
-CREATE DATABASE elia_messenger OWNER elia;
+```env
+DATABASE_URL=postgresql://...
+JWT_SECRET=strong_secret
+CORS_ORIGIN=http://localhost:5173
 ```
 
-3) Заполнить server/.env
-
-```
-PGHOST=localhost
-PGPORT=5432
-PGUSER=elia
-PGPASSWORD=elia_pass
-PGDATABASE=elia_messenger
-```
-
-4) Применить схему
-
-```powershell
-psql -h localhost -U elia -d elia_messenger -f server/src/schema.sql
-```
-
----
-
-## Мобильное приложение (Flutter)
-
-Папка проекта: `mobile/`
-
-### Требования
-
-- Flutter SDK в PATH
-- Android Studio + Android SDK
-
-### Инициализация (один раз)
-
-```powershell
-cd mobile
-flutter create . --platforms=android,ios
-flutter pub get
-```
-
-### Запуск на Android эмуляторе
-
-```powershell
-flutter run --dart-define API_BASE_URL=http://10.0.2.2:4000/api --dart-define SOCKET_URL=http://10.0.2.2:4000
-```
-
-### Запуск на физическом устройстве
-
-1) Узнайте IP адрес ПК в одной сети Wi-Fi
-2) Укажите его вместо IP
-
-```powershell
-flutter run --dart-define API_BASE_URL=http://YOUR_PC_IP:4000/api --dart-define SOCKET_URL=http://YOUR_PC_IP:4000
-```
-
-Примечания:
-- 10.0.2.2 — адрес хоста для Android-эмулятора
-- Для iOS-эмулятора используйте http://localhost:4000
-
----
-
-## Web Push Notifications (Phone + PC)
-
-Новая версия веб-клиента поддерживает push-уведомления на телефоне и ПК через браузер.
-
-### 1) Установить переменные в `server/.env`
+For web push (optional):
 
 ```env
 WEB_PUSH_SUBJECT=mailto:admin@example.com
-WEB_PUSH_PUBLIC_KEY=YOUR_PUBLIC_KEY
-WEB_PUSH_PRIVATE_KEY=YOUR_PRIVATE_KEY
+WEB_PUSH_PUBLIC_KEY=...
+WEB_PUSH_PRIVATE_KEY=...
 ```
 
-Сгенерировать ключи можно так:
+Generate keys:
 
-```powershell
+```bash
 npx web-push generate-vapid-keys
 ```
 
-### 2) Обновить схему БД
+### 3) Apply database schema
 
-В БД добавлена таблица `push_subscriptions`.
-
-```powershell
-psql -h localhost -U elia -d elia_messenger -f server/src/schema.sql
+```bash
+psql "$DATABASE_URL" -f server/src/schema.sql
 ```
 
-### 3) Перезапустить backend
+Or via Docker image:
 
-```powershell
+```bash
+cat server/src/schema.sql | docker run --rm -i postgres:16 psql "$DATABASE_URL"
+```
+
+### 4) Run backend
+
+```bash
 cd server
 npm run dev
 ```
 
-### 4) Включить уведомления в web-клиенте
+### 5) Run web client
 
-1) Войдите в аккаунт в web-версии  
-2) Нажмите кнопку `Enable notifications` в верхней панели  
-3) Разрешите уведомления в браузере
-
-Для production-сборки также включите флаг клиента:
-
-```env
-VITE_ENABLE_WEB_PUSH=true
+```bash
+cd client
+npm run dev
 ```
 
-### Важно
+Web app: `http://localhost:5173`
 
-- В production нужен HTTPS (на `localhost` push тоже работает).
-- Подписка на push делается отдельно для каждого браузера/устройства.
-- Если вкладка активна и открыт нужный чат, система не дублирует push.
+### 6) Run Flutter client
 
----
-
-## Адреса
-
-- Web: http://localhost:5173
-- API health: http://localhost:4000/api/health
-
----
-
-## Скриншоты / Превью
-
-Изображения находятся в `docs/screenshots/` и показаны ниже.
-
-![Web - лента](docs/screenshots/web-feed.png)
-![Web - чат](docs/screenshots/web-chats.png)
-![Mobile - логин](docs/screenshots/mobile-login.png)
-![Mobile - лента](docs/screenshots/mobile-feed.png)
-![Mobile - чат](docs/screenshots/mobile-chat.png)
-
----
-
-## Структура проекта
-
-```
-KTK-messedger/
-|-- client/           # React + Vite
-|-- server/           # Node.js + Express + PostgreSQL
-|-- mobile/           # Flutter app
-|-- docker-compose.yml
-|-- server/uploads/   # загруженные файлы
+```bash
+cd mobile
+flutter run --dart-define API_BASE_URL=http://10.0.2.2:4000/api --dart-define SOCKET_URL=http://10.0.2.2:4000
 ```
 
----
+For a physical device, replace `10.0.2.2` with your LAN IP.
 
-## FAQ / Частые вопросы
+## Required verification after code changes
 
-**Почему порт 4000 занят?**
-- Проверьте, нет ли другого процесса, и при необходимости измените PORT в `server/.env`.
+### Always
 
-**Почему БД не поднимается?**
-- Проверьте, что Docker запущен и контейнер PostgreSQL поднят.
-
-**Flutter не подключается к backend**
-- Эмулятор: 10.0.2.2
-- Телефон: IP вашего ПК
-- Проверьте `API_BASE_URL` и `SOCKET_URL`
-
-**Почему push-уведомления не приходят в web-версии?**
-- Проверьте, что в `server/.env` заполнены `WEB_PUSH_PUBLIC_KEY` и `WEB_PUSH_PRIVATE_KEY`.
-- Убедитесь, что применена схема БД (`server/src/schema.sql`) и backend перезапущен.
-- Проверьте разрешение уведомлений в браузере для сайта.
-- В production проверьте, что сайт открыт по HTTPS.
-
-**Android SDK / лицензии**
-
-```powershell
-flutter doctor --android-licenses
+```bash
+cd client && npm run build
 ```
 
----
+### If backend or schema changed
 
-Если найдете баги или есть предложения — открывайте issue, буду рад.
-Если что-то не запускается или есть вопросы — пишите.
+```bash
+node --check server/src/index.js
+```
+
+### Mobile checks (recommended)
+
+```bash
+cd mobile && flutter analyze
+```
+
+## Deployment workflow
+
+### Backend (Render)
+
+1. Commit changes.
+2. Push to `origin/main`.
+3. Render auto-deploys from GitHub.
+4. Verify health endpoint: `/api/health`.
+
+If deploy fails due schema mismatch, apply `server/src/schema.sql` to Render DB and restart service.
+
+### Frontend (FTP to configcorner.online)
+
+For every frontend change under `client/src/**`:
+
+1. Build latest assets:
+
+```bash
+cd client
+npm run build
+```
+
+2. Upload:
+- `client/dist/index.html` -> `/www/configcorner.online/index.html`
+- clear remote `/www/configcorner.online/assets/`
+- upload all `client/dist/assets/*` -> `/www/configcorner.online/assets/`
+
+3. Verify hashes in remote `index.html` match uploaded files.
+4. Open cache-bypass URL:
+- `https://configcorner.online/?v=<timestamp>`
+- hard refresh (`Ctrl+F5`)
+
+Do not upload to other folders under `/www` unless explicitly requested.
+
+## Common commands
+
+From repo root:
+
+```bash
+# frontend build
+cd client && npm run build
+
+# backend syntax check
+node --check server/src/index.js
+
+# git status
+git status --short
+
+# inspect specific diff
+git diff -- server/src/index.js
+```
+
+## Security and repository hygiene
+
+- Do not commit credentials/tokens/passwords.
+- Do not commit local logs:
+  - `.devclient.log`
+  - `client/.devclient.log`
+  - `client/.devclient.err.log`
+- Do not commit temporary test uploads from `server/uploads/*`.
+
+## Troubleshooting
+
+### Web UI updated but production shows old version
+
+- Usually stale assets in `/assets/` or browser cache.
+- Re-upload `index.html` + full `assets/` set.
+- Verify hashed filenames match exactly.
+
+### Backend returns migration errors in production
+
+- Apply `server/src/schema.sql` to Render PostgreSQL.
+- Restart Render service.
+
+### Flutter app cannot reach backend
+
+- Emulator uses `10.0.2.2` for host machine.
+- Physical device must use machine LAN IP.
+- Check `API_BASE_URL` and `SOCKET_URL` values.

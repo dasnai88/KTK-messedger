@@ -157,9 +157,9 @@ const INITIAL_CHAT_MENU_STATE = {
 const QUICK_MESSAGE_REACTIONS = ['❤️', '👍', '😭', '👎', '🤩', '🐳', '❤️‍🔥']
 const ALL_MESSAGE_REACTIONS = Array.from(new Set([
   ...QUICK_MESSAGE_REACTIONS,
-  '👌', '🔥', '🥰', '👏', '😁', '🤔', '🤯', '😱', '🎉', '🤬',
-  '😢', '🙏', '🤝', '🫡', '💯', '🤣', '😇', '🥳', '😴', '😎',
-  '😡', '💔', '💩', '😈', '👀', '🎃', '🙈', '🙉', '🙊', '🫶',
+  '👌', '🔥', '🥰', '👏', '😃', '🤔', '🤯', '😱', '🎉', '🤬',
+  '😢', '🙏', '🤝', '🫡', '💯', '🤣', '😇', '🥳', '😴', '😋',
+  '😡', '💔', '💩', '😀', '👀', '🎃', '🙀', '🙉', '🙊', '🫶',
   '🤗', '🤤', '🤮', '🍾', '🍓', '🌭', '⚡', '🏆', '💋', '🤡',
   '💘', '🎯', '🫠', '😐', '😶', '🙃', '🫢', '🤌', '✌️', '👋'
 ]))
@@ -1859,6 +1859,13 @@ export default function App() {
       setProfilePosts((prev) => prev.filter((item) => item.id !== payload.postId))
     }
 
+    const handlePostUpdate = (payload) => {
+      if (!payload || !payload.post || !payload.post.id) return
+      const updatedPost = payload.post
+      setPosts((prev) => prev.map((item) => (item.id === updatedPost.id ? updatedPost : item)))
+      setProfilePosts((prev) => prev.map((item) => (item.id === updatedPost.id ? updatedPost : item)))
+    }
+
     const handleConversationRead = (payload) => {
       if (!payload || !payload.conversationId) return
       const currentActive = activeConversationRef.current
@@ -1896,6 +1903,7 @@ export default function App() {
     socket.on('conversation:read', handleConversationRead)
     socket.on('post:new', handlePostNew)
     socket.on('post:delete', handlePostDelete)
+    socket.on('post:update', handlePostUpdate)
     socket.on('typing:start', handleTypingStart)
     socket.on('typing:stop', handleTypingStop)
 
@@ -1979,6 +1987,7 @@ export default function App() {
       socket.off('conversation:read', handleConversationRead)
       socket.off('post:new', handlePostNew)
       socket.off('post:delete', handlePostDelete)
+      socket.off('post:update', handlePostUpdate)
       socket.off('typing:start', handleTypingStart)
       socket.off('typing:stop', handleTypingStop)
       socket.off('call:offer', handleCallOffer)
@@ -4804,3 +4813,4 @@ export default function App() {
     </div>
   )
 }
+

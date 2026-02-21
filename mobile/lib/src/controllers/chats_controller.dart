@@ -138,8 +138,7 @@ class ChatsController extends ChangeNotifier {
     final messageJson = data['message'];
     if (messageJson is Map<String, dynamic>) {
       final message = Message.fromJson(messageJson);
-      final list = _messages.putIfAbsent(conversationId, () => []);
-      list.add(message);
+      _upsertConversationMessage(conversationId, message);
       _touchConversation(conversationId, _previewFor(message), message.createdAt);
       notifyListeners();
       return message;
@@ -314,8 +313,7 @@ class ChatsController extends ChangeNotifier {
         final messageJson = data['message'];
         if (conversationId.isEmpty || messageJson is! Map) return;
         final message = Message.fromJson(Map<String, dynamic>.from(messageJson));
-        final list = _messages.putIfAbsent(conversationId, () => []);
-        list.add(message);
+        _upsertConversationMessage(conversationId, message);
         _touchConversation(conversationId, _previewFor(message), message.createdAt);
         final isMine = message.senderId == _bootstrappedUserId;
         if (!isMine) {
@@ -340,6 +338,16 @@ class ChatsController extends ChangeNotifier {
       conversations[index].lastAt = at ?? DateTime.now();
       _sortConversations();
     }
+  }
+
+  void _upsertConversationMessage(String conversationId, Message message) {
+    final list = _messages.putIfAbsent(conversationId, () => []);
+    final existingIndex = list.indexWhere((item) => item.id == message.id && item.id.isNotEmpty);
+    if (existingIndex >= 0) {
+      list[existingIndex] = message;
+      return;
+    }
+    list.add(message);
   }
 
   void _setUnreadCount(String conversationId, int count) {
