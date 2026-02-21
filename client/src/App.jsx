@@ -746,6 +746,14 @@ function resolveMediaUrl(url) {
   return url
 }
 
+function isIosPlatform() {
+  if (typeof navigator === 'undefined') return false
+  const ua = String(navigator.userAgent || '')
+  const platform = String(navigator.platform || '')
+  const touchPoints = Number(navigator.maxTouchPoints || 0)
+  return /iPad|iPhone|iPod/.test(ua) || (platform === 'MacIntel' && touchPoints > 1)
+}
+
 function clampAvatarZoom(value) {
   return Math.min(AVATAR_ZOOM_MAX, Math.max(AVATAR_ZOOM_MIN, value))
 }
@@ -1835,6 +1843,16 @@ export default function App() {
       // ignore storage errors
     }
   }, [theme])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    if (isIosPlatform()) {
+      root.dataset.platform = 'ios'
+    } else if (root.dataset.platform === 'ios') {
+      delete root.dataset.platform
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof document === 'undefined') return
