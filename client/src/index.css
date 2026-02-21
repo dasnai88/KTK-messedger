@@ -4941,7 +4941,8 @@ body {
   }
 
   .chat-list {
-    max-height: min(42dvh, 420px);
+    max-height: none;
+    min-height: min(72dvh, 720px);
   }
 
   .chat-window {
@@ -4949,6 +4950,7 @@ body {
   }
 
   .chat-items {
+    min-height: 180px;
     max-height: none;
     padding-right: 2px;
   }
