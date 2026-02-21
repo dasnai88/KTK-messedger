@@ -22,6 +22,8 @@ create table if not exists users (
   )),
   display_name text,
   bio text,
+  status_text text,
+  status_emoji text,
   avatar_url text,
   banner_url text,
   theme_color text,
@@ -207,6 +209,14 @@ EXCEPTION WHEN duplicate_column THEN END $$;
 
 DO $$ BEGIN
   ALTER TABLE users ADD COLUMN theme_color text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN status_text text;
+EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN status_emoji text;
 EXCEPTION WHEN duplicate_column THEN END $$;
 
 DO $$ BEGIN

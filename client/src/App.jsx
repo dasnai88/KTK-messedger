@@ -120,6 +120,28 @@ function extractHashtags(text) {
     .filter(Boolean)
 }
 
+function getProfileMoodLabel(profile) {
+  if (!profile || typeof profile !== 'object') return ''
+  const emoji = String(profile.statusEmoji || '').trim()
+  const text = String(profile.statusText || '').trim()
+  if (emoji && text) return `${emoji} ${text}`
+  if (emoji) return emoji
+  if (text) return text
+  return ''
+}
+
+function normalizeChatAlias(value) {
+  return String(value || '').trim().slice(0, 36)
+}
+
+function getConversationDisplayName(conversation, aliasByConversation = {}) {
+  if (!conversation || typeof conversation !== 'object') return 'Пользователь'
+  if (conversation.isGroup) return conversation.title || 'Групповой чат'
+  const alias = normalizeChatAlias(aliasByConversation[conversation.id])
+  if (alias) return alias
+  return conversation.other?.displayName || conversation.other?.username || 'Пользователь'
+}
+
 const rawApiBase = import.meta.env.VITE_API_BASE || ''
 const apiBase = rawApiBase.replace(/\/$/, '')
 const apiOrigin = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : ''
@@ -130,6 +152,8 @@ const AVATAR_ZOOM_MAX = 2.5
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
 const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
 const FEED_BOOKMARKS_STORAGE_KEY = 'ktk_feed_bookmarks'
+const CHAT_WALLPAPER_STORAGE_KEY = 'ktk_chat_wallpapers'
+const CHAT_ALIAS_STORAGE_KEY = 'ktk_chat_aliases'
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
@@ -141,6 +165,14 @@ const FEED_FILTERS = {
   mine: 'mine',
   bookmarks: 'bookmarks'
 }
+const CHAT_WALLPAPERS = [
+  { value: 'default', label: 'Классика' },
+  { value: 'aurora', label: 'Аврора' },
+  { value: 'sunset', label: 'Закат' },
+  { value: 'midnight', label: 'Ночь' },
+  { value: 'grid', label: 'Сетка' }
+]
+const STATUS_EMOJI_PRESETS = ['🔥', '😎', '✨', '🌙', '🎯', '🚀', '💡', '🎧', '🤝', '🎮']
 const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
 const MENU_VIEWPORT_PADDING = 12
@@ -405,6 +437,8 @@ export default function App() {
     username: '',
     displayName: '',
     bio: '',
+    statusText: '',
+    statusEmoji: '',
     role: '',
     themeColor: '#7a1f1d'
   })
@@ -493,6 +527,22 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState(INITIAL_MESSAGE_MENU_STATE)
   const [postMenu, setPostMenu] = useState(INITIAL_POST_MENU_STATE)
   const [chatMenu, setChatMenu] = useState(INITIAL_CHAT_MENU_STATE)
+  const [chatWallpaperByConversation, setChatWallpaperByConversation] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CHAT_WALLPAPER_STORAGE_KEY) || '{}')
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (err) {
+      return {}
+    }
+  })
+  const [chatAliasByConversation, setChatAliasByConversation] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CHAT_ALIAS_STORAGE_KEY) || '{}')
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch (err) {
+      return {}
+    }
+  })
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
   const [chatSearchQuery, setChatSearchQuery] = useState('')
   const [pinnedByConversation, setPinnedByConversation] = useState({})
@@ -605,6 +655,29 @@ export default function App() {
     }
     return sorted
   }, [conversations, favoriteConversationSet, chatListFilter])
+  const userMoodLabel = useMemo(() => getProfileMoodLabel(user), [user])
+  const profileViewMoodLabel = useMemo(() => getProfileMoodLabel(profileView), [profileView])
+  const activeChatMoodLabel = useMemo(() => {
+    if (!activeConversation || activeConversation.isGroup || !activeConversation.other) return ''
+    return getProfileMoodLabel(activeConversation.other)
+  }, [activeConversation])
+  const activeConversationAlias = useMemo(() => {
+    if (!activeConversation || activeConversation.isGroup) return ''
+    return normalizeChatAlias(chatAliasByConversation[activeConversation.id])
+  }, [activeConversation, chatAliasByConversation])
+  const activeChatTitle = useMemo(() => (
+    getConversationDisplayName(activeConversation, chatAliasByConversation)
+  ), [activeConversation, chatAliasByConversation])
+  const activeChatHandle = useMemo(() => {
+    if (!activeConversation || activeConversation.isGroup || !activeConversation.other?.username) return ''
+    return `@${activeConversation.other.username}`
+  }, [activeConversation])
+  const activeChatWallpaper = useMemo(() => {
+    if (!activeConversation) return CHAT_WALLPAPERS[0]
+    const storedValue = chatWallpaperByConversation[activeConversation.id]
+    const found = CHAT_WALLPAPERS.find((item) => item.value === storedValue)
+    return found || CHAT_WALLPAPERS[0]
+  }, [activeConversation, chatWallpaperByConversation])
   const feedQueryNormalized = feedQuery.trim().toLowerCase()
   const trendingTags = useMemo(() => {
     const tagCounts = new Map()
@@ -678,12 +751,11 @@ export default function App() {
     const userIds = rawUserIds.filter((userId) => userId && userId !== user.id)
     if (userIds.length === 0) return ''
     if (!activeConversation.isGroup && activeConversation.other) {
-      const name = activeConversation.other.displayName || activeConversation.other.username || 'User'
-      return `${name} is typing...`
+      return `${activeChatTitle} печатает...`
     }
     if (userIds.length === 1) return 'Someone is typing...'
     return `${userIds.length} people are typing...`
-  }, [typingByConversation, activeConversation, user])
+  }, [typingByConversation, activeConversation, activeChatTitle, user])
   const callUser = useMemo(() => {
     if (!callState.withUserId) return null
     if (activeConversation && !activeConversation.isGroup && activeConversation.other.id === callState.withUserId) {
@@ -692,8 +764,19 @@ export default function App() {
     const conv = conversations.find((item) => !item.isGroup && item.other && item.other.id === callState.withUserId)
     return conv ? conv.other : { id: callState.withUserId, username: 'user', displayName: '' }
   }, [callState.withUserId, activeConversation, conversations])
-  const callTitle = callUser ? (callUser.displayName || callUser.username) : 'Пользователь'
-  const callSubtitle = callUser && callUser.username ? `@${callUser.username}` : ''
+  const callConversation = useMemo(() => {
+    if (!callState.withUserId) return null
+    if (activeConversation && !activeConversation.isGroup && activeConversation.other.id === callState.withUserId) {
+      return activeConversation
+    }
+    return conversations.find((item) => !item.isGroup && item.other && item.other.id === callState.withUserId) || null
+  }, [callState.withUserId, activeConversation, conversations])
+  const callTitle = callConversation
+    ? getConversationDisplayName(callConversation, chatAliasByConversation)
+    : (callUser ? (callUser.displayName || callUser.username) : 'Пользователь')
+  const callSubtitle = callConversation?.other?.username
+    ? `@${callConversation.other.username}`
+    : (callUser && callUser.username ? `@${callUser.username}` : '')
   const callStatusText = callState.status === 'calling'
     ? 'Вызов...'
     : callState.status === 'connecting'
@@ -1417,6 +1500,8 @@ export default function App() {
           username: data.user.username || '',
           displayName: data.user.displayName || '',
           bio: data.user.bio || '',
+          statusText: data.user.statusText || '',
+          statusEmoji: data.user.statusEmoji || '',
           role: data.user.role || '',
           themeColor: data.user.themeColor || '#7a1f1d'
         })
@@ -1647,6 +1732,22 @@ export default function App() {
       // ignore storage errors
     }
   }, [bookmarkedPostIds])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_WALLPAPER_STORAGE_KEY, JSON.stringify(chatWallpaperByConversation))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [chatWallpaperByConversation])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAT_ALIAS_STORAGE_KEY, JSON.stringify(chatAliasByConversation))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [chatAliasByConversation])
 
   useEffect(() => {
     const handleHotkey = (event) => {
@@ -2205,6 +2306,8 @@ export default function App() {
         username: data.user.username || '',
         displayName: data.user.displayName || '',
         bio: data.user.bio || '',
+        statusText: data.user.statusText || '',
+        statusEmoji: data.user.statusEmoji || '',
         role: data.user.role || registerForm.role,
         themeColor: data.user.themeColor || '#7a1f1d'
       })
@@ -2230,6 +2333,8 @@ export default function App() {
         username: data.user.username || '',
         displayName: data.user.displayName || '',
         bio: data.user.bio || '',
+        statusText: data.user.statusText || '',
+        statusEmoji: data.user.statusEmoji || '',
         role: data.user.role || '',
         themeColor: data.user.themeColor || '#7a1f1d'
       })
@@ -2250,6 +2355,15 @@ export default function App() {
     try {
       const data = await updateMe(profileForm)
       setUser(data.user)
+      setProfileForm({
+        username: data.user.username || '',
+        displayName: data.user.displayName || '',
+        bio: data.user.bio || '',
+        statusText: data.user.statusText || '',
+        statusEmoji: data.user.statusEmoji || '',
+        role: data.user.role || '',
+        themeColor: data.user.themeColor || '#7a1f1d'
+      })
       setStatus({ type: 'success', message: 'Профиль обновлен.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
@@ -2261,12 +2375,29 @@ export default function App() {
   const handleAvatarChange = async (event) => {
     const file = event.target.files && event.target.files[0]
     if (!file) return
+    const fileName = String(file.name || '').toLowerCase()
+    const isGif = String(file.type || '').toLowerCase() === 'image/gif' || fileName.endsWith('.gif')
+    if (isGif) {
+      setLoading(true)
+      try {
+        const data = await uploadAvatar(file)
+        setUser(data.user)
+        setStatus({ type: 'success', message: 'GIF-аватар обновлен.' })
+      } catch (err) {
+        setStatus({ type: 'error', message: err.message })
+      } finally {
+        setLoading(false)
+      }
+      event.target.value = ''
+      return
+    }
     const url = URL.createObjectURL(file)
     setAvatarSource(url)
     setAvatarZoom(AVATAR_ZOOM_MIN)
     setAvatarOffset({ x: 0, y: 0 })
     setDragStart(null)
     setAvatarModalOpen(true)
+    event.target.value = ''
   }
 
   const handleAvatarSave = async () => {
@@ -2338,12 +2469,15 @@ export default function App() {
     try {
       const data = await uploadBanner(file)
       setUser(data.user)
-      setStatus({ type: 'success', message: 'Обложка обновлена.' })
+      const fileName = String(file.name || '').toLowerCase()
+      const isGif = String(file.type || '').toLowerCase() === 'image/gif' || fileName.endsWith('.gif')
+      setStatus({ type: 'success', message: isGif ? 'GIF-обложка обновлена.' : 'Обложка обновлена.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
       setLoading(false)
     }
+    event.target.value = ''
   }
 
   const openProfile = async (username) => {
@@ -2761,6 +2895,68 @@ export default function App() {
     setActiveFeedTag('')
   }
 
+  const applyStatusEmojiPreset = (emoji) => {
+    setProfileForm((prev) => ({ ...prev, statusEmoji: emoji }))
+  }
+
+  const applyRandomStatusEmoji = () => {
+    const next = STATUS_EMOJI_PRESETS[Math.floor(Math.random() * STATUS_EMOJI_PRESETS.length)] || ''
+    setProfileForm((prev) => ({ ...prev, statusEmoji: next }))
+  }
+
+  const setChatWallpaper = (wallpaperValue, { closeMenu = false } = {}) => {
+    if (!activeConversation) return
+    const normalized = CHAT_WALLPAPERS.some((item) => item.value === wallpaperValue) ? wallpaperValue : 'default'
+    setChatWallpaperByConversation((prev) => {
+      const next = { ...prev }
+      if (normalized === 'default') {
+        delete next[activeConversation.id]
+      } else {
+        next[activeConversation.id] = normalized
+      }
+      return next
+    })
+    if (closeMenu) {
+      setChatMenu(INITIAL_CHAT_MENU_STATE)
+    }
+    const selected = CHAT_WALLPAPERS.find((item) => item.value === normalized) || CHAT_WALLPAPERS[0]
+    setStatus({ type: 'info', message: `Тема чата: ${selected.label}` })
+  }
+
+  const cycleChatWallpaper = () => {
+    if (!activeConversation) return
+    const currentIndex = CHAT_WALLPAPERS.findIndex((item) => item.value === activeChatWallpaper.value)
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % CHAT_WALLPAPERS.length : 0
+    setChatWallpaper(CHAT_WALLPAPERS[nextIndex].value)
+  }
+
+  const setActiveChatAlias = () => {
+    if (!activeConversation || activeConversation.isGroup) return
+    const currentAlias = normalizeChatAlias(chatAliasByConversation[activeConversation.id])
+    const baseName = activeConversation.other?.displayName || activeConversation.other?.username || ''
+    const typed = window.prompt(
+      'Локальный ник для этого чата (виден только вам). Оставьте пустым, чтобы сбросить.',
+      currentAlias || baseName
+    )
+    if (typed === null) return
+    const normalized = normalizeChatAlias(typed)
+    setChatAliasByConversation((prev) => {
+      const next = { ...prev }
+      if (!normalized) {
+        delete next[activeConversation.id]
+      } else {
+        next[activeConversation.id] = normalized
+      }
+      return next
+    })
+    setChatMenu(INITIAL_CHAT_MENU_STATE)
+    if (normalized) {
+      setStatus({ type: 'success', message: `Локальный ник: ${normalized}` })
+    } else {
+      setStatus({ type: 'info', message: 'Локальный ник удален.' })
+    }
+  }
+
   const getElementAnchor = (element, options = {}) => {
     if (!element || typeof element.getBoundingClientRect !== 'function') return null
     const { preferHorizontal = 'right' } = options
@@ -3075,7 +3271,7 @@ export default function App() {
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
     setPostMenu(INITIAL_POST_MENU_STATE)
     const { anchorX, anchorY } = getMenuAnchorFromEvent(event, { preferHorizontal: 'right' })
-    const pos = getMenuPosition(anchorX, anchorY, 260, 220)
+    const pos = getMenuPosition(anchorX, anchorY, 280, 420)
     setChatMenu({
       open: true,
       x: pos.x,
@@ -3318,6 +3514,7 @@ export default function App() {
                 <div>
                   <div className="name">{user.displayName || user.username}</div>
                   <span>@{user.username}</span>
+                  {userMoodLabel && <small className="profile-mood-chip">{userMoodLabel}</small>}
                 </div>
               </button>
               </>
@@ -3604,6 +3801,7 @@ export default function App() {
                   const unreadCount = Number(conv.unreadCount || 0)
                   const isActive = activeConversation && conv.id === activeConversation.id
                   const isFavorite = favoriteConversationSet.has(conv.id)
+                  const conversationTitle = getConversationDisplayName(conv, chatAliasByConversation)
                   const draftText = typeof draftsByConversation[conv.id] === 'string' ? draftsByConversation[conv.id].trim() : ''
                   const hasDraft = draftText.length > 0
                   const draftPreview = hasDraft
@@ -3619,19 +3817,19 @@ export default function App() {
                       <span className="avatar">
                         {conv.isGroup
                           ? (conv.title || 'G')[0].toUpperCase()
-                          : (conv.other?.username || 'U')[0].toUpperCase()}
+                          : (conversationTitle || 'U')[0].toUpperCase()}
                       </span>
                       <div className="chat-meta">
                         <div className="chat-title-row">
                           <div className="chat-title">
-                            {conv.isGroup ? conv.title : (conv.other?.displayName || conv.other?.username || 'Пользователь')}
+                            {conversationTitle}
                           </div>
                           {isFavorite && (
                             <span className="chat-favorite-mark" title="Избранный чат">★</span>
                           )}
                         </div>
                         <div className={`chat-preview ${hasDraft ? 'draft' : ''}`}>
-                          {hasDraft ? draftPreview : (conv.lastMessage || 'Нет сообщений')}
+                          {hasDraft ? draftPreview : (conv.lastMessage || getProfileMoodLabel(conv.other) || 'Нет сообщений')}
                         </div>
                       </div>
                       <div className="chat-side">
@@ -3646,7 +3844,7 @@ export default function App() {
               </div>
             </section>
 
-            <section className="chat-window">
+            <section className={`chat-window chat-wallpaper-${activeChatWallpaper.value}`.trim()}>
               {activeConversation ? (
                 <>
                   <div className="chat-top">
@@ -3671,15 +3869,21 @@ export default function App() {
                             {activeConversation.other.avatarUrl ? (
                               <img src={resolveMediaUrl(activeConversation.other.avatarUrl)} alt="avatar" />
                             ) : (
-                              (activeConversation.other.username || 'U')[0].toUpperCase()
+                              (activeChatTitle || 'U')[0].toUpperCase()
                             )}
                           </div>
                           <div>
-                            <h3>{activeConversation.other.displayName || activeConversation.other.username}</h3>
+                            <h3>{activeChatTitle}</h3>
+                            {activeChatHandle && (
+                              <div className="chat-user-handle">{activeChatHandle}</div>
+                            )}
                             <div className="chat-status">
                               <span className={`presence-dot ${isOnline(activeConversation.other.id) ? 'online' : ''}`}></span>
                               {isOnline(activeConversation.other.id) ? 'в сети' : 'не в сети'}
                             </div>
+                            {activeChatMoodLabel && (
+                              <div className="chat-mood">{activeChatMoodLabel}</div>
+                            )}
                           </div>
                         </button>
                       )}
@@ -3708,6 +3912,14 @@ export default function App() {
                           title={isActiveConversationFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
                         >
                           {isActiveConversationFavorite ? '★' : '☆'}
+                        </button>
+                        <button
+                          type="button"
+                          className="chat-action"
+                          onClick={cycleChatWallpaper}
+                          title={`Тема чата: ${activeChatWallpaper.label}`}
+                        >
+                          🎨
                         </button>
                         <button
                           type="button"
@@ -4375,6 +4587,7 @@ export default function App() {
                       <h2>{profileView.displayName || profileView.username}</h2>
                       <span>@{profileView.username}</span>
                     </div>
+                    {profileViewMoodLabel && <div className="profile-mood-chip profile-mood-profile">{profileViewMoodLabel}</div>}
                     {profileView.bio && <p>{profileView.bio}</p>}
                     <div className="profile-stats">
                       <span><strong>{profileFollowers}</strong> followers</span>
@@ -4690,7 +4903,7 @@ export default function App() {
             ></div>
             <label className="file-btn">
               Изменить обложку
-              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleBannerChange} />
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleBannerChange} />
             </label>
             <div className="profile-avatar">
               <div className="avatar large">
@@ -4702,7 +4915,7 @@ export default function App() {
               </div>
               <label className="file-btn">
                 Изменить аватар
-                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAvatarChange} />
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleAvatarChange} />
               </label>
             </div>
             <label>
@@ -4722,6 +4935,47 @@ export default function App() {
                 value={profileForm.displayName}
                 onChange={(event) => setProfileForm({ ...profileForm, displayName: event.target.value })}
                 placeholder="Ваше имя"
+              />
+            </label>
+            <label>
+              Статус emoji
+              <input
+                type="text"
+                value={profileForm.statusEmoji}
+                onChange={(event) => setProfileForm({ ...profileForm, statusEmoji: event.target.value })}
+                placeholder="✨"
+                maxLength={16}
+              />
+            </label>
+            <div className="status-emoji-presets" aria-label="Быстрые emoji для статуса">
+              {STATUS_EMOJI_PRESETS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  className={profileForm.statusEmoji === emoji ? 'active' : ''}
+                  onClick={() => applyStatusEmojiPreset(emoji)}
+                  title={`Поставить ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="shuffle"
+                onClick={applyRandomStatusEmoji}
+                title="Случайный emoji"
+              >
+                🎲
+              </button>
+            </div>
+            <label>
+              Статус
+              <input
+                type="text"
+                value={profileForm.statusText}
+                onChange={(event) => setProfileForm({ ...profileForm, statusText: event.target.value })}
+                placeholder="На связи и в настроении"
+                maxLength={80}
               />
             </label>
             <label>
@@ -4878,6 +5132,40 @@ export default function App() {
             }}>
               Звонок
             </button>
+            <button type="button" onClick={setActiveChatAlias}>
+              {activeConversationAlias ? 'Изменить локальный ник' : 'Добавить локальный ник'}
+            </button>
+            <div className="chat-menu-wallpapers">
+              <span>Тема чата</span>
+              <div className="chat-menu-wallpapers-list">
+                {CHAT_WALLPAPERS.map((wallpaper) => (
+                  <button
+                    key={wallpaper.value}
+                    type="button"
+                    className={activeChatWallpaper.value === wallpaper.value ? 'active' : ''}
+                    onClick={() => setChatWallpaper(wallpaper.value, { closeMenu: true })}
+                  >
+                    {wallpaper.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {activeConversationAlias && (
+              <button
+                type="button"
+                onClick={() => {
+                  setChatAliasByConversation((prev) => {
+                    const next = { ...prev }
+                    delete next[activeConversation.id]
+                    return next
+                  })
+                  setChatMenu(INITIAL_CHAT_MENU_STATE)
+                  setStatus({ type: 'info', message: 'Локальный ник удален.' })
+                }}
+              >
+                Сбросить локальный ник
+              </button>
+            )}
             <button type="button" className="danger" onClick={toggleChatBlock}>
               {isChatBlocked ? 'Разблокировать' : 'Заблокировать'}
             </button>

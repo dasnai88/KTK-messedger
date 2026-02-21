@@ -35,6 +35,8 @@ const webPushSubject = process.env.WEB_PUSH_SUBJECT || 'mailto:admin@example.com
 const webPushPublicKey = process.env.WEB_PUSH_PUBLIC_KEY || ''
 const webPushPrivateKey = process.env.WEB_PUSH_PRIVATE_KEY || ''
 const webPushEnabled = Boolean(webPushPublicKey && webPushPrivateKey)
+const profileStatusTextMaxLength = 80
+const profileStatusEmojiMaxLength = 16
 
 if (webPushEnabled) {
   webpush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey)
@@ -98,8 +100,8 @@ function createUpload({
 }
 
 const imageUpload = createUpload({
-  mimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-  extensions: ['.jpg', '.jpeg', '.png', '.webp'],
+  mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  extensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
   maxFileSizeMb: 5,
   errorMessage: 'Only images are allowed'
 })
@@ -367,6 +369,8 @@ function mapUser(row) {
     role: row.role,
     displayName: row.display_name,
     bio: row.bio,
+    statusText: row.status_text || '',
+    statusEmoji: row.status_emoji || '',
     avatarUrl: row.avatar_url,
     bannerUrl: row.banner_url,
     themeColor: row.theme_color,
@@ -476,7 +480,9 @@ function mapOtherUser(row) {
     username: row.other_username,
     displayName: row.other_display_name,
     role: row.other_role,
-    avatarUrl: row.other_avatar_url
+    avatarUrl: row.other_avatar_url,
+    statusText: row.other_status_text || '',
+    statusEmoji: row.other_status_emoji || ''
   }
 }
 
@@ -635,6 +641,8 @@ async function getUserConversations(userId) {
             u.display_name as other_display_name,
             u.role as other_role,
             u.avatar_url as other_avatar_url,
+            u.status_text as other_status_text,
+            u.status_emoji as other_status_emoji,
             lm.body as last_body,
             lm.attachment_url as last_attachment_url,
             lm.attachment_kind as last_attachment_kind,
@@ -669,6 +677,8 @@ async function getUserConversations(userId) {
             u.display_name as other_display_name,
             u.role as other_role,
             u.avatar_url as other_avatar_url,
+            null::text as other_status_text,
+            null::text as other_status_emoji,
             lm.body as last_body,
             lm.attachment_url as last_attachment_url,
             lm.attachment_kind as last_attachment_kind,
@@ -1049,6 +1059,12 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
     const role = req.body.role
     const username = req.body.username ? normalizeUsername(req.body.username) : null
     const themeColor = typeof req.body.themeColor === 'string' ? req.body.themeColor.trim() : null
+    const statusText = typeof req.body.statusText === 'string'
+      ? String(req.body.statusText).trim().slice(0, profileStatusTextMaxLength)
+      : null
+    const statusEmoji = typeof req.body.statusEmoji === 'string'
+      ? String(req.body.statusEmoji).trim().slice(0, profileStatusEmojiMaxLength)
+      : null
 
     if (username && !isValidUsername(username)) {
       return res.status(400).json({ error: 'Username must be 3+ chars and contain only a-z, 0-9, _' })
@@ -1059,18 +1075,44 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
     if (themeColor && !/^#([0-9a-fA-F]{6})$/.test(themeColor)) {
       return res.status(400).json({ error: 'Theme color must be hex like #1a2b3c' })
     }
+    if (statusEmoji && statusEmoji.length > profileStatusEmojiMaxLength) {
+      return res.status(400).json({ error: 'Status emoji is too long' })
+    }
+    if (statusText && statusText.length > profileStatusTextMaxLength) {
+      return res.status(400).json({ error: 'Status text is too long' })
+    }
 
-    const result = await pool.query(
-      `update users
-       set display_name = coalesce($1, display_name),
-           bio = coalesce($2, bio),
-           role = coalesce($3, role),
-           username = coalesce($4, username),
-           theme_color = coalesce($5, theme_color)
-       where id = $6
-       returning *`,
-      [displayName, bio, role, username, themeColor, req.userId]
-    )
+    let result
+    try {
+      result = await pool.query(
+        `update users
+         set display_name = coalesce($1, display_name),
+             bio = coalesce($2, bio),
+             role = coalesce($3, role),
+             username = coalesce($4, username),
+             theme_color = coalesce($5, theme_color),
+             status_text = coalesce($6, status_text),
+             status_emoji = coalesce($7, status_emoji)
+         where id = $8
+         returning *`,
+        [displayName, bio, role, username, themeColor, statusText, statusEmoji, req.userId]
+      )
+    } catch (err) {
+      if (!(err && err.code === '42703')) {
+        throw err
+      }
+      result = await pool.query(
+        `update users
+         set display_name = coalesce($1, display_name),
+             bio = coalesce($2, bio),
+             role = coalesce($3, role),
+             username = coalesce($4, username),
+             theme_color = coalesce($5, theme_color)
+         where id = $6
+         returning *`,
+        [displayName, bio, role, username, themeColor, req.userId]
+      )
+    }
 
     if (result.rowCount === 0) return res.status(404).json({ error: 'User not found' })
 
@@ -1405,31 +1447,69 @@ app.post('/api/conversations', auth, ensureNotBanned, async (req, res) => {
 
     await client.query('commit')
 
-    const convo = await pool.query(
-      `select c.id,
-              c.title,
-              c.is_group,
-              u.id as other_id,
-              u.username as other_username,
-              u.display_name as other_display_name,
-              u.role as other_role,
-              lm.body as last_body,
-              lm.created_at as last_at
-       from conversations c
-       join conversation_members me on me.conversation_id = c.id and me.user_id = $1
-       join conversation_members other on other.conversation_id = c.id and other.user_id <> $1
-       join users u on u.id = other.user_id
-       left join lateral (
-         select m.body, m.created_at, m.sender_id
-         from messages m
-         where m.conversation_id = c.id
-         order by m.created_at desc
-         limit 1
-       ) lm on true
-       where c.id = $2
-       limit 1`,
-      [req.userId, conversationId]
-    )
+    let convo
+    try {
+      convo = await pool.query(
+        `select c.id,
+                c.title,
+                c.is_group,
+                u.id as other_id,
+                u.username as other_username,
+                u.display_name as other_display_name,
+                u.role as other_role,
+                u.avatar_url as other_avatar_url,
+                u.status_text as other_status_text,
+                u.status_emoji as other_status_emoji,
+                lm.body as last_body,
+                lm.created_at as last_at
+         from conversations c
+         join conversation_members me on me.conversation_id = c.id and me.user_id = $1
+         join conversation_members other on other.conversation_id = c.id and other.user_id <> $1
+         join users u on u.id = other.user_id
+         left join lateral (
+           select m.body, m.created_at, m.sender_id
+           from messages m
+           where m.conversation_id = c.id
+           order by m.created_at desc
+           limit 1
+         ) lm on true
+         where c.id = $2
+         limit 1`,
+        [req.userId, conversationId]
+      )
+    } catch (err) {
+      if (!(err && err.code === '42703')) {
+        throw err
+      }
+      convo = await pool.query(
+        `select c.id,
+                c.title,
+                c.is_group,
+                u.id as other_id,
+                u.username as other_username,
+                u.display_name as other_display_name,
+                u.role as other_role,
+                u.avatar_url as other_avatar_url,
+                null::text as other_status_text,
+                null::text as other_status_emoji,
+                lm.body as last_body,
+                lm.created_at as last_at
+         from conversations c
+         join conversation_members me on me.conversation_id = c.id and me.user_id = $1
+         join conversation_members other on other.conversation_id = c.id and other.user_id <> $1
+         join users u on u.id = other.user_id
+         left join lateral (
+           select m.body, m.created_at, m.sender_id
+           from messages m
+           where m.conversation_id = c.id
+           order by m.created_at desc
+           limit 1
+         ) lm on true
+         where c.id = $2
+         limit 1`,
+        [req.userId, conversationId]
+      )
+    }
 
     res.json({ conversation: convo.rows[0] ? mapConversation(convo.rows[0]) : null })
   } catch (err) {
@@ -2412,7 +2492,7 @@ app.get('/api/presence', auth, async (req, res) => {
 
 app.use((err, req, res, next) => {
   if (err && err.message && err.message.includes('Only images')) {
-    return res.status(400).json({ error: 'Разрешены только изображения (jpg, png, webp)' })
+    return res.status(400).json({ error: 'Разрешены только изображения (jpg, png, webp, gif)' })
   }
   if (err && err.message && err.message.includes('Only image or video attachments')) {
     return res.status(400).json({ error: 'Разрешены только изображения и видео файлы.' })
