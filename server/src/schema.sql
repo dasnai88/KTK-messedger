@@ -120,6 +120,23 @@ create table if not exists message_reactions (
   primary key (message_id, user_id, emoji)
 );
 
+create table if not exists message_polls (
+  message_id uuid primary key references messages(id) on delete cascade,
+  question text not null,
+  options jsonb not null default '[]'::jsonb,
+  allows_multiple boolean default false,
+  created_by uuid references users(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+create table if not exists message_poll_votes (
+  message_id uuid references message_polls(message_id) on delete cascade,
+  user_id uuid references users(id) on delete cascade,
+  option_id integer not null check (option_id >= 0),
+  created_at timestamptz default now(),
+  primary key (message_id, user_id, option_id)
+);
+
 create table if not exists posts (
   id uuid primary key default gen_random_uuid(),
   author_id uuid references users(id) on delete cascade,
@@ -173,6 +190,8 @@ create index if not exists idx_members_user_favorite on conversation_members (us
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
 create index if not exists idx_messages_conversation on messages (conversation_id, created_at);
 create index if not exists idx_message_reactions_message on message_reactions (message_id);
+create index if not exists idx_message_poll_votes_message on message_poll_votes (message_id);
+create index if not exists idx_message_poll_votes_user on message_poll_votes (user_id);
 create index if not exists idx_posts_created on posts (created_at desc);
 create index if not exists idx_post_comments_post on post_comments (post_id, created_at);
 
@@ -273,6 +292,69 @@ DO $$ BEGIN
   ALTER TABLE user_gifs ADD COLUMN mime_type text;
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_polls ADD COLUMN question text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_polls ADD COLUMN options jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_polls ALTER COLUMN options SET DEFAULT '[]'::jsonb;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  UPDATE message_polls SET options = '[]'::jsonb WHERE options IS NULL;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN undefined_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_polls ADD COLUMN allows_multiple boolean default false;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_polls ADD COLUMN created_by uuid;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_polls ADD COLUMN created_at timestamptz default now();
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE message_poll_votes ADD COLUMN option_id integer;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$
+DECLARE
+  constraint_name text;
+BEGIN
+  FOR constraint_name IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'message_poll_votes'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%option_id%'
+  LOOP
+    EXECUTE format('ALTER TABLE message_poll_votes DROP CONSTRAINT IF EXISTS %I', constraint_name);
+  END LOOP;
+
+  ALTER TABLE message_poll_votes
+    ADD CONSTRAINT chk_message_poll_votes_option_id_non_negative
+    CHECK (option_id >= 0);
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_object THEN NULL;
+END $$;
 
 DO $$ BEGIN
   ALTER TABLE users ADD COLUMN is_admin boolean default false;

@@ -362,6 +362,20 @@ export async function sendGif(conversationId, gifId, options = {}) {
   })
 }
 
+export async function createPoll(conversationId, payload) {
+  return request(`/conversations/${conversationId}/polls`, {
+    method: 'POST',
+    body: payload
+  })
+}
+
+export async function votePoll(messageId, optionId) {
+  return request(`/messages/${messageId}/poll-vote`, {
+    method: 'POST',
+    body: { optionId }
+  })
+}
+
 export async function uploadProfileTrack(file, meta = {}) {
   const token = getToken()
   const formData = new FormData()

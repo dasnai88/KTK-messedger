@@ -54,7 +54,9 @@ import {
   getMyGifs,
   uploadGif,
   deleteGif,
-  sendGif
+  sendGif,
+  createPoll,
+  votePoll
 } from './api.js'
 
 const icons = {
@@ -273,6 +275,13 @@ const FUN_COMMANDS = [
   { command: '/spoiler', template: '/spoiler ', description: 'Скрытый текст' },
   { command: '/nudge', template: '/nudge', description: 'Пнуть собеседника' }
 ]
+const POLL_OPTION_MIN_COUNT = 2
+const POLL_OPTION_MAX_COUNT = 10
+const INITIAL_POLL_DRAFT = {
+  question: '',
+  options: ['', ''],
+  allowsMultiple: false
+}
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
@@ -489,7 +498,37 @@ function isNudgeMessage(value) {
   return String(value || '').trim() === NUDGE_MARKER
 }
 
+function normalizePollData(poll) {
+  if (!poll || typeof poll !== 'object') return null
+  const question = String(poll.question || '').trim()
+  const options = (Array.isArray(poll.options) ? poll.options : [])
+    .map((item, index) => {
+      const rawId = Number(item && item.id)
+      const id = Number.isInteger(rawId) && rawId >= 0 ? rawId : index
+      const text = String((item && item.text) || '').trim() || `Вариант ${id + 1}`
+      const votes = Math.max(0, Number(item && item.votes) || 0)
+      const selected = item && item.selected === true
+      return { id, text, votes, selected }
+    })
+    .sort((a, b) => a.id - b.id)
+  const fallbackTotalVotes = options.reduce((sum, option) => sum + option.votes, 0)
+  const totalVotes = Math.max(0, Number(poll.totalVotes) || fallbackTotalVotes)
+  const participantsCount = Math.max(0, Number(poll.participantsCount) || 0)
+  return {
+    question,
+    allowsMultiple: poll.allowsMultiple === true,
+    options,
+    totalVotes,
+    participantsCount
+  }
+}
+
 function getMessagePreviewLabel(message, emptyText = 'Сообщение') {
+  if (message && message.poll) {
+    const pollQuestion = String(message.poll.question || '').trim()
+    const preview = pollQuestion ? `📊 ${pollQuestion}` : '📊 Опрос'
+    return preview.length > 120 ? `${preview.slice(0, 117)}...` : preview
+  }
   if (message && typeof message.body === 'string' && message.body.trim()) {
     const text = message.body.trim()
     if (isNudgeMessage(text)) return 'Пинок'
@@ -548,7 +587,8 @@ function normalizeChatMessage(message) {
   return {
     ...message,
     replyTo: normalizeReplyMessage(message.replyTo),
-    reactions: normalizeMessageReactions(message.reactions)
+    reactions: normalizeMessageReactions(message.reactions),
+    poll: normalizePollData(message.poll)
   }
 }
 
@@ -589,6 +629,13 @@ function applyReactionDeltaToMessage(message, payload, currentUserId) {
   return { ...message, reactions }
 }
 
+function applyPollUpdateToMessage(message, payload) {
+  if (!message || !payload || message.id !== payload.messageId) return message
+  const poll = normalizePollData(payload.poll)
+  if (!poll) return message
+  return { ...message, poll }
+}
+
 export default function App() {
   const [health, setHealth] = useState(null)
   const [roles, setRoles] = useState([])
@@ -627,6 +674,9 @@ export default function App() {
   const [messages, setMessages] = useState([])
   const [messageText, setMessageText] = useState('')
   const [replyMessage, setReplyMessage] = useState(null)
+  const [pollComposerOpen, setPollComposerOpen] = useState(false)
+  const [pollDraft, setPollDraft] = useState(INITIAL_POLL_DRAFT)
+  const [pollVoteLoadingByMessage, setPollVoteLoadingByMessage] = useState({})
   const [messageFile, setMessageFile] = useState(null)
   const [messagePreview, setMessagePreview] = useState('')
   const [messagePreviewType, setMessagePreviewType] = useState('')
@@ -1400,11 +1450,22 @@ export default function App() {
     patchMessageById(messageId, (message) => ({ ...message, reactions: normalized }))
   }
 
+  const setMessagePoll = (messageId, poll) => {
+    const normalized = normalizePollData(poll)
+    if (!normalized) return
+    patchMessageById(messageId, (message) => ({ ...message, poll: normalized }))
+  }
+
   const applyIncomingReactionDelta = (payload) => {
     if (!payload || !payload.messageId) return
     patchMessageById(payload.messageId, (message) =>
       applyReactionDeltaToMessage(message, payload, user ? user.id : '')
     )
+  }
+
+  const applyIncomingPollUpdate = (payload) => {
+    if (!payload || !payload.messageId) return
+    patchMessageById(payload.messageId, (message) => applyPollUpdateToMessage(message, payload))
   }
 
   const removeTypingUser = (conversationId, userId) => {
@@ -1580,6 +1641,8 @@ export default function App() {
   }
 
   const renderMessageBody = (msg) => {
+    if (!msg) return null
+    if (msg.poll) return null
     if (!msg || !msg.body) return null
     if (isNudgeMessage(msg.body)) {
       return (
@@ -1607,6 +1670,48 @@ export default function App() {
     }
 
     return <p className="message-text">{msg.body}</p>
+  }
+
+  const renderPollCard = (msg) => {
+    const poll = normalizePollData(msg && msg.poll)
+    if (!poll || !Array.isArray(poll.options) || poll.options.length === 0) return null
+
+    const totalVotes = Math.max(0, Number(poll.totalVotes) || 0)
+    const participantsCount = Math.max(0, Number(poll.participantsCount) || 0)
+    const isVoting = pollVoteLoadingByMessage[msg.id] === true
+
+    return (
+      <div className="poll-card">
+        <div className="poll-head">
+          <strong>{poll.question || 'Опрос'}</strong>
+          <span>{poll.allowsMultiple ? 'Можно выбрать несколько' : 'Один вариант'}</span>
+        </div>
+        <div className="poll-options">
+          {poll.options.map((option) => {
+            const safeVotes = Math.max(0, Number(option.votes) || 0)
+            const percent = totalVotes > 0 ? Math.round((safeVotes / totalVotes) * 100) : 0
+            return (
+              <button
+                key={`${msg.id}-poll-option-${option.id}`}
+                type="button"
+                className={`poll-option ${option.selected ? 'selected' : ''}`.trim()}
+                disabled={isVoting}
+                onClick={() => handlePollVote(msg.id, option.id)}
+              >
+                <span className="poll-option-fill" style={{ width: `${percent}%` }}></span>
+                <span className="poll-option-text">{option.text}</span>
+                <span className="poll-option-meta">{safeVotes} • {percent}%</span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="poll-foot">
+          <span>{totalVotes} голосов</span>
+          <span>{participantsCount} участников</span>
+          {isVoting && <span>Сохраняем...</span>}
+        </div>
+      </div>
+    )
   }
 
   const isPushSupported = () => (
@@ -2075,8 +2180,12 @@ export default function App() {
   useEffect(() => {
     if (!activeConversation) {
       setMessages([])
+      setPollVoteLoadingByMessage({})
       return
     }
+    setPollVoteLoadingByMessage({})
+    setPollComposerOpen(false)
+    setPollDraft(INITIAL_POLL_DRAFT)
     const loadMessages = async () => {
       try {
         const data = await getMessages(activeConversation.id)
@@ -2545,6 +2654,13 @@ export default function App() {
       applyIncomingReactionDelta(payload)
     }
 
+    const handleIncomingPollUpdate = (payload) => {
+      if (!payload || !payload.conversationId || !payload.messageId) return
+      const currentActive = activeConversationRef.current
+      if (!currentActive || payload.conversationId !== currentActive.id) return
+      applyIncomingPollUpdate(payload)
+    }
+
     const handlePostNew = (payload) => {
       if (!payload || !payload.post) return
       const { post } = payload
@@ -2606,6 +2722,7 @@ export default function App() {
 
     socket.on('message', handleIncomingMessage)
     socket.on('message:reaction', handleIncomingReaction)
+    socket.on('poll:update', handleIncomingPollUpdate)
     socket.on('conversation:read', handleConversationRead)
     socket.on('post:new', handlePostNew)
     socket.on('post:delete', handlePostDelete)
@@ -2690,6 +2807,7 @@ export default function App() {
       socket.off('disconnect', handleSocketDisconnect)
       socket.off('message', handleIncomingMessage)
       socket.off('message:reaction', handleIncomingReaction)
+      socket.off('poll:update', handleIncomingPollUpdate)
       socket.off('conversation:read', handleConversationRead)
       socket.off('post:new', handlePostNew)
       socket.off('post:delete', handlePostDelete)
@@ -3233,6 +3351,9 @@ export default function App() {
     setMediaPanelOpen(false)
     setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
     setMediaPanelQuery('')
+    setPollComposerOpen(false)
+    setPollDraft(INITIAL_POLL_DRAFT)
+    setPollVoteLoadingByMessage({})
     setConversations([])
     setProfileView(null)
     setProfilePosts([])
@@ -3449,6 +3570,118 @@ export default function App() {
       setStatus({ type: 'error', message: err.message })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const updatePollOption = (index, value) => {
+    setPollDraft((prev) => {
+      if (!Array.isArray(prev.options) || index < 0 || index >= prev.options.length) return prev
+      const nextOptions = [...prev.options]
+      nextOptions[index] = value
+      return { ...prev, options: nextOptions }
+    })
+  }
+
+  const addPollOption = () => {
+    setPollDraft((prev) => {
+      if (!Array.isArray(prev.options) || prev.options.length >= POLL_OPTION_MAX_COUNT) return prev
+      return { ...prev, options: [...prev.options, ''] }
+    })
+  }
+
+  const removePollOption = (index) => {
+    setPollDraft((prev) => {
+      if (!Array.isArray(prev.options) || prev.options.length <= POLL_OPTION_MIN_COUNT) return prev
+      if (index < 0 || index >= prev.options.length) return prev
+      const nextOptions = prev.options.filter((_, optionIndex) => optionIndex !== index)
+      return { ...prev, options: nextOptions }
+    })
+  }
+
+  const closePollComposer = () => {
+    setPollComposerOpen(false)
+    setPollDraft(INITIAL_POLL_DRAFT)
+  }
+
+  const handleCreatePoll = async () => {
+    if (!activeConversation) return
+    if (isChatBlocked) {
+      setStatus({ type: 'error', message: 'Вы заблокировали пользователя.' })
+      return
+    }
+    if (messageFile) {
+      setStatus({ type: 'error', message: 'Уберите вложение перед отправкой опроса.' })
+      return
+    }
+    if (replyMessage) {
+      setStatus({ type: 'error', message: 'Опрос в ответ пока не поддерживается.' })
+      return
+    }
+
+    const question = String(pollDraft.question || '').trim()
+    const options = (Array.isArray(pollDraft.options) ? pollDraft.options : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+
+    if (!question) {
+      setStatus({ type: 'error', message: 'Введите вопрос опроса.' })
+      return
+    }
+    if (options.length < POLL_OPTION_MIN_COUNT) {
+      setStatus({ type: 'error', message: 'Добавьте минимум 2 варианта.' })
+      return
+    }
+    if (options.length > POLL_OPTION_MAX_COUNT) {
+      setStatus({ type: 'error', message: `Максимум ${POLL_OPTION_MAX_COUNT} вариантов.` })
+      return
+    }
+    if (new Set(options.map((option) => option.toLowerCase())).size < POLL_OPTION_MIN_COUNT) {
+      setStatus({ type: 'error', message: 'Варианты должны отличаться.' })
+      return
+    }
+
+    stopTyping(activeConversation.id)
+    setLoading(true)
+    try {
+      const data = await createPoll(activeConversation.id, {
+        question,
+        options,
+        allowsMultiple: pollDraft.allowsMultiple === true
+      })
+      const createdMessage = normalizeChatMessage(data.message)
+      setMessages((prev) => {
+        if (createdMessage && prev.some((msg) => msg.id === createdMessage.id)) return prev
+        return createdMessage ? [...prev, createdMessage] : prev
+      })
+      closePollComposer()
+      const list = await getConversations()
+      setConversations(list.conversations || [])
+      setStatus({ type: 'success', message: 'Опрос отправлен.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handlePollVote = async (messageId, optionId) => {
+    if (!messageId || !Number.isInteger(optionId)) return
+    if (pollVoteLoadingByMessage[messageId]) return
+    setPollVoteLoadingByMessage((prev) => ({ ...prev, [messageId]: true }))
+    try {
+      const data = await votePoll(messageId, optionId)
+      if (data && data.poll) {
+        setMessagePoll(messageId, data.poll)
+      }
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setPollVoteLoadingByMessage((prev) => {
+        if (!Object.prototype.hasOwnProperty.call(prev, messageId)) return prev
+        const next = { ...prev }
+        delete next[messageId]
+        return next
+      })
     }
   }
 
@@ -3728,6 +3961,7 @@ export default function App() {
   }
 
   const startEditMessage = (msg) => {
+    if (!msg || msg.poll) return
     setEditingMessageId(msg.id)
     setEditingMessageText(msg.body || '')
     setContextMenu(INITIAL_MESSAGE_MENU_STATE)
@@ -4753,6 +4987,7 @@ export default function App() {
                           ) : (
                             renderMessageBody(msg)
                           )}
+                          {msg.poll && renderPollCard(msg)}
                           <div className="message-meta">
                             {msg.editedAt && <span className="message-edited">изменено</span>}
                             <time className="message-time">{formatTime(msg.createdAt)}</time>
@@ -4784,9 +5019,11 @@ export default function App() {
                         </div>
                         {(msg.senderId === user.id || user.isAdmin) && editingMessageId !== msg.id && activeConversation && activeConversation.isGroup && (
                           <div className="message-actions">
-                            <button type="button" onClick={() => {
-                              startEditMessage(msg)
-                            }}>✏️</button>
+                            {!msg.poll && (
+                              <button type="button" onClick={() => {
+                                startEditMessage(msg)
+                              }}>✏️</button>
+                            )}
                             <button type="button" onClick={() => handleDeleteMessage(msg)}>🗑️</button>
                           </div>
                         )}
@@ -4861,7 +5098,7 @@ export default function App() {
                       <button type="button" onClick={() => togglePinMessage(contextMenu.message)}>
                         {pinnedMessage && pinnedMessage.id === contextMenu.message.id ? 'Открепить' : 'Закрепить'}
                       </button>
-                      {(contextMenu.message.senderId === user.id || user.isAdmin) && (
+                      {(contextMenu.message.senderId === user.id || user.isAdmin) && !contextMenu.message.poll && (
                         <button type="button" onClick={() => startEditMessage(contextMenu.message)}>
                           Редактировать
                         </button>
@@ -4884,6 +5121,77 @@ export default function App() {
                           </button>
                         </div>
                         <p>{getMessagePreview(replyMessage)}</p>
+                      </div>
+                    )}
+                    {pollComposerOpen && (
+                      <div className="composer-poll">
+                        <div className="composer-poll-head">
+                          <strong>Новый опрос</strong>
+                          <button type="button" onClick={closePollComposer} title="Закрыть">
+                            ×
+                          </button>
+                        </div>
+                        <label>
+                          Вопрос
+                          <input
+                            type="text"
+                            value={pollDraft.question}
+                            onChange={(event) => setPollDraft((prev) => ({ ...prev, question: event.target.value }))}
+                            placeholder="О чем голосуем?"
+                            maxLength={240}
+                            disabled={isChatBlocked}
+                          />
+                        </label>
+                        <div className="composer-poll-options">
+                          {pollDraft.options.map((option, index) => (
+                            <div key={`poll-option-${index}`} className="composer-poll-option">
+                              <input
+                                type="text"
+                                value={option}
+                                onChange={(event) => updatePollOption(index, event.target.value)}
+                                placeholder={`Вариант ${index + 1}`}
+                                maxLength={120}
+                                disabled={isChatBlocked}
+                              />
+                              {pollDraft.options.length > POLL_OPTION_MIN_COUNT && (
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => removePollOption(index)}
+                                  title="Удалить вариант"
+                                >
+                                  −
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="composer-poll-tools">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={addPollOption}
+                            disabled={pollDraft.options.length >= POLL_OPTION_MAX_COUNT}
+                          >
+                            + Вариант
+                          </button>
+                          <label className="composer-poll-multi">
+                            <input
+                              type="checkbox"
+                              checked={pollDraft.allowsMultiple}
+                              onChange={(event) => setPollDraft((prev) => ({ ...prev, allowsMultiple: event.target.checked }))}
+                            />
+                            <span>Разрешить несколько ответов</span>
+                          </label>
+                          <button
+                            type="button"
+                            className="primary"
+                            onClick={handleCreatePoll}
+                            disabled={loading || isChatBlocked}
+                          >
+                            Отправить опрос
+                          </button>
+                        </div>
                       </div>
                     )}
                     <input
@@ -4923,6 +5231,7 @@ export default function App() {
                           setMediaPanelOpen(false)
                           return
                         }
+                        setPollComposerOpen(false)
                         setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
                         setMediaPanelQuery('')
                         setMediaPanelOpen(true)
@@ -4937,6 +5246,22 @@ export default function App() {
                     </button>
                     <button
                       type="button"
+                      className={`record-btn poll-trigger-btn ${pollComposerOpen ? 'active' : ''}`.trim()}
+                      onClick={() => {
+                        if (pollComposerOpen) {
+                          closePollComposer()
+                          return
+                        }
+                        setPollComposerOpen(true)
+                        setMediaPanelOpen(false)
+                      }}
+                      disabled={isChatBlocked}
+                      title="Создать опрос"
+                    >
+                      📊
+                    </button>
+                    <button
+                      type="button"
                       className={`record-btn ${videoNoteRecording ? 'recording' : ''}`}
                       onClick={toggleVideoNoteRecording}
                       disabled={isChatBlocked}
@@ -4945,7 +5270,7 @@ export default function App() {
                     </button>
                     <button className="primary" type="submit" disabled={loading || isChatBlocked}>Отправить</button>
                   </form>
-                  {commandSuggestions.length > 0 && !mediaPanelOpen && (
+                  {commandSuggestions.length > 0 && !mediaPanelOpen && !pollComposerOpen && (
                     <div className="command-hints">
                       {commandSuggestions.map((item) => (
                         <button

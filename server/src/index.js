@@ -39,6 +39,10 @@ const profileStatusTextMaxLength = 80
 const profileStatusEmojiMaxLength = 16
 const stickerTitleMaxLength = 48
 const gifTitleMaxLength = 48
+const pollQuestionMaxLength = 240
+const pollOptionMaxLength = 120
+const pollOptionMinCount = 2
+const pollOptionMaxCount = 10
 
 if (webPushEnabled) {
   webpush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey)
@@ -595,6 +599,78 @@ function isMessageReplySchemaError(err) {
   return message.includes('reply_to_id') || message.includes('reply_')
 }
 
+function isMessagePollSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703' && err.code !== '23514') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('message_polls') || message.includes('message_poll_votes') || message.includes('poll')
+}
+
+function normalizePollQuestion(value) {
+  return String(value || '').trim().slice(0, pollQuestionMaxLength)
+}
+
+function normalizePollOptionText(value) {
+  return String(value || '').trim().slice(0, pollOptionMaxLength)
+}
+
+function normalizePollOptionId(value) {
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    return value >= 0 ? value : -1
+  }
+  const parsed = Number.parseInt(String(value || '').trim(), 10)
+  if (!Number.isInteger(parsed) || parsed < 0) return -1
+  return parsed
+}
+
+function normalizePollOptionsValue(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') return normalizePollOptionText(item)
+      if (item && typeof item === 'object') {
+        if (typeof item.text === 'string') return normalizePollOptionText(item.text)
+        if (typeof item.label === 'string') return normalizePollOptionText(item.label)
+      }
+      return ''
+    })
+    .filter(Boolean)
+    .slice(0, pollOptionMaxCount)
+}
+
+function normalizePollOptionsInput(value) {
+  return normalizePollOptionsValue(value)
+}
+
+function buildPollPayload({
+  question,
+  allowsMultiple,
+  options,
+  voteCountsByOptionId = new Map(),
+  selectedOptionIds = new Set(),
+  participantsCount = 0
+}) {
+  const normalizedOptions = normalizePollOptionsValue(options)
+  const pollOptions = normalizedOptions.map((text, index) => {
+    const rawVotes = voteCountsByOptionId instanceof Map ? voteCountsByOptionId.get(index) : 0
+    const votes = Number.isFinite(Number(rawVotes)) ? Math.max(0, Number(rawVotes)) : 0
+    return {
+      id: index,
+      text,
+      votes,
+      selected: selectedOptionIds instanceof Set ? selectedOptionIds.has(index) : false
+    }
+  })
+  const totalVotes = pollOptions.reduce((sum, option) => sum + option.votes, 0)
+  return {
+    question: normalizePollQuestion(question),
+    allowsMultiple: allowsMultiple === true,
+    options: pollOptions,
+    totalVotes,
+    participantsCount: Number.isFinite(Number(participantsCount)) ? Math.max(0, Number(participantsCount)) : 0
+  }
+}
+
 function normalizeMessageReactions(value) {
   if (!Array.isArray(value)) return []
   return value
@@ -658,6 +734,158 @@ async function getMessageReactions(messageId, viewerId) {
     count: Number(row.reaction_count || 0),
     reacted: row.reacted === true
   }))
+}
+
+function mapPollVoteCountMap(value) {
+  const map = new Map()
+  if (!Array.isArray(value)) return map
+  value.forEach((item) => {
+    const optionId = normalizePollOptionId(item && item.optionId)
+    const count = Number(item && item.count)
+    if (optionId < 0 || !Number.isFinite(count) || count <= 0) return
+    map.set(optionId, count)
+  })
+  return map
+}
+
+function mapPollSelectedSet(value) {
+  const set = new Set()
+  if (!Array.isArray(value)) return set
+  value.forEach((item) => {
+    const optionId = normalizePollOptionId(item)
+    if (optionId >= 0) {
+      set.add(optionId)
+    }
+  })
+  return set
+}
+
+function mapPollRow(row) {
+  return buildPollPayload({
+    question: row.question,
+    allowsMultiple: row.allows_multiple === true,
+    options: row.options,
+    voteCountsByOptionId: mapPollVoteCountMap(row.option_votes),
+    selectedOptionIds: mapPollSelectedSet(row.selected_options),
+    participantsCount: Number(row.participants_count || 0)
+  })
+}
+
+async function getPollPayloadForMessage(messageId, viewerId, fallback = null) {
+  const result = await pool.query(
+    `select mp.message_id,
+            mp.question,
+            mp.options,
+            mp.allows_multiple,
+            coalesce(votes.option_votes, '[]'::json) as option_votes,
+            coalesce(selected.selected_options, '[]'::json) as selected_options,
+            coalesce(participants.participants_count, 0)::int as participants_count
+     from message_polls mp
+     left join lateral (
+       select json_agg(
+                json_build_object(
+                  'optionId', poll_votes.option_id,
+                  'count', poll_votes.vote_count
+                )
+                order by poll_votes.option_id asc
+              ) as option_votes
+       from (
+         select mpv.option_id, count(*)::int as vote_count
+         from message_poll_votes mpv
+         where mpv.message_id = mp.message_id
+         group by mpv.option_id
+       ) poll_votes
+     ) votes on true
+     left join lateral (
+       select json_agg(mpv.option_id order by mpv.option_id asc) as selected_options
+       from message_poll_votes mpv
+       where mpv.message_id = mp.message_id and mpv.user_id = $2
+     ) selected on true
+     left join lateral (
+       select count(distinct mpv.user_id)::int as participants_count
+       from message_poll_votes mpv
+       where mpv.message_id = mp.message_id
+     ) participants on true
+     where mp.message_id = $1
+     limit 1`,
+    [messageId, viewerId]
+  )
+  if (result.rowCount > 0) {
+    return mapPollRow(result.rows[0])
+  }
+  if (!fallback || typeof fallback !== 'object') return null
+  return buildPollPayload({
+    question: fallback.question || '',
+    allowsMultiple: fallback.allowsMultiple === true,
+    options: fallback.options
+  })
+}
+
+async function attachPollDataToMessages(messages, viewerId) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages
+  const messageIds = messages
+    .map((message) => message && message.id)
+    .filter((id) => typeof id === 'string')
+  if (messageIds.length === 0) return messages
+
+  try {
+    const result = await pool.query(
+      `select mp.message_id,
+              mp.question,
+              mp.options,
+              mp.allows_multiple,
+              coalesce(votes.option_votes, '[]'::json) as option_votes,
+              coalesce(selected.selected_options, '[]'::json) as selected_options,
+              coalesce(participants.participants_count, 0)::int as participants_count
+       from message_polls mp
+       left join lateral (
+         select json_agg(
+                  json_build_object(
+                    'optionId', poll_votes.option_id,
+                    'count', poll_votes.vote_count
+                  )
+                  order by poll_votes.option_id asc
+                ) as option_votes
+         from (
+           select mpv.option_id, count(*)::int as vote_count
+           from message_poll_votes mpv
+           where mpv.message_id = mp.message_id
+           group by mpv.option_id
+         ) poll_votes
+       ) votes on true
+       left join lateral (
+         select json_agg(mpv.option_id order by mpv.option_id asc) as selected_options
+         from message_poll_votes mpv
+         where mpv.message_id = mp.message_id and mpv.user_id = $2
+       ) selected on true
+       left join lateral (
+         select count(distinct mpv.user_id)::int as participants_count
+         from message_poll_votes mpv
+         where mpv.message_id = mp.message_id
+       ) participants on true
+       where mp.message_id = any($1::uuid[])`,
+      [messageIds, viewerId]
+    )
+
+    if (result.rowCount === 0) return messages
+
+    const pollByMessageId = new Map()
+    result.rows.forEach((row) => {
+      pollByMessageId.set(row.message_id, mapPollRow(row))
+    })
+
+    return messages.map((message) => {
+      if (!message || !message.id) return message
+      const poll = pollByMessageId.get(message.id)
+      if (!poll) return message
+      return { ...message, poll }
+    })
+  } catch (err) {
+    if (isMessagePollSchemaError(err)) {
+      return messages
+    }
+    throw err
+  }
 }
 
 function mapPost(row) {
@@ -2032,7 +2260,8 @@ app.get('/api/conversations/:id/messages', auth, ensureNotBanned, async (req, re
       }
     }
 
-    const messages = result.rows.map(mapMessageRow)
+    const mappedMessages = result.rows.map(mapMessageRow)
+    const messages = await attachPollDataToMessages(mappedMessages, req.userId)
 
     res.json({ messages })
   } catch (err) {
@@ -2074,6 +2303,142 @@ app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) 
   } catch (err) {
     console.error('Read update error', err)
     res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/conversations/:id/polls', messageLimiter, auth, ensureNotBanned, async (req, res) => {
+  const conversationId = req.params.id
+  const question = normalizePollQuestion(req.body && req.body.question)
+  const rawOptions = Array.isArray(req.body && req.body.options) ? req.body.options : []
+  const options = normalizePollOptionsInput(rawOptions)
+  const allowsMultiple = req.body && req.body.allowsMultiple === true
+
+  if (!question) {
+    return res.status(400).json({ error: 'Poll question is required' })
+  }
+  if (rawOptions.length > pollOptionMaxCount) {
+    return res.status(400).json({ error: `Too many options (max ${pollOptionMaxCount})` })
+  }
+  if (options.length < pollOptionMinCount) {
+    return res.status(400).json({ error: `At least ${pollOptionMinCount} options are required` })
+  }
+  if (new Set(options.map((option) => option.toLowerCase())).size < pollOptionMinCount) {
+    return res.status(400).json({ error: 'Poll options must be unique' })
+  }
+
+  const client = await pool.connect()
+  try {
+    const membership = await client.query(
+      'select 1 from conversation_members where conversation_id = $1 and user_id = $2',
+      [conversationId, req.userId]
+    )
+    if (membership.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    const conversationResult = await client.query(
+      'select is_group, title from conversations where id = $1',
+      [conversationId]
+    )
+    if (conversationResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Conversation not found' })
+    }
+
+    const membersResult = await client.query(
+      `select cm.user_id, u.username, u.display_name
+       from conversation_members cm
+       join users u on u.id = cm.user_id
+       where cm.conversation_id = $1`,
+      [conversationId]
+    )
+
+    let insertedMessage
+    await client.query('begin')
+    try {
+      insertedMessage = await client.query(
+        `insert into messages (conversation_id, sender_id, body)
+         values ($1, $2, $3)
+         returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
+        [conversationId, req.userId, question]
+      )
+      await client.query(
+        `insert into message_polls (message_id, question, options, allows_multiple, created_by)
+         values ($1, $2, $3::jsonb, $4, $5)`,
+        [insertedMessage.rows[0].id, question, JSON.stringify(options), allowsMultiple, req.userId]
+      )
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    }
+
+    const senderRow = await client.query(
+      'select username, display_name, avatar_url from users where id = $1',
+      [req.userId]
+    )
+    const sender = senderRow.rows[0] || {}
+
+    const message = {
+      id: insertedMessage.rows[0].id,
+      body: insertedMessage.rows[0].body,
+      attachmentUrl: insertedMessage.rows[0].attachment_url,
+      attachmentMime: insertedMessage.rows[0].attachment_mime,
+      attachmentKind: insertedMessage.rows[0].attachment_kind,
+      editedAt: null,
+      createdAt: insertedMessage.rows[0].created_at,
+      senderId: req.userId,
+      senderUsername: sender.username || null,
+      senderDisplayName: sender.display_name || null,
+      senderAvatarUrl: sender.avatar_url || null,
+      readByOther: false,
+      replyTo: null,
+      reactions: [],
+      poll: buildPollPayload({
+        question,
+        allowsMultiple,
+        options
+      })
+    }
+
+    membersResult.rows.forEach((member) => {
+      emitToUser(member.user_id, 'message', { conversationId, message })
+    })
+
+    const recipients = membersResult.rows
+      .map((member) => member.user_id)
+      .filter((memberId) => memberId !== req.userId)
+
+    if (recipients.length > 0) {
+      const isGroup = conversationResult.rows[0].is_group === true
+      const senderName = sender.display_name || sender.username || 'New message'
+      const pushTitle = isGroup
+        ? (conversationResult.rows[0].title || 'New message in group')
+        : senderName
+      const pushPayload = {
+        title: pushTitle,
+        body: `📊 ${question}`,
+        conversationId,
+        url: `/?conversation=${conversationId}`,
+        tag: `conversation-${conversationId}`,
+        senderId: req.userId,
+        messageId: message.id,
+        createdAt: message.createdAt,
+        skipWhenVisible: true
+      }
+      void sendPushToUsers(recipients, pushPayload).catch((err) => {
+        console.error('Push send error', err)
+      })
+    }
+
+    res.json({ message })
+  } catch (err) {
+    if (isMessagePollSchemaError(err)) {
+      return res.status(503).json({ error: 'Poll feature is unavailable: database migration required' })
+    }
+    console.error('Create poll error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  } finally {
+    client.release()
   }
 })
 
@@ -2844,6 +3209,127 @@ app.delete('/api/messages/:id', auth, ensureNotBanned, async (req, res) => {
     res.json({ ok: true })
   } catch (err) {
     console.error('Delete message error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/messages/:id/poll-vote', auth, ensureNotBanned, async (req, res) => {
+  const messageId = req.params.id
+  const optionId = normalizePollOptionId(req.body && req.body.optionId)
+  if (optionId < 0) {
+    return res.status(400).json({ error: 'Invalid poll option' })
+  }
+
+  try {
+    const pollResult = await pool.query(
+      `select m.conversation_id,
+              m.deleted_at,
+              mp.question,
+              mp.options,
+              mp.allows_multiple
+       from messages m
+       join message_polls mp on mp.message_id = m.id
+       join conversation_members cm
+         on cm.conversation_id = m.conversation_id
+        and cm.user_id = $2
+       where m.id = $1
+       limit 1`,
+      [messageId, req.userId]
+    )
+    if (pollResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Poll not found' })
+    }
+    if (pollResult.rows[0].deleted_at) {
+      return res.status(400).json({ error: 'Message is deleted' })
+    }
+
+    const row = pollResult.rows[0]
+    const options = normalizePollOptionsValue(row.options)
+    if (options.length < pollOptionMinCount) {
+      return res.status(400).json({ error: 'Poll data is invalid' })
+    }
+    if (optionId >= options.length) {
+      return res.status(400).json({ error: 'Invalid poll option' })
+    }
+
+    const allowsMultiple = row.allows_multiple === true
+    const client = await pool.connect()
+    try {
+      await client.query('begin')
+      if (allowsMultiple) {
+        const inserted = await client.query(
+          `insert into message_poll_votes (message_id, user_id, option_id)
+           values ($1, $2, $3)
+           on conflict do nothing
+           returning message_id`,
+          [messageId, req.userId, optionId]
+        )
+        if (inserted.rowCount === 0) {
+          await client.query(
+            'delete from message_poll_votes where message_id = $1 and user_id = $2 and option_id = $3',
+            [messageId, req.userId, optionId]
+          )
+        }
+      } else {
+        const currentVote = await client.query(
+          'select 1 from message_poll_votes where message_id = $1 and user_id = $2 and option_id = $3',
+          [messageId, req.userId, optionId]
+        )
+        if (currentVote.rowCount > 0) {
+          await client.query(
+            'delete from message_poll_votes where message_id = $1 and user_id = $2 and option_id = $3',
+            [messageId, req.userId, optionId]
+          )
+        } else {
+          await client.query(
+            'delete from message_poll_votes where message_id = $1 and user_id = $2',
+            [messageId, req.userId]
+          )
+          await client.query(
+            `insert into message_poll_votes (message_id, user_id, option_id)
+             values ($1, $2, $3)`,
+            [messageId, req.userId, optionId]
+          )
+        }
+      }
+      await client.query('commit')
+    } catch (err) {
+      await client.query('rollback')
+      throw err
+    } finally {
+      client.release()
+    }
+
+    const poll = await getPollPayloadForMessage(messageId, req.userId, {
+      question: row.question,
+      allowsMultiple,
+      options
+    })
+    if (!poll) {
+      return res.status(404).json({ error: 'Poll not found' })
+    }
+
+    const conversationId = row.conversation_id
+    const memberIds = await getConversationMemberIds(conversationId)
+    memberIds.forEach((memberId) => {
+      emitToUser(memberId, 'poll:update', {
+        conversationId,
+        messageId,
+        poll
+      })
+    })
+
+    res.json({
+      ok: true,
+      conversationId,
+      messageId,
+      poll
+    })
+  } catch (err) {
+    if (isMessagePollSchemaError(err)) {
+      return res.status(503).json({ error: 'Poll feature is unavailable: database migration required' })
+    }
+    console.error('Poll vote error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
