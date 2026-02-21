@@ -60,13 +60,13 @@ async function createVideoFallbackFile(file) {
 async function postMessageMultipart(conversationId, file, token, body, attachmentKind, replyToMessageId) {
   const formData = new FormData()
   formData.append('body', body || '')
-  formData.append('file', file)
   if (attachmentKind) {
     formData.append('attachmentKind', attachmentKind)
   }
   if (replyToMessageId) {
     formData.append('replyToMessageId', replyToMessageId)
   }
+  formData.append('file', file)
   const response = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},

@@ -91,12 +91,13 @@ function createUpload({
         mime === 'application/octetstream' ||
         mime === 'binary/octet-stream'
       )
-      const octetStreamFallback = allowOctetStreamByExtension && octetLikeMime && extAllowed
+      const octetStreamFallback = allowOctetStreamByExtension && octetLikeMime && (extAllowed || noExtAllowed)
       const unknownMimeFallback = allowUnknownMimeByExtension && !mime && extAllowed
+      const unknownMimeNoExtFallback = allowUnknownMimeByExtension && !mime && noExtAllowed
       const extAccepted = extAllowed || noExtAllowed || (allowAnyExtensionWhenMimePrefix && mimePrefixAllowed)
       const mimeAccepted = mimeAllowed || mimePrefixAllowed
 
-      if (!((mimeAccepted && extAccepted) || octetStreamFallback || unknownMimeFallback)) {
+      if (!((mimeAccepted && extAccepted) || octetStreamFallback || unknownMimeFallback || unknownMimeNoExtFallback)) {
         return cb(new Error(errorMessage))
       }
       cb(null, true)
