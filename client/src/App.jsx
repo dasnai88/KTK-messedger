@@ -302,28 +302,6 @@ const FEED_FILTERS = {
   mine: 'mine',
   bookmarks: 'bookmarks'
 }
-const FEED_POST_TEMPLATES = [
-  {
-    id: 'announce',
-    label: 'Анонс',
-    text: '📢 Анонс:\n\n📅 Дата:\n📍 Место:\n🕒 Время:\n\nПодробности:'
-  },
-  {
-    id: 'question',
-    label: 'Вопрос',
-    text: '❓ Нужен совет:\n\nСитуация:\nЧто лучше сделать?'
-  },
-  {
-    id: 'project',
-    label: 'Проект',
-    text: '🚀 Апдейт по проекту:\n\nСделано:\nДальше:\nНужна помощь:'
-  },
-  {
-    id: 'event',
-    label: 'Ивент',
-    text: '🎉 Ивент в колледже:\n\nКогда:\nДля кого:\nЧто будет:'
-  }
-]
 const CHAT_WALLPAPERS = [
   { value: 'default', label: 'Классика' },
   { value: 'aurora', label: 'Аврора' },
@@ -332,19 +310,6 @@ const CHAT_WALLPAPERS = [
   { value: 'grid', label: 'Сетка' }
 ]
 const STATUS_EMOJI_PRESETS = ['🔥', '😎', '✨', '🌙', '🎯', '🚀', '💡', '🎧', '🤝', '🎮']
-const STATUS_TEXT_PRESETS = [
-  'на связи',
-  'в потоке',
-  'занят проектом',
-  'вдохновлен',
-  'в учебе',
-  'на перерыве'
-]
-const BIO_TEXT_PRESETS = [
-  'Люблю делать красивые и быстрые интерфейсы.',
-  'Учусь, экспериментирую и собираю сильное портфолио.',
-  'Чаты, проекты, дизайн и немного хаоса каждый день.'
-]
 const PROFILE_WAVE_TEMPLATES = [
   '👋 Привет! Залетел в профиль и решил написать.',
   '⚡ Йо! У тебя крутой профиль, давай общаться.',
@@ -478,6 +443,76 @@ function rgbToHex(rgb) {
 
 function rgbToCssTriplet(rgb) {
   return `${clampNumber(rgb.r, 0, 255)} ${clampNumber(rgb.g, 0, 255)} ${clampNumber(rgb.b, 0, 255)}`
+}
+
+function rgbToHsl(rgb) {
+  const r = clampNumber(rgb.r, 0, 255) / 255
+  const g = clampNumber(rgb.g, 0, 255) / 255
+  const b = clampNumber(rgb.b, 0, 255) / 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  const delta = max - min
+  let h = 0
+  const l = (max + min) / 2
+  let s = 0
+
+  if (delta !== 0) {
+    s = delta / (1 - Math.abs(2 * l - 1))
+    switch (max) {
+      case r:
+        h = 60 * (((g - b) / delta) % 6)
+        break
+      case g:
+        h = 60 * (((b - r) / delta) + 2)
+        break
+      default:
+        h = 60 * (((r - g) / delta) + 4)
+        break
+    }
+  }
+
+  if (h < 0) h += 360
+  return {
+    h: Math.round(h),
+    s: Math.round(s * 100),
+    l: Math.round(l * 100)
+  }
+}
+
+function hslToRgb(h, s, l) {
+  const hue = ((Number(h) % 360) + 360) % 360
+  const sat = clampNumber(s, 0, 100) / 100
+  const lig = clampNumber(l, 0, 100) / 100
+  const c = (1 - Math.abs(2 * lig - 1)) * sat
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1))
+  const m = lig - c / 2
+  let r = 0
+  let g = 0
+  let b = 0
+
+  if (hue < 60) {
+    r = c; g = x; b = 0
+  } else if (hue < 120) {
+    r = x; g = c; b = 0
+  } else if (hue < 180) {
+    r = 0; g = c; b = x
+  } else if (hue < 240) {
+    r = 0; g = x; b = c
+  } else if (hue < 300) {
+    r = x; g = 0; b = c
+  } else {
+    r = c; g = 0; b = x
+  }
+
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255)
+  }
+}
+
+function hslToHex(h, s, l) {
+  return rgbToHex(hslToRgb(h, s, l))
 }
 
 function normalizeUiPreferences(value) {
@@ -1189,6 +1224,8 @@ export default function App() {
   const chatMessagesRef = useRef(null)
   const previousMessageMetaRef = useRef({ conversationId: null, count: 0, lastMessageId: null })
   const previousViewRef = useRef(view)
+  const profileThemeWheelRef = useRef(null)
+  const profileThemeWheelPointerRef = useRef(null)
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
@@ -1286,6 +1323,22 @@ export default function App() {
     const done = profileEditorChecklist.filter((item) => item.done).length
     return Math.round((done / profileEditorChecklist.length) * 100)
   }, [profileEditorChecklist])
+  const normalizedThemeColor = normalizeHexColor(profileForm.themeColor, '#7a1f1d')
+  const profileThemeHsl = useMemo(() => (
+    rgbToHsl(hexToRgb(normalizedThemeColor))
+  ), [normalizedThemeColor])
+  const profileThemeWheelStyle = useMemo(() => ({
+    '--theme-wheel-lightness': `${clampNumber(profileThemeHsl.l, 0, 100)}%`
+  }), [profileThemeHsl.l])
+  const profileThemeWheelThumbStyle = useMemo(() => {
+    const angle = (profileThemeHsl.h * Math.PI) / 180
+    const distance = (clampNumber(profileThemeHsl.s, 0, 100) / 100) * 50
+    return {
+      left: `${50 + Math.cos(angle) * distance}%`,
+      top: `${50 + Math.sin(angle) * distance}%`,
+      backgroundColor: normalizedThemeColor
+    }
+  }, [profileThemeHsl.h, profileThemeHsl.s, normalizedThemeColor])
   const visibleProfilePosts = useMemo(() => {
     if (profilePostFilter === 'media') {
       return profilePosts.filter((post) => Boolean(post.imageUrl))
@@ -4443,13 +4496,6 @@ export default function App() {
     setFeedAuthorFilter('')
   }
 
-  const applyFeedTemplate = (templateId) => {
-    const template = FEED_POST_TEMPLATES.find((item) => item.id === templateId)
-    if (!template) return
-    setPostText(template.text)
-    setStatus({ type: 'info', message: `Шаблон "${template.label}" применен.` })
-  }
-
   const toggleFeedAuthorFilter = (authorId) => {
     if (!authorId) return
     setFeedAuthorFilter((prev) => (prev === authorId ? '' : authorId))
@@ -4562,45 +4608,119 @@ export default function App() {
     setProfileForm((prev) => ({ ...prev, statusEmoji: next }))
   }
 
-  const applyStatusTextPreset = (text) => {
-    setProfileForm((prev) => ({ ...prev, statusText: String(text || '').slice(0, 80) }))
-  }
-
-  const applyBioPreset = (text) => {
-    setProfileForm((prev) => ({ ...prev, bio: String(text || '').slice(0, 260) }))
-  }
-
-  const applyRandomProfilePack = () => {
-    const randomColor = PROFILE_COLOR_PRESETS[Math.floor(Math.random() * PROFILE_COLOR_PRESETS.length)] || PROFILE_COLOR_PRESETS[0]
-    const randomEmoji = STATUS_EMOJI_PRESETS[Math.floor(Math.random() * STATUS_EMOJI_PRESETS.length)] || STATUS_EMOJI_PRESETS[0]
-    const randomStatus = STATUS_TEXT_PRESETS[Math.floor(Math.random() * STATUS_TEXT_PRESETS.length)] || STATUS_TEXT_PRESETS[0]
-    const randomBio = BIO_TEXT_PRESETS[Math.floor(Math.random() * BIO_TEXT_PRESETS.length)] || BIO_TEXT_PRESETS[0]
-    const randomTheme = PROFILE_HERO_THEMES[Math.floor(Math.random() * PROFILE_HERO_THEMES.length)] || PROFILE_HERO_THEMES[0]
-    const shuffledBadges = [...PROFILE_BADGE_OPTIONS]
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 3)
-      .map((item) => item.id)
-
-    setProfileForm((prev) => ({
-      ...prev,
-      themeColor: normalizeHexColor(randomColor.value, prev.themeColor || '#7a1f1d'),
-      statusEmoji: randomEmoji,
-      statusText: randomStatus,
-      bio: randomBio
-    }))
-    setProfileShowcaseForm((prev) => ({
-      ...prev,
-      heroTheme: randomTheme.value,
-      badges: shuffledBadges
-    }))
-    setStatus({ type: 'info', message: 'Случайный профиль-пак применен.' })
+  const setProfileThemeColor = (nextColor) => {
+    setProfileForm((prev) => {
+      const fallback = normalizeHexColor(prev.themeColor, '#7a1f1d')
+      const normalized = normalizeHexColor(nextColor, fallback)
+      if (normalized === fallback) return prev
+      return {
+        ...prev,
+        themeColor: normalized
+      }
+    })
   }
 
   const applyProfileColorPreset = (color) => {
-    setProfileForm((prev) => ({
-      ...prev,
-      themeColor: normalizeHexColor(color, prev.themeColor || '#7a1f1d')
-    }))
+    setProfileThemeColor(color)
+  }
+
+  const updateThemeColorFromWheelPoint = (clientX, clientY) => {
+    const wheel = profileThemeWheelRef.current
+    if (!wheel) return
+    const rect = wheel.getBoundingClientRect()
+    const radius = Math.min(rect.width, rect.height) / 2
+    if (!radius) return
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+    const dx = clientX - centerX
+    const dy = clientY - centerY
+    const saturation = Math.round((Math.min(Math.hypot(dx, dy), radius) / radius) * 100)
+    const hue = Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360)
+
+    setProfileForm((prev) => {
+      const fallback = normalizeHexColor(prev.themeColor, '#7a1f1d')
+      const current = rgbToHsl(hexToRgb(fallback))
+      const next = normalizeHexColor(hslToHex(hue, saturation, current.l), fallback)
+      if (next === fallback) return prev
+      return {
+        ...prev,
+        themeColor: next
+      }
+    })
+  }
+
+  const handleProfileThemeWheelPointerDown = (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    event.preventDefault()
+    profileThemeWheelPointerRef.current = event.pointerId
+    if (event.currentTarget && event.currentTarget.setPointerCapture) {
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId)
+      } catch (err) {
+        // ignore unsupported capture
+      }
+    }
+    updateThemeColorFromWheelPoint(event.clientX, event.clientY)
+  }
+
+  const handleProfileThemeWheelPointerMove = (event) => {
+    if (profileThemeWheelPointerRef.current !== event.pointerId) return
+    event.preventDefault()
+    updateThemeColorFromWheelPoint(event.clientX, event.clientY)
+  }
+
+  const handleProfileThemeWheelPointerEnd = (event) => {
+    if (profileThemeWheelPointerRef.current !== event.pointerId) return
+    profileThemeWheelPointerRef.current = null
+    if (event.currentTarget && event.currentTarget.releasePointerCapture) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch (err) {
+        // ignore unsupported release
+      }
+    }
+  }
+
+  const handleProfileThemeWheelKeyDown = (event) => {
+    const key = event.key
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown') return
+    event.preventDefault()
+    const hueStep = event.shiftKey ? 10 : 4
+    const saturationStep = event.shiftKey ? 10 : 4
+    setProfileForm((prev) => {
+      const fallback = normalizeHexColor(prev.themeColor, '#7a1f1d')
+      const current = rgbToHsl(hexToRgb(fallback))
+      let nextHue = current.h
+      let nextSaturation = current.s
+      if (key === 'ArrowLeft') nextHue = (current.h - hueStep + 360) % 360
+      if (key === 'ArrowRight') nextHue = (current.h + hueStep) % 360
+      if (key === 'ArrowUp') nextSaturation = clampNumber(current.s + saturationStep, 0, 100)
+      if (key === 'ArrowDown') nextSaturation = clampNumber(current.s - saturationStep, 0, 100)
+      const next = normalizeHexColor(hslToHex(nextHue, nextSaturation, current.l), fallback)
+      if (next === fallback) return prev
+      return {
+        ...prev,
+        themeColor: next
+      }
+    })
+  }
+
+  const handleProfileThemeLightnessChange = (event) => {
+    const lightness = clampNumber(event.target.value, 0, 100)
+    setProfileForm((prev) => {
+      const fallback = normalizeHexColor(prev.themeColor, '#7a1f1d')
+      const current = rgbToHsl(hexToRgb(fallback))
+      const next = normalizeHexColor(hslToHex(current.h, current.s, lightness), fallback)
+      if (next === fallback) return prev
+      return {
+        ...prev,
+        themeColor: next
+      }
+    })
+  }
+
+  const handleProfileThemeHexChange = (event) => {
+    setProfileThemeColor(event.target.value)
   }
 
   const updateUiPreference = (key, value) => {
@@ -6635,18 +6755,6 @@ export default function App() {
                 onChange={(event) => setPostText(event.target.value)}
                 placeholder="Что нового в колледже?"
               />
-              <div className="feed-template-row">
-                {FEED_POST_TEMPLATES.map((template) => (
-                  <button
-                    key={template.id}
-                    type="button"
-                    className="feed-template-btn"
-                    onClick={() => applyFeedTemplate(template.id)}
-                  >
-                    {template.label}
-                  </button>
-                ))}
-              </div>
               <div className="feed-actions">
                 <label className="file-btn">
                   📷
@@ -7442,16 +7550,57 @@ export default function App() {
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleAvatarChange} />
               </label>
             </div>
-            <label>
-              Цвет профиля
-              <input
-                type="color"
-                value={profileForm.themeColor}
-                onChange={(event) =>
-                  setProfileForm({ ...profileForm, themeColor: event.target.value })
-                }
-              />
-            </label>
+            <section className="profile-theme-customizer" aria-label="Кастомизация цвета профиля">
+              <div className="profile-theme-customizer-head">
+                <strong>Цвет профиля</strong>
+                <code>{normalizedThemeColor}</code>
+              </div>
+              <div className="profile-theme-customizer-grid">
+                <div
+                  ref={profileThemeWheelRef}
+                  className="profile-theme-wheel"
+                  style={profileThemeWheelStyle}
+                  onPointerDown={handleProfileThemeWheelPointerDown}
+                  onPointerMove={handleProfileThemeWheelPointerMove}
+                  onPointerUp={handleProfileThemeWheelPointerEnd}
+                  onPointerCancel={handleProfileThemeWheelPointerEnd}
+                  onLostPointerCapture={handleProfileThemeWheelPointerEnd}
+                  onKeyDown={handleProfileThemeWheelKeyDown}
+                  role="slider"
+                  tabIndex={0}
+                  aria-label="Круговая палитра цвета профиля"
+                  aria-valuemin={0}
+                  aria-valuemax={360}
+                  aria-valuenow={profileThemeHsl.h}
+                  aria-valuetext={`Тон ${profileThemeHsl.h}, насыщенность ${profileThemeHsl.s}%`}
+                >
+                  <span className="profile-theme-wheel-thumb" style={profileThemeWheelThumbStyle}></span>
+                </div>
+                <div className="profile-theme-controls">
+                  <label className="profile-theme-lightness">
+                    <span>Яркость: {profileThemeHsl.l}%</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={clampNumber(profileThemeHsl.l, 0, 100)}
+                      onChange={handleProfileThemeLightnessChange}
+                    />
+                  </label>
+                  <label className="profile-theme-color-field">
+                    <span>Точный цвет</span>
+                    <input
+                      type="color"
+                      value={normalizedThemeColor}
+                      onChange={handleProfileThemeHexChange}
+                    />
+                  </label>
+                  <button type="button" className="ghost profile-theme-reset" onClick={() => applyProfileColorPreset('#7a1f1d')}>
+                    Сбросить цвет
+                  </button>
+                </div>
+              </div>
+            </section>
             <label>
               Отображаемое имя
               <input
@@ -7536,12 +7685,9 @@ export default function App() {
             <div className="profile-pro-grid">
               <section className="profile-pro-card">
                 <div className="profile-pro-head">
-                  <h3>Быстрые пресеты</h3>
+                  <h3>Оформление профиля</h3>
                   <span>{profileEditorScore}% готовности</span>
                 </div>
-                <button type="button" className="ghost profile-random-pack" onClick={applyRandomProfilePack}>
-                  🎲 Случайный профиль-пак
-                </button>
                 <div className="profile-progress">
                   <span style={{ width: `${profileEditorScore}%` }}></span>
                 </div>
@@ -7559,26 +7705,6 @@ export default function App() {
                       >
                         <span></span>
                         {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="profile-preset-group">
-                  <strong>Шаблоны статуса</strong>
-                  <div className="profile-chip-row">
-                    {STATUS_TEXT_PRESETS.map((preset) => (
-                      <button key={preset} type="button" onClick={() => applyStatusTextPreset(preset)}>
-                        {preset}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="profile-preset-group">
-                  <strong>Шаблоны bio</strong>
-                  <div className="profile-chip-row">
-                    {BIO_TEXT_PRESETS.map((preset) => (
-                      <button key={preset} type="button" onClick={() => applyBioPreset(preset)}>
-                        {preset}
                       </button>
                     ))}
                   </div>
