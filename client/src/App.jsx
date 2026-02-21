@@ -651,17 +651,106 @@ function calculateProfilePowerScore(profile, postsCount, tracksCount, showcase) 
 }
 
 function buildProfileAchievements(profile, postsCount, tracksCount, showcase) {
-  if (!profile) return []
-  const badges = []
-  if (profile.avatarUrl) badges.push({ id: 'avatar', emoji: '🧿', label: 'Узнаваемый профиль' })
-  if (profile.bannerUrl) badges.push({ id: 'banner', emoji: '🖼️', label: 'С обложкой' })
-  if (String(profile.bio || '').trim().length >= 40) badges.push({ id: 'bio', emoji: '✍️', label: 'Развернутый bio' })
-  if (Number(profile.subscribersCount || 0) >= 10) badges.push({ id: 'social', emoji: '📈', label: 'Рост аудитории' })
-  if (tracksCount >= 3) badges.push({ id: 'music', emoji: '🎵', label: 'Музыкальная витрина' })
-  if (postsCount >= 5) badges.push({ id: 'posts', emoji: '📰', label: 'Активный автор' })
-  if (showcase && showcase.skills && showcase.skills.length >= 3) badges.push({ id: 'skills', emoji: '🧩', label: 'Showcase skills' })
-  if (showcase && showcase.badges && showcase.badges.length >= 2) badges.push({ id: 'showcase', emoji: '✨', label: 'Прокачанный стиль' })
-  return badges.slice(0, 8)
+  if (!profile) return { unlocked: [], locked: [], total: 0 }
+
+  const followers = Number(profile.subscribersCount || 0)
+  const bioLength = String(profile.bio || '').trim().length
+  const hasAvatar = Boolean(profile.avatarUrl)
+  const hasBanner = Boolean(profile.bannerUrl)
+  const hasDisplayName = String(profile.displayName || profile.username || '').trim().length >= 2
+  const hasStatus = String(profile.statusText || '').trim().length >= 3 || String(profile.statusEmoji || '').trim().length > 0
+  const showcaseSkills = Array.isArray(showcase && showcase.skills) ? showcase.skills.length : 0
+  const showcaseBadges = Array.isArray(showcase && showcase.badges) ? showcase.badges.length : 0
+  const showcaseLinks = Array.isArray(showcase && showcase.links) ? showcase.links.length : 0
+  const hasShowcaseHeadline = Boolean(showcase && String(showcase.headline || '').trim())
+  const createdAtMs = Date.parse(profile.createdAt || '')
+  const accountAgeDays = Number.isFinite(createdAtMs) && createdAtMs > 0
+    ? Math.floor((Date.now() - createdAtMs) / (1000 * 60 * 60 * 24))
+    : 0
+
+  const achievementRules = [
+    {
+      id: 'registered',
+      emoji: '🪪',
+      title: 'Первые шаги',
+      description: 'Выдано сразу после регистрации аккаунта.',
+      requirement: 'Создать аккаунт',
+      tier: 'starter',
+      unlocked: true
+    },
+    {
+      id: 'identity',
+      emoji: '🧬',
+      title: 'Узнаваемый образ',
+      description: 'Профиль выглядит живым и персональным.',
+      requirement: 'Аватар + имя + статус или bio 40+',
+      tier: 'growth',
+      unlocked: hasAvatar && hasDisplayName && (hasStatus || bioLength >= 40)
+    },
+    {
+      id: 'author',
+      emoji: '📰',
+      title: 'Автор ленты',
+      description: 'Пользователь стабильно публикуется.',
+      requirement: 'Опубликовать 12+ постов',
+      tier: 'growth',
+      unlocked: postsCount >= 12
+    },
+    {
+      id: 'audience',
+      emoji: '📣',
+      title: 'Сила сообщества',
+      description: 'Профиль собирает активную аудиторию.',
+      requirement: 'Набрать 30+ подписчиков',
+      tier: 'growth',
+      unlocked: followers >= 30
+    },
+    {
+      id: 'music',
+      emoji: '🎧',
+      title: 'Музыкальный куратор',
+      description: 'Сформирована большая музыкальная полка.',
+      requirement: 'Добавить 6+ треков',
+      tier: 'pro',
+      unlocked: tracksCount >= 6
+    },
+    {
+      id: 'showcase',
+      emoji: '✨',
+      title: 'Showcase Pro',
+      description: 'Оформление профиля выведено на высокий уровень.',
+      requirement: 'Headline + 4 навыка + 3 бейджа + ссылка',
+      tier: 'pro',
+      unlocked: hasShowcaseHeadline && showcaseSkills >= 4 && showcaseBadges >= 3 && showcaseLinks >= 1
+    },
+    {
+      id: 'consistency',
+      emoji: '🛡️',
+      title: 'Стабильный автор',
+      description: 'Долгая активность подтверждена временем.',
+      requirement: '30+ дней в сервисе и 5+ постов (или 3+ треков)',
+      tier: 'pro',
+      unlocked: accountAgeDays >= 30 && (postsCount >= 5 || tracksCount >= 3)
+    },
+    {
+      id: 'legend',
+      emoji: '👑',
+      title: 'Легенда профиля',
+      description: 'Топовый уровень оформления и вклада в платформу.',
+      requirement: 'Баннер + bio 80+ + 20+ постов + 8+ треков + 60+ подписчиков',
+      tier: 'legend',
+      unlocked: hasBanner && bioLength >= 80 && postsCount >= 20 && tracksCount >= 8 && followers >= 60
+    }
+  ]
+
+  const unlocked = achievementRules.filter((item) => item.unlocked)
+  const locked = achievementRules.filter((item) => !item.unlocked)
+
+  return {
+    unlocked,
+    locked,
+    total: achievementRules.length
+  }
 }
 const MESSAGE_REACTION_SORT = (a, b) => {
   if (b.count !== a.count) return b.count - a.count
@@ -1380,6 +1469,12 @@ export default function App() {
   const profileAchievements = useMemo(() => {
     return buildProfileAchievements(profileView, profilePosts.length, profileTracks.length, profileShowcase)
   }, [profileView, profilePosts.length, profileTracks.length, profileShowcase])
+  const unlockedProfileAchievements = profileAchievements.unlocked || []
+  const lockedProfileAchievements = profileAchievements.locked || []
+  const profileAchievementsTotal = Number(profileAchievements.total || 0)
+  const profileAchievementsProgress = profileAchievementsTotal > 0
+    ? Math.round((unlockedProfileAchievements.length / profileAchievementsTotal) * 100)
+    : 0
   const activeChatMoodLabel = useMemo(() => {
     if (!activeConversation || activeConversation.isGroup || !activeConversation.other) return ''
     return getProfileMoodLabel(activeConversation.other)
@@ -7384,20 +7479,41 @@ export default function App() {
                   </article>
                   <article className="profile-achievements-card">
                     <div className="profile-achievements-head">
-                      <h3>Достижения</h3>
-                      <span>{profileAchievements.length}</span>
-                    </div>
-                    {profileAchievements.length === 0 ? (
-                      <div className="empty small">Достижения появятся после активности и оформления.</div>
-                    ) : (
-                      <div className="profile-achievements-list">
-                        {profileAchievements.map((item) => (
-                          <span key={item.id}>
-                            {item.emoji} {item.label}
-                          </span>
-                        ))}
+                      <div className="profile-achievements-summary">
+                        <h3>Достижения</h3>
+                        <p>Первое выдается сразу за регистрацию. Остальные открываются за реальные заслуги.</p>
                       </div>
-                    )}
+                      <span>{unlockedProfileAchievements.length}/{profileAchievementsTotal}</span>
+                    </div>
+                    <div
+                      className="profile-achievements-progress"
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={profileAchievementsProgress}
+                    >
+                      <span style={{ width: `${profileAchievementsProgress}%` }}></span>
+                    </div>
+                    <div className="profile-achievements-list">
+                      {unlockedProfileAchievements.map((item) => (
+                        <article key={item.id} className={`profile-achievement-item unlocked tier-${item.tier}`.trim()}>
+                          <div className="profile-achievement-badge">{item.emoji}</div>
+                          <div className="profile-achievement-meta">
+                            <strong>{item.title}</strong>
+                            <span>{item.description}</span>
+                          </div>
+                        </article>
+                      ))}
+                      {lockedProfileAchievements.slice(0, 3).map((item) => (
+                        <article key={item.id} className={`profile-achievement-item locked tier-${item.tier}`.trim()}>
+                          <div className="profile-achievement-badge">{item.emoji}</div>
+                          <div className="profile-achievement-meta">
+                            <strong>{item.title}</strong>
+                            <span>{item.requirement}</span>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
                   </article>
                 </section>
                 {profileShowcaseHasContent && (

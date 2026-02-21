@@ -4168,8 +4168,14 @@ body {
   gap: 10px;
 }
 
+.profile-achievements-card {
+  background:
+    radial-gradient(120% 130% at 100% 0%, rgba(var(--accent-rgb), 0.25) 0%, rgba(255, 255, 255, 0) 58%),
+    linear-gradient(150deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
+    var(--card);
+}
+
 .profile-power-head,
-.profile-achievements-head,
 .profile-showcase-card-head {
   display: flex;
   align-items: center;
@@ -4177,11 +4183,44 @@ body {
   gap: 10px;
 }
 
+.profile-achievements-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .profile-power-head h3,
-.profile-achievements-head h3,
 .profile-showcase-card-head h3 {
   margin: 0;
   font-size: 15px;
+}
+
+.profile-achievements-summary {
+  display: grid;
+  gap: 6px;
+}
+
+.profile-achievements-summary h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.profile-achievements-summary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: 40ch;
+}
+
+.profile-achievements-head > span {
+  border: 1px solid rgba(var(--accent-rgb), 0.5);
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-weight: 700;
+  font-size: 12px;
+  background: rgba(var(--accent-rgb), 0.2);
 }
 
 .profile-power-head strong {
@@ -4211,18 +4250,107 @@ body {
   line-height: 1.45;
 }
 
+.profile-achievements-progress {
+  border: 1px solid rgba(var(--accent-rgb), 0.38);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.profile-achievements-progress span {
+  display: block;
+  height: 100%;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.95), rgba(255, 210, 126, 0.95));
+  transition: width 240ms ease;
+}
+
 .profile-achievements-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.profile-achievements-list span {
+.profile-achievement-item {
+  position: relative;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px 10px;
-  background: rgba(var(--accent-rgb), 0.14);
-  font-size: 12px;
+  border-radius: 14px;
+  padding: 9px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  min-height: 74px;
+  overflow: hidden;
+}
+
+.profile-achievement-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0));
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.profile-achievement-item.unlocked::after {
+  opacity: 0.55;
+}
+
+.profile-achievement-item.locked {
+  background: rgba(255, 255, 255, 0.02);
+  filter: saturate(0.7);
+  opacity: 0.78;
+}
+
+.profile-achievement-item.tier-starter.unlocked {
+  border-color: rgba(125, 211, 252, 0.56);
+}
+
+.profile-achievement-item.tier-growth.unlocked {
+  border-color: rgba(94, 234, 212, 0.52);
+}
+
+.profile-achievement-item.tier-pro.unlocked {
+  border-color: rgba(251, 191, 36, 0.54);
+}
+
+.profile-achievement-item.tier-legend.unlocked {
+  border-color: rgba(244, 114, 182, 0.62);
+  box-shadow: 0 0 0 1px rgba(244, 114, 182, 0.24), 0 16px 32px rgba(244, 114, 182, 0.16);
+}
+
+.profile-achievement-badge {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex: 0 0 34px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.profile-achievement-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profile-achievement-meta strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.profile-achievement-meta span {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .profile-post-filters {
@@ -4851,6 +4979,23 @@ body {
     right: calc(10px + var(--safe-right));
     left: calc(10px + var(--safe-left));
     bottom: calc(10px + var(--safe-bottom) + var(--mobile-rail-height));
+  }
+
+  .profile-achievements-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-achievements-head > span {
+    align-self: flex-start;
+  }
+
+  .profile-achievements-summary p {
+    max-width: none;
+  }
+
+  .profile-achievements-list {
+    grid-template-columns: 1fr;
   }
 
   .profile-settings-panel {
