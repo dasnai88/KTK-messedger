@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+﻿import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { io } from 'socket.io-client'
 import {
@@ -112,6 +112,14 @@ function formatDuration(ms) {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+function extractHashtags(text) {
+  if (typeof text !== 'string' || !text.trim()) return []
+  const matches = text.match(/#[\p{L}\p{N}_-]+/gu) || []
+  return matches
+    .map((tag) => tag.toLowerCase())
+    .filter(Boolean)
+}
+
 const rawApiBase = import.meta.env.VITE_API_BASE || ''
 const apiBase = rawApiBase.replace(/\/$/, '')
 const apiOrigin = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : ''
@@ -121,10 +129,17 @@ const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
 const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
+const FEED_BOOKMARKS_STORAGE_KEY = 'ktk_feed_bookmarks'
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
   favorites: 'favorites'
+}
+const FEED_FILTERS = {
+  all: 'all',
+  popular: 'popular',
+  mine: 'mine',
+  bookmarks: 'bookmarks'
 }
 const VIDEO_NOTE_KIND = 'video-note'
 const VIDEO_NOTE_MAX_SECONDS = 60
@@ -439,6 +454,18 @@ export default function App() {
   const [groupMembers, setGroupMembers] = useState('')
   const [groupOpen, setGroupOpen] = useState(false)
   const [posts, setPosts] = useState([])
+  const [feedFilter, setFeedFilter] = useState(FEED_FILTERS.all)
+  const [feedQuery, setFeedQuery] = useState('')
+  const [activeFeedTag, setActiveFeedTag] = useState('')
+  const [bookmarkedPostIds, setBookmarkedPostIds] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(FEED_BOOKMARKS_STORAGE_KEY) || '[]')
+      if (!Array.isArray(raw)) return new Set()
+      return new Set(raw.map((item) => String(item || '')).filter(Boolean))
+    } catch (err) {
+      return new Set()
+    }
+  })
   const [postText, setPostText] = useState('')
   const [postFile, setPostFile] = useState(null)
   const [postPreview, setPostPreview] = useState('')
@@ -578,6 +605,65 @@ export default function App() {
     }
     return sorted
   }, [conversations, favoriteConversationSet, chatListFilter])
+  const feedQueryNormalized = feedQuery.trim().toLowerCase()
+  const trendingTags = useMemo(() => {
+    const tagCounts = new Map()
+    posts.forEach((post) => {
+      extractHashtags(post.body).forEach((tag) => {
+        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
+      })
+    })
+    return Array.from(tagCounts.entries())
+      .sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1]
+        return a[0].localeCompare(b[0])
+      })
+      .slice(0, 8)
+      .map(([tag, count]) => ({ tag, count }))
+  }, [posts])
+  const feedMetrics = useMemo(() => {
+    const total = posts.length
+    const mine = posts.reduce((acc, post) => acc + (post.author && user && post.author.id === user.id ? 1 : 0), 0)
+    const engagement = posts.reduce((acc, post) => (
+      acc + Number(post.likesCount || 0) + Number(post.commentsCount || 0) + Number(post.repostsCount || 0)
+    ), 0)
+    return {
+      total,
+      mine,
+      bookmarked: bookmarkedPostIds.size,
+      engagement
+    }
+  }, [posts, user, bookmarkedPostIds])
+  const visibleFeedPosts = useMemo(() => {
+    const tagFilter = activeFeedTag ? activeFeedTag.toLowerCase() : ''
+    let list = [...posts]
+
+    if (feedFilter === FEED_FILTERS.mine && user) {
+      list = list.filter((post) => post.author && post.author.id === user.id)
+    }
+    if (feedFilter === FEED_FILTERS.bookmarks) {
+      list = list.filter((post) => bookmarkedPostIds.has(post.id))
+    }
+    if (tagFilter) {
+      list = list.filter((post) => extractHashtags(post.body).includes(tagFilter))
+    }
+    if (feedQueryNormalized) {
+      list = list.filter((post) => {
+        const body = String(post.body || '').toLowerCase()
+        const authorName = String(post.author?.displayName || post.author?.username || '').toLowerCase()
+        return body.includes(feedQueryNormalized) || authorName.includes(feedQueryNormalized)
+      })
+    }
+    if (feedFilter === FEED_FILTERS.popular) {
+      list.sort((a, b) => {
+        const scoreA = (Number(a.likesCount || 0) * 3) + Number(a.commentsCount || 0) + (Number(a.repostsCount || 0) * 4)
+        const scoreB = (Number(b.likesCount || 0) * 3) + Number(b.commentsCount || 0) + (Number(b.repostsCount || 0) * 4)
+        if (scoreB !== scoreA) return scoreB - scoreA
+        return (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
+      })
+    }
+    return list
+  }, [posts, feedFilter, user, bookmarkedPostIds, activeFeedTag, feedQueryNormalized])
   const isActiveConversationFavorite = useMemo(() => {
     if (!activeConversation) return false
     return favoriteConversationSet.has(activeConversation.id)
@@ -1553,6 +1639,14 @@ export default function App() {
       // ignore storage errors
     }
   }, [draftsByConversation])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FEED_BOOKMARKS_STORAGE_KEY, JSON.stringify(Array.from(bookmarkedPostIds)))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [bookmarkedPostIds])
 
   useEffect(() => {
     const handleHotkey = (event) => {
@@ -2646,6 +2740,25 @@ export default function App() {
       x: Math.round(clampValue(rawX, minX, maxX)),
       y: Math.round(clampValue(rawY, minY, maxY))
     }
+  }
+
+  const togglePostBookmark = (postId) => {
+    if (!postId) return
+    setBookmarkedPostIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(postId)) {
+        next.delete(postId)
+      } else {
+        next.add(postId)
+      }
+      return next
+    })
+  }
+
+  const resetFeedFilters = () => {
+    setFeedFilter(FEED_FILTERS.all)
+    setFeedQuery('')
+    setActiveFeedTag('')
   }
 
   const getElementAnchor = (element, options = {}) => {
@@ -4001,11 +4114,94 @@ export default function App() {
               )}
             </form>
 
-            <div className="feed-list">
-              {posts.length === 0 && (
-                <div className="empty">Постов пока нет.</div>
+            <section className="feed-toolbox">
+              <div className="feed-metrics">
+                <article>
+                  <span>Total posts</span>
+                  <strong>{feedMetrics.total}</strong>
+                </article>
+                <article>
+                  <span>My posts</span>
+                  <strong>{feedMetrics.mine}</strong>
+                </article>
+                <article>
+                  <span>Bookmarks</span>
+                  <strong>{feedMetrics.bookmarked}</strong>
+                </article>
+                <article>
+                  <span>Engagement</span>
+                  <strong>{feedMetrics.engagement}</strong>
+                </article>
+              </div>
+
+              <div className="feed-filters-row">
+                <button
+                  type="button"
+                  className={`feed-filter-pill ${feedFilter === FEED_FILTERS.all ? 'active' : ''}`.trim()}
+                  onClick={() => setFeedFilter(FEED_FILTERS.all)}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  className={`feed-filter-pill ${feedFilter === FEED_FILTERS.popular ? 'active' : ''}`.trim()}
+                  onClick={() => setFeedFilter(FEED_FILTERS.popular)}
+                >
+                  Popular
+                </button>
+                <button
+                  type="button"
+                  className={`feed-filter-pill ${feedFilter === FEED_FILTERS.mine ? 'active' : ''}`.trim()}
+                  onClick={() => setFeedFilter(FEED_FILTERS.mine)}
+                >
+                  Mine
+                </button>
+                <button
+                  type="button"
+                  className={`feed-filter-pill ${feedFilter === FEED_FILTERS.bookmarks ? 'active' : ''}`.trim()}
+                  onClick={() => setFeedFilter(FEED_FILTERS.bookmarks)}
+                >
+                  Bookmarks
+                </button>
+              </div>
+
+              <div className="feed-query-row">
+                <input
+                  type="text"
+                  value={feedQuery}
+                  onChange={(event) => setFeedQuery(event.target.value)}
+                  placeholder="Search posts, authors, or #tags..."
+                />
+                {(feedQuery || activeFeedTag || feedFilter !== FEED_FILTERS.all) && (
+                  <button type="button" className="ghost" onClick={resetFeedFilters}>
+                    Reset
+                  </button>
+                )}
+              </div>
+
+              {trendingTags.length > 0 && (
+                <div className="feed-tags-row">
+                  {trendingTags.map((item) => (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      className={`feed-tag ${activeFeedTag === item.tag ? 'active' : ''}`.trim()}
+                      onClick={() => setActiveFeedTag((prev) => (prev === item.tag ? '' : item.tag))}
+                    >
+                      {item.tag} <span>{item.count}</span>
+                    </button>
+                  ))}
+                </div>
               )}
-              {posts.map((post) => (
+            </section>
+
+            <div className="feed-list">
+              {visibleFeedPosts.length === 0 && (
+                <div className="empty">
+                  {posts.length === 0 ? 'Постов пока нет.' : 'По текущим фильтрам посты не найдены.'}
+                </div>
+              )}
+              {visibleFeedPosts.map((post) => (
                 <article
                   key={post.id}
                   className="feed-card"
@@ -4077,6 +4273,14 @@ export default function App() {
                       title={isOwnRepostPost(post) ? 'Нельзя репостить свой репост' : 'Репост'}
                     >
                       🔁 {post.repostsCount}
+                    </button>
+                    <button
+                      type="button"
+                      className={bookmarkedPostIds.has(post.id) ? 'active' : ''}
+                      onClick={() => togglePostBookmark(post.id)}
+                      title={bookmarkedPostIds.has(post.id) ? 'Убрать из закладок' : 'Добавить в закладки'}
+                    >
+                      🔖
                     </button>
                   </div>
                   {editingPostId === post.id && (
@@ -4303,6 +4507,14 @@ export default function App() {
                           title={isOwnRepostPost(post) ? 'Cannot repost your own repost' : 'Repost'}
                         >
                           Repost {post.repostsCount}
+                        </button>
+                        <button
+                          type="button"
+                          className={bookmarkedPostIds.has(post.id) ? 'active' : ''}
+                          onClick={() => togglePostBookmark(post.id)}
+                          title={bookmarkedPostIds.has(post.id) ? 'Remove bookmark' : 'Add bookmark'}
+                        >
+                          Bookmark
                         </button>
                       </div>
                       {editingPostId === post.id && (
@@ -4813,4 +5025,6 @@ export default function App() {
     </div>
   )
 }
+
+
 
