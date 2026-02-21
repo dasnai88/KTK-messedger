@@ -184,3 +184,67 @@ Task is done only when all are true:
 3. Commit created.
 4. Commit pushed to GitHub.
 5. If schema changed: schema applied to Render PostgreSQL, or exact manual apply command provided.
+
+## 12) Session notes (2026-02-22)
+
+Use this section as recent context before making new UI/chat edits.
+
+### 12.1 Mobile chats: back behavior and panel state
+
+- Mobile chat behavior now uses a dedicated pane state:
+  - `chatMobilePane: 'list' | 'chat'` in `client/src/App.jsx`.
+  - Do not clear `activeConversation` on mobile back.
+  - Back button should switch pane to `'list'`.
+- Chat open actions must switch pane to `'chat'`:
+  - chat list click
+  - start conversation from search
+  - create group
+  - open chat from profile actions
+  - push-notification conversation intent
+
+Why: clearing `activeConversation` caused chat list/view regressions on phones.
+
+### 12.2 Mobile chats: visibility regression fix
+
+- On small screens, chat list was visually "empty" because vertical space collapsed.
+- Fixes in `client/src/index.css`:
+  - in mobile media block, `.chat-list` no longer has restrictive `max-height`.
+  - `.chat-list` has safe minimum height.
+  - `.chat-items` has minimum height so conversation rows remain visible.
+
+If this bug returns, inspect mobile rules around:
+- `.chat-layout`
+- `.chat-list`
+- `.chat-items`
+- `.chat-layout-mobile-active`
+
+### 12.3 Profile achievements redesign
+
+- Achievements were changed from simple "filled profile fields" to merit-based rules.
+- Logic lives in `buildProfileAchievements(...)` in `client/src/App.jsx`.
+- Current behavior:
+  - first achievement is always granted for registration.
+  - all other achievements unlock only by measurable activity (posts, followers, tracks, showcase depth, account consistency, high-tier profile metrics).
+- UI in profile now shows:
+  - unlocked/total counter
+  - progress bar
+  - unlocked cards + a few locked goals as next targets
+
+### 12.4 Touch context menus (phone support)
+
+- Context menu now opens on phone via long-press (messages and feed posts).
+- Implemented in `client/src/App.jsx` with touch timer/move-threshold guard:
+  - `TOUCH_CONTEXT_MENU_DELAY_MS = 360`
+  - `TOUCH_CONTEXT_MENU_MOVE_THRESHOLD = 12`
+- Touch hooks added to:
+  - message rows in chat
+  - feed cards in feed/profile
+- To reduce UX conflict with native iOS/Android menu, coarse-pointer CSS disables native touch callout/user-select for those blocks in `client/src/index.css`.
+
+### 12.5 Reference commits from this session
+
+- `93a43ea` - mobile back navigation no longer hides chats incorrectly
+- `e057f4c` - achievements revamp (merit tiers + redesigned card)
+- `ed12cc2` - mobile chat list visibility restore
+- `a249cef` - touch long-press context menus
+- `e66a9f6` - touch context menu UX polish (faster trigger, reduced native callout conflict)
