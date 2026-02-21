@@ -166,6 +166,10 @@ const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKE
 const webPushFeatureEnabled = String(import.meta.env.VITE_ENABLE_WEB_PUSH || '').toLowerCase() === 'true'
 const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
+const BANNER_ZOOM_MIN = 1
+const BANNER_ZOOM_MAX = 3.2
+const BANNER_EXPORT_WIDTH = 1600
+const BANNER_EXPORT_HEIGHT = 520
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
 const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
 const FEED_BOOKMARKS_STORAGE_KEY = 'ktk_feed_bookmarks'
@@ -746,6 +750,10 @@ function clampAvatarZoom(value) {
   return Math.min(AVATAR_ZOOM_MAX, Math.max(AVATAR_ZOOM_MIN, value))
 }
 
+function clampBannerZoom(value) {
+  return Math.min(BANNER_ZOOM_MAX, Math.max(BANNER_ZOOM_MIN, value))
+}
+
 function getSupportedVideoNoteMimeType() {
   if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') return ''
   const candidates = [
@@ -1120,6 +1128,11 @@ export default function App() {
   const [avatarZoom, setAvatarZoom] = useState(1)
   const [avatarOffset, setAvatarOffset] = useState({ x: 0, y: 0 })
   const [dragStart, setDragStart] = useState(null)
+  const [bannerModalOpen, setBannerModalOpen] = useState(false)
+  const [bannerSource, setBannerSource] = useState('')
+  const [bannerZoom, setBannerZoom] = useState(BANNER_ZOOM_MIN)
+  const [bannerOffset, setBannerOffset] = useState({ x: 0, y: 0 })
+  const [bannerDragStart, setBannerDragStart] = useState(null)
   const [profileView, setProfileView] = useState(null)
   const [profileBackView, setProfileBackView] = useState('feed')
   const [profilePosts, setProfilePosts] = useState([])
@@ -1222,6 +1235,7 @@ export default function App() {
   const postMenuRef = useRef(null)
   const chatMenuRef = useRef(null)
   const chatMessagesRef = useRef(null)
+  const bannerPreviewRef = useRef(null)
   const previousMessageMetaRef = useRef({ conversationId: null, count: 0, lastMessageId: null })
   const previousViewRef = useRef(view)
   const profileThemeWheelRef = useRef(null)
@@ -1872,6 +1886,22 @@ export default function App() {
     const saved = profileShowcaseByUserId[user.id] || DEFAULT_PROFILE_SHOWCASE
     setProfileShowcaseForm(mapShowcaseToForm(saved))
   }, [user ? user.id : null, profileShowcaseByUserId])
+
+  useEffect(() => {
+    return () => {
+      if (avatarSource && avatarSource.startsWith('blob:')) {
+        URL.revokeObjectURL(avatarSource)
+      }
+    }
+  }, [avatarSource])
+
+  useEffect(() => {
+    return () => {
+      if (bannerSource && bannerSource.startsWith('blob:')) {
+        URL.revokeObjectURL(bannerSource)
+      }
+    }
+  }, [bannerSource])
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))
@@ -3637,6 +3667,17 @@ export default function App() {
     event.target.value = ''
   }
 
+  const closeAvatarEditor = () => {
+    if (avatarSource && avatarSource.startsWith('blob:')) {
+      URL.revokeObjectURL(avatarSource)
+    }
+    setAvatarModalOpen(false)
+    setAvatarSource('')
+    setAvatarZoom(AVATAR_ZOOM_MIN)
+    setAvatarOffset({ x: 0, y: 0 })
+    setDragStart(null)
+  }
+
   const handleAvatarSave = async () => {
     if (!avatarSource) return
     setLoading(true)
@@ -3665,8 +3706,7 @@ export default function App() {
       const data = await uploadAvatar(file)
       setUser(data.user)
       setStatus({ type: 'success', message: 'Аватар обновлен.' })
-      setAvatarModalOpen(false)
-      setAvatarSource('')
+      closeAvatarEditor()
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
@@ -3699,21 +3739,140 @@ export default function App() {
     if (dragStart) setDragStart(null)
   }
 
-  const handleBannerChange = async (event) => {
-    const file = event.target.files && event.target.files[0]
-    if (!file) return
+  const closeBannerEditor = () => {
+    if (bannerSource && bannerSource.startsWith('blob:')) {
+      URL.revokeObjectURL(bannerSource)
+    }
+    setBannerModalOpen(false)
+    setBannerSource('')
+    setBannerZoom(BANNER_ZOOM_MIN)
+    setBannerOffset({ x: 0, y: 0 })
+    setBannerDragStart(null)
+  }
+
+  const clampBannerOffsetByZoom = (offset, zoomValue) => {
+    const zoom = clampBannerZoom(zoomValue)
+    const rect = bannerPreviewRef.current ? bannerPreviewRef.current.getBoundingClientRect() : null
+    const frameWidth = rect && rect.width ? rect.width : 340
+    const frameHeight = rect && rect.height ? rect.height : 160
+    const maxX = Math.max(0, ((zoom - 1) * frameWidth) / 2)
+    const maxY = Math.max(0, ((zoom - 1) * frameHeight) / 2)
+    return {
+      x: clampNumber(offset && offset.x, -maxX, maxX),
+      y: clampNumber(offset && offset.y, -maxY, maxY)
+    }
+  }
+
+  const handleBannerDragStart = (event) => {
+    if (!bannerSource) return
+    event.preventDefault()
+    if (event.currentTarget && event.currentTarget.setPointerCapture) {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    setBannerDragStart({
+      x: event.clientX,
+      y: event.clientY,
+      offsetX: bannerOffset.x,
+      offsetY: bannerOffset.y
+    })
+  }
+
+  const handleBannerDragMove = (event) => {
+    if (!bannerDragStart) return
+    event.preventDefault()
+    const nextX = bannerDragStart.offsetX + (event.clientX - bannerDragStart.x)
+    const nextY = bannerDragStart.offsetY + (event.clientY - bannerDragStart.y)
+    setBannerOffset(clampBannerOffsetByZoom({ x: nextX, y: nextY }, bannerZoom))
+  }
+
+  const handleBannerDragEnd = () => {
+    if (bannerDragStart) setBannerDragStart(null)
+  }
+
+  const handleBannerZoomChange = (event) => {
+    const nextZoom = clampBannerZoom(Number(event.target.value))
+    setBannerZoom(nextZoom)
+    setBannerOffset((prev) => clampBannerOffsetByZoom(prev, nextZoom))
+  }
+
+  const handleBannerSave = async () => {
+    if (!bannerSource) return
     setLoading(true)
     try {
+      const image = new Image()
+      image.src = bannerSource
+      await new Promise((resolve, reject) => {
+        image.onload = resolve
+        image.onerror = () => reject(new Error('Не удалось загрузить изображение для обложки.'))
+      })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = BANNER_EXPORT_WIDTH
+      canvas.height = BANNER_EXPORT_HEIGHT
+      const ctx = canvas.getContext('2d')
+      const scale = Math.max(
+        BANNER_EXPORT_WIDTH / image.width,
+        BANNER_EXPORT_HEIGHT / image.height
+      ) * clampBannerZoom(bannerZoom)
+      const drawWidth = image.width * scale
+      const drawHeight = image.height * scale
+      const rect = bannerPreviewRef.current ? bannerPreviewRef.current.getBoundingClientRect() : null
+      const previewWidth = rect && rect.width ? rect.width : 340
+      const previewHeight = rect && rect.height ? rect.height : 160
+      const offsetX = bannerOffset.x * (BANNER_EXPORT_WIDTH / previewWidth)
+      const offsetY = bannerOffset.y * (BANNER_EXPORT_HEIGHT / previewHeight)
+      const dx = (BANNER_EXPORT_WIDTH - drawWidth) / 2 + offsetX
+      const dy = (BANNER_EXPORT_HEIGHT - drawHeight) / 2 + offsetY
+      ctx.drawImage(image, dx, dy, drawWidth, drawHeight)
+
+      let blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.92))
+      if (!blob) {
+        blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92))
+      }
+      if (!blob) throw new Error('Не удалось подготовить обложку к загрузке.')
+
+      const extension = blob.type === 'image/webp' ? 'webp' : 'jpg'
+      const file = new File([blob], `banner.${extension}`, { type: blob.type || 'image/jpeg' })
       const data = await uploadBanner(file)
       setUser(data.user)
-      const fileName = String(file.name || '').toLowerCase()
-      const isGif = String(file.type || '').toLowerCase() === 'image/gif' || fileName.endsWith('.gif')
-      setStatus({ type: 'success', message: isGif ? 'GIF-обложка обновлена.' : 'Обложка обновлена.' })
+      closeBannerEditor()
+      setStatus({ type: 'success', message: 'Обложка обновлена и аккуратно подогнана.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleBannerChange = async (event) => {
+    const file = event.target.files && event.target.files[0]
+    if (!file) return
+    const fileName = String(file.name || '').toLowerCase()
+    const isGif = String(file.type || '').toLowerCase() === 'image/gif' || fileName.endsWith('.gif')
+    if (isGif) {
+      setLoading(true)
+      try {
+        const data = await uploadBanner(file)
+        setUser(data.user)
+        setStatus({ type: 'success', message: 'GIF-обложка обновлена. Для GIF используется оригинал без кадрирования.' })
+      } catch (err) {
+        setStatus({ type: 'error', message: err.message })
+      } finally {
+        setLoading(false)
+      }
+      event.target.value = ''
+      return
+    }
+
+    if (bannerSource && bannerSource.startsWith('blob:')) {
+      URL.revokeObjectURL(bannerSource)
+    }
+    const url = URL.createObjectURL(file)
+    setBannerSource(url)
+    setBannerZoom(BANNER_ZOOM_MIN)
+    setBannerOffset({ x: 0, y: 0 })
+    setBannerDragStart(null)
+    setBannerModalOpen(true)
     event.target.value = ''
   }
 
@@ -5426,6 +5585,7 @@ export default function App() {
   const profileHeroThemeClass = profileShowcase && profileShowcase.heroTheme
     ? `profile-theme-${profileShowcase.heroTheme}`
     : 'profile-theme-default'
+  const profileHeroHasBanner = Boolean(profileView && profileView.bannerUrl)
   const profileShowcaseHasContent = Boolean(
     profileShowcase.headline ||
     profileShowcase.skills.length ||
@@ -7079,7 +7239,7 @@ export default function App() {
             {profileView && (
               <>
                 <div
-                  className={`profile-hero profile-hero-expanded ${profileHeroThemeClass}`.trim()}
+                  className={`profile-hero profile-hero-expanded ${profileHeroThemeClass} ${profileHeroHasBanner ? 'profile-hero-has-banner' : ''}`.trim()}
                   style={{
                     backgroundColor: profileView.themeColor || '#7a1f1d',
                     backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
@@ -7537,6 +7697,9 @@ export default function App() {
               Изменить обложку
               <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleBannerChange} />
             </label>
+            <p className="profile-banner-tip">
+              Для PNG/JPG/WebP откроется редактор: можно двигать и масштабировать обложку. GIF загружается без кадрирования.
+            </p>
             <div className="profile-avatar">
               <div className="avatar large">
                 {user.avatarUrl ? (
@@ -8251,11 +8414,70 @@ export default function App() {
               />
             </label>
             <div className="modal-actions">
-              <button type="button" className="ghost" onClick={() => setAvatarModalOpen(false)}>
+              <button type="button" className="ghost" onClick={closeAvatarEditor}>
                 Отмена
               </button>
               <button type="button" className="primary" onClick={handleAvatarSave} disabled={loading}>
                 Сохранить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bannerModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-card banner-modal-card">
+            <div className="banner-modal-head">
+              <h3>Редактор обложки</h3>
+              <span>Перетаскивай изображение, чтобы выбрать лучший ракурс.</span>
+            </div>
+            <div className="banner-editor-stage">
+              <div
+                ref={bannerPreviewRef}
+                className="banner-editor-preview"
+                onPointerDown={handleBannerDragStart}
+                onPointerMove={handleBannerDragMove}
+                onPointerUp={handleBannerDragEnd}
+                onPointerCancel={handleBannerDragEnd}
+                onPointerLeave={handleBannerDragEnd}
+                onLostPointerCapture={handleBannerDragEnd}
+              >
+                <img
+                  src={bannerSource}
+                  alt="banner preview"
+                  style={{ transform: `translate(${bannerOffset.x}px, ${bannerOffset.y}px) scale(${bannerZoom})` }}
+                />
+                <span className="banner-editor-guide"></span>
+              </div>
+            </div>
+            <label className="slider">
+              Масштаб обложки: {bannerZoom.toFixed(2)}x
+              <input
+                type="range"
+                min={BANNER_ZOOM_MIN}
+                max={BANNER_ZOOM_MAX}
+                step="0.02"
+                value={bannerZoom}
+                onChange={handleBannerZoomChange}
+              />
+            </label>
+            <div className="modal-actions banner-modal-actions">
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => {
+                  setBannerZoom(BANNER_ZOOM_MIN)
+                  setBannerOffset({ x: 0, y: 0 })
+                }}
+              >
+                Сбросить
+              </button>
+              <button type="button" className="ghost" onClick={closeBannerEditor}>
+                Отмена
+              </button>
+              <button type="button" className="primary" onClick={handleBannerSave} disabled={loading}>
+                Сохранить обложку
               </button>
             </div>
           </div>
