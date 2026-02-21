@@ -164,21 +164,95 @@ const CHAT_WALLPAPER_STORAGE_KEY = 'ktk_chat_wallpapers'
 const CHAT_ALIAS_STORAGE_KEY = 'ktk_chat_aliases'
 const RECENT_STICKERS_STORAGE_KEY = 'ktk_recent_stickers'
 const RECENT_GIFS_STORAGE_KEY = 'ktk_recent_gifs'
+const RECENT_EMOJIS_STORAGE_KEY = 'ktk_recent_emojis'
 const MEDIA_PANEL_TABS = {
   emoji: 'emoji',
   stickers: 'stickers',
   gifs: 'gifs'
 }
 const EMOJI_PICKER_ITEMS = [
-  '😀', '😁', '😂', '🤣', '😊', '😍', '🥰', '😘', '😎', '🤩',
-  '😇', '🙂', '😉', '🤗', '🤔', '😴', '🤯', '🥶', '🥵', '😱',
-  '🙌', '👏', '👍', '👎', '🤝', '🙏', '💪', '🫶', '👀', '🔥',
-  '✨', '⚡', '💥', '🎉', '🎊', '🎯', '🏆', '💯', '❤️', '💔',
-  '💖', '💙', '💚', '🖤', '💜', '🤍', '🫡', '🤡', '💀', '👻',
-  '🐱', '🐶', '🦊', '🐼', '🐸', '🐵', '🐺', '🐯', '🐨', '🦄',
-  '🍓', '🍉', '🍕', '🍔', '🌮', '🌭', '🍩', '☕', '🎮', '🎧',
-  '📚', '✏️', '💡', '🚀', '🌙', '☀️', '🌈', '🌧️', '⭐', '🧠'
+  { value: '😀', tags: 'улыбка smile happy радость', group: 'smileys' },
+  { value: '😁', tags: 'улыбка teeth радость', group: 'smileys' },
+  { value: '😂', tags: 'смех tears laugh', group: 'smileys' },
+  { value: '🤣', tags: 'смех laugh rolling', group: 'smileys' },
+  { value: '😊', tags: 'милый nice smile', group: 'smileys' },
+  { value: '😍', tags: 'любовь глаза heart eyes', group: 'smileys' },
+  { value: '🥰', tags: 'любовь hearts face', group: 'smileys' },
+  { value: '😘', tags: 'поцелуй kiss', group: 'smileys' },
+  { value: '😎', tags: 'круто cool', group: 'smileys' },
+  { value: '🤩', tags: 'звезды wow star eyes', group: 'smileys' },
+  { value: '🤔', tags: 'думать think hmm', group: 'smileys' },
+  { value: '😴', tags: 'сон sleep', group: 'smileys' },
+  { value: '🤯', tags: 'mind blown шок', group: 'smileys' },
+  { value: '😱', tags: 'крик scream shock', group: 'smileys' },
+  { value: '🥶', tags: 'холод cold', group: 'smileys' },
+  { value: '🥵', tags: 'жара hot', group: 'smileys' },
+  { value: '🙌', tags: 'ура raise hands', group: 'gestures' },
+  { value: '👏', tags: 'аплодисменты clap', group: 'gestures' },
+  { value: '👍', tags: 'лайк ok good', group: 'gestures' },
+  { value: '👎', tags: 'дизлайк bad', group: 'gestures' },
+  { value: '🤝', tags: 'сделка handshake', group: 'gestures' },
+  { value: '🙏', tags: 'спасибо please pray', group: 'gestures' },
+  { value: '💪', tags: 'сила strong', group: 'gestures' },
+  { value: '🫶', tags: 'heart hands любовь', group: 'gestures' },
+  { value: '👀', tags: 'глаза look', group: 'gestures' },
+  { value: '❤️', tags: 'heart любовь', group: 'hearts' },
+  { value: '💔', tags: 'broken heart', group: 'hearts' },
+  { value: '💖', tags: 'sparkle heart', group: 'hearts' },
+  { value: '💙', tags: 'blue heart', group: 'hearts' },
+  { value: '💚', tags: 'green heart', group: 'hearts' },
+  { value: '🖤', tags: 'black heart', group: 'hearts' },
+  { value: '💜', tags: 'purple heart', group: 'hearts' },
+  { value: '🤍', tags: 'white heart', group: 'hearts' },
+  { value: '🔥', tags: 'fire hot lit', group: 'symbols' },
+  { value: '✨', tags: 'sparkles magic', group: 'symbols' },
+  { value: '⚡', tags: 'lightning fast', group: 'symbols' },
+  { value: '💥', tags: 'boom blast', group: 'symbols' },
+  { value: '🎉', tags: 'праздник party', group: 'activity' },
+  { value: '🎊', tags: 'confetti праздник', group: 'activity' },
+  { value: '🎯', tags: 'target цель', group: 'activity' },
+  { value: '🏆', tags: 'кубок trophy win', group: 'activity' },
+  { value: '💯', tags: 'hundred top', group: 'symbols' },
+  { value: '🎮', tags: 'game гейминг', group: 'activity' },
+  { value: '🎧', tags: 'music наушники', group: 'activity' },
+  { value: '📚', tags: 'books учеба study', group: 'activity' },
+  { value: '✏️', tags: 'pen писать note', group: 'activity' },
+  { value: '💡', tags: 'idea лампа', group: 'symbols' },
+  { value: '🚀', tags: 'rocket launch', group: 'symbols' },
+  { value: '🌙', tags: 'moon night', group: 'symbols' },
+  { value: '☀️', tags: 'sun day', group: 'symbols' },
+  { value: '🌈', tags: 'rainbow', group: 'symbols' },
+  { value: '🌧️', tags: 'rain дождь', group: 'symbols' },
+  { value: '⭐', tags: 'star звезда', group: 'symbols' },
+  { value: '🧠', tags: 'brain умно', group: 'symbols' },
+  { value: '🐱', tags: 'cat кот', group: 'animals' },
+  { value: '🐶', tags: 'dog собака', group: 'animals' },
+  { value: '🦊', tags: 'fox лиса', group: 'animals' },
+  { value: '🐼', tags: 'panda', group: 'animals' },
+  { value: '🐸', tags: 'frog лягушка', group: 'animals' },
+  { value: '🐵', tags: 'monkey', group: 'animals' },
+  { value: '🐺', tags: 'wolf волк', group: 'animals' },
+  { value: '🐯', tags: 'tiger тигр', group: 'animals' },
+  { value: '🐨', tags: 'koala', group: 'animals' },
+  { value: '🦄', tags: 'unicorn единорог', group: 'animals' },
+  { value: '🍓', tags: 'strawberry клубника', group: 'food' },
+  { value: '🍉', tags: 'watermelon арбуз', group: 'food' },
+  { value: '🍕', tags: 'pizza пицца', group: 'food' },
+  { value: '🍔', tags: 'burger', group: 'food' },
+  { value: '🌮', tags: 'taco', group: 'food' },
+  { value: '🌭', tags: 'hotdog', group: 'food' },
+  { value: '🍩', tags: 'donut пончик', group: 'food' },
+  { value: '☕', tags: 'coffee кофе', group: 'food' }
 ]
+const EMOJI_GROUP_LABELS = {
+  smileys: 'Смайлы',
+  gestures: 'Жесты',
+  hearts: 'Сердца',
+  symbols: 'Символы',
+  activity: 'Активности',
+  animals: 'Животные',
+  food: 'Еда'
+}
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
@@ -532,6 +606,7 @@ export default function App() {
   const [gifsLoading, setGifsLoading] = useState(false)
   const [mediaPanelOpen, setMediaPanelOpen] = useState(false)
   const [mediaPanelTab, setMediaPanelTab] = useState(MEDIA_PANEL_TABS.emoji)
+  const [mediaPanelQuery, setMediaPanelQuery] = useState('')
   const [recentStickerIds, setRecentStickerIds] = useState(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem(RECENT_STICKERS_STORAGE_KEY) || '[]')
@@ -546,6 +621,15 @@ export default function App() {
       const parsed = JSON.parse(localStorage.getItem(RECENT_GIFS_STORAGE_KEY) || '[]')
       if (!Array.isArray(parsed)) return []
       return parsed.map((item) => String(item || '')).filter(Boolean).slice(0, 40)
+    } catch (err) {
+      return []
+    }
+  })
+  const [recentEmojiItems, setRecentEmojiItems] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RECENT_EMOJIS_STORAGE_KEY) || '[]')
+      if (!Array.isArray(parsed)) return []
+      return parsed.map((item) => String(item || '')).filter(Boolean).slice(0, 30)
     } catch (err) {
       return []
     }
@@ -684,6 +768,7 @@ export default function App() {
   const draftsRef = useRef(draftsByConversation)
   const socketConnectionRef = useRef(socketConnection)
   const chatSearchInputRef = useRef(null)
+  const composerInputRef = useRef(null)
   const contextMenuRef = useRef(null)
   const postMenuRef = useRef(null)
   const chatMenuRef = useRef(null)
@@ -776,6 +861,57 @@ export default function App() {
       .filter(Boolean)
       .slice(0, 16)
   ), [recentGifIds, gifById])
+  const mediaQueryNormalized = mediaPanelQuery.trim().toLowerCase()
+  const emojiByValue = useMemo(() => (
+    new Map(EMOJI_PICKER_ITEMS.map((item) => [item.value, item]))
+  ), [])
+  const recentEmojis = useMemo(() => (
+    recentEmojiItems
+      .map((emoji) => emojiByValue.get(emoji))
+      .filter(Boolean)
+      .slice(0, 20)
+  ), [recentEmojiItems, emojiByValue])
+  const visibleEmojis = useMemo(() => {
+    if (!mediaQueryNormalized) return EMOJI_PICKER_ITEMS
+    return EMOJI_PICKER_ITEMS.filter((item) => (
+      item.value.includes(mediaQueryNormalized) ||
+      item.tags.includes(mediaQueryNormalized)
+    ))
+  }, [mediaQueryNormalized])
+  const visibleStickers = useMemo(() => {
+    if (!mediaQueryNormalized) return myStickers
+    return myStickers.filter((sticker) => (
+      String(sticker.title || '').toLowerCase().includes(mediaQueryNormalized)
+    ))
+  }, [myStickers, mediaQueryNormalized])
+  const visibleRecentStickers = useMemo(() => {
+    if (!mediaQueryNormalized) return recentStickers
+    return recentStickers.filter((sticker) => (
+      String(sticker.title || '').toLowerCase().includes(mediaQueryNormalized)
+    ))
+  }, [recentStickers, mediaQueryNormalized])
+  const visibleGifs = useMemo(() => {
+    if (!mediaQueryNormalized) return myGifs
+    return myGifs.filter((gif) => (
+      String(gif.title || '').toLowerCase().includes(mediaQueryNormalized)
+    ))
+  }, [myGifs, mediaQueryNormalized])
+  const visibleRecentGifs = useMemo(() => {
+    if (!mediaQueryNormalized) return recentGifs
+    return recentGifs.filter((gif) => (
+      String(gif.title || '').toLowerCase().includes(mediaQueryNormalized)
+    ))
+  }, [recentGifs, mediaQueryNormalized])
+  const groupedVisibleEmojis = useMemo(() => {
+    const groups = new Map()
+    visibleEmojis.forEach((item) => {
+      const key = item.group || 'symbols'
+      const current = groups.get(key) || []
+      current.push(item)
+      groups.set(key, current)
+    })
+    return Array.from(groups.entries())
+  }, [visibleEmojis])
   const feedQueryNormalized = feedQuery.trim().toLowerCase()
   const trendingTags = useMemo(() => {
     const tagCounts = new Map()
@@ -1309,11 +1445,35 @@ export default function App() {
     syncTypingStateByValue(value)
   }
 
+  const rememberRecentEmoji = (emoji) => {
+    if (!emoji) return
+    setRecentEmojiItems((prev) => {
+      const next = [emoji, ...prev.filter((item) => item !== emoji)]
+      return next.slice(0, 30)
+    })
+  }
+
   const appendEmojiToMessage = (emoji) => {
     if (!emoji || !activeConversation || isChatBlocked) return
-    const nextValue = `${messageText}${emoji}`
+    const input = composerInputRef.current
+    const currentValue = messageText
+    const hasSelection = input && typeof input.selectionStart === 'number' && typeof input.selectionEnd === 'number'
+    const selectionStart = hasSelection ? input.selectionStart : currentValue.length
+    const selectionEnd = hasSelection ? input.selectionEnd : currentValue.length
+    const nextValue = `${currentValue.slice(0, selectionStart)}${emoji}${currentValue.slice(selectionEnd)}`
+    const nextCaret = selectionStart + emoji.length
     setMessageText(nextValue)
     syncTypingStateByValue(nextValue)
+    rememberRecentEmoji(emoji)
+    window.requestAnimationFrame(() => {
+      if (!input) return
+      input.focus()
+      try {
+        input.setSelectionRange(nextCaret, nextCaret)
+      } catch (err) {
+        // ignore cursor update errors
+      }
+    })
   }
 
   const isPushSupported = () => (
@@ -1874,6 +2034,14 @@ export default function App() {
   }, [recentGifIds])
 
   useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_EMOJIS_STORAGE_KEY, JSON.stringify(recentEmojiItems.slice(0, 30)))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [recentEmojiItems])
+
+  useEffect(() => {
     if (!user) {
       setMyStickers([])
       setMyGifs([])
@@ -1881,6 +2049,7 @@ export default function App() {
       setRecentGifIds([])
       setMediaPanelOpen(false)
       setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
+      setMediaPanelQuery('')
       return
     }
     const loadMediaLibrary = async () => {
@@ -1910,24 +2079,53 @@ export default function App() {
   }, [myGifs])
 
   useEffect(() => {
+    const allowed = new Set(EMOJI_PICKER_ITEMS.map((item) => item.value))
+    setRecentEmojiItems((prev) => prev.filter((emoji) => allowed.has(emoji)))
+  }, [])
+
+  useEffect(() => {
     const handleHotkey = (event) => {
       if (!user || event.defaultPrevented) return
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return
+      const key = String(event.key || '').toLowerCase()
       const target = event.target
       const tagName = target && target.tagName ? target.tagName.toLowerCase() : ''
-      if (tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable)) return
-      event.preventDefault()
-      setView('chats')
-      window.requestAnimationFrame(() => {
-        if (chatSearchInputRef.current) {
-          chatSearchInputRef.current.focus()
-          chatSearchInputRef.current.select()
+      const isTextInput = tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable)
+
+      if ((event.ctrlKey || event.metaKey) && key === 'k') {
+        if (isTextInput) return
+        event.preventDefault()
+        setView('chats')
+        window.requestAnimationFrame(() => {
+          if (chatSearchInputRef.current) {
+            chatSearchInputRef.current.focus()
+            chatSearchInputRef.current.select()
+          }
+        })
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key === 'e') {
+        if (view !== 'chats' || !activeConversation) return
+        event.preventDefault()
+        setMediaPanelOpen((prev) => !prev)
+        if (!mediaPanelOpen) {
+          setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
+          setMediaPanelQuery('')
+          window.requestAnimationFrame(() => {
+            if (composerInputRef.current) composerInputRef.current.focus()
+          })
         }
-      })
+        return
+      }
+
+      if (key === 'escape' && mediaPanelOpen) {
+        event.preventDefault()
+        setMediaPanelOpen(false)
+      }
     }
     window.addEventListener('keydown', handleHotkey)
     return () => window.removeEventListener('keydown', handleHotkey)
-  }, [user])
+  }, [user, view, activeConversation, mediaPanelOpen])
 
   useEffect(() => {
     socketConnectionRef.current = socketConnection
@@ -1944,6 +2142,7 @@ export default function App() {
     stopTyping()
     setMediaPanelOpen(false)
     setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
+    setMediaPanelQuery('')
     if (!activeConversation) {
       setMessageText('')
       setReplyMessage(null)
@@ -1955,6 +2154,12 @@ export default function App() {
     setReplyMessage(null)
     clearMessageAttachment()
   }, [activeConversation ? activeConversation.id : null])
+
+  useEffect(() => {
+    if (!mediaPanelOpen && mediaPanelQuery) {
+      setMediaPanelQuery('')
+    }
+  }, [mediaPanelOpen, mediaPanelQuery])
 
   useEffect(() => {
     if (!activeConversation) return
@@ -2883,6 +3088,7 @@ export default function App() {
     setRecentGifIds([])
     setMediaPanelOpen(false)
     setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
+    setMediaPanelQuery('')
     setConversations([])
     setProfileView(null)
     setProfilePosts([])
@@ -4521,6 +4727,7 @@ export default function App() {
                       </div>
                     )}
                     <input
+                      ref={composerInputRef}
                       type="text"
                       value={messageText}
                       onChange={handleMessageInputChange}
@@ -4552,12 +4759,16 @@ export default function App() {
                       type="button"
                       className={`record-btn media-trigger-btn ${mediaPanelOpen ? 'active' : ''}`.trim()}
                       onClick={() => {
-                        if (mediaPanelOpen && mediaPanelTab === MEDIA_PANEL_TABS.emoji) {
+                        if (mediaPanelOpen) {
                           setMediaPanelOpen(false)
                           return
                         }
                         setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
+                        setMediaPanelQuery('')
                         setMediaPanelOpen(true)
+                        window.requestAnimationFrame(() => {
+                          if (composerInputRef.current) composerInputRef.current.focus()
+                        })
                       }}
                       disabled={isChatBlocked || stickersLoading || gifsLoading}
                       title="Emoji / Стикеры / GIF"
@@ -4576,45 +4787,119 @@ export default function App() {
                   </form>
                   {mediaPanelOpen && (
                     <div className="sticker-panel media-panel">
+                      <div className="media-panel-headline">
+                        <div className="media-panel-heading">
+                          <strong>
+                            {mediaPanelTab === MEDIA_PANEL_TABS.emoji
+                              ? 'Emoji'
+                              : mediaPanelTab === MEDIA_PANEL_TABS.stickers
+                                ? 'Стикеры'
+                                : 'GIF'}
+                          </strong>
+                          <span>
+                            {mediaPanelTab === MEDIA_PANEL_TABS.emoji
+                              ? `${visibleEmojis.length} emoji • Ctrl+E`
+                              : mediaPanelTab === MEDIA_PANEL_TABS.stickers
+                                ? `${visibleStickers.length}/${myStickers.length} в библиотеке`
+                                : `${visibleGifs.length}/${myGifs.length} в библиотеке`}
+                          </span>
+                        </div>
+                        {mediaPanelTab === MEDIA_PANEL_TABS.stickers && (
+                          <label className="file-btn sticker-upload-btn">
+                            Новый
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/gif"
+                              onChange={handleStickerUpload}
+                              disabled={stickersLoading}
+                            />
+                          </label>
+                        )}
+                        {mediaPanelTab === MEDIA_PANEL_TABS.gifs && (
+                          <label className="file-btn sticker-upload-btn">
+                            Новый
+                            <input
+                              type="file"
+                              accept="image/gif,.gif"
+                              onChange={handleGifUpload}
+                              disabled={gifsLoading}
+                            />
+                          </label>
+                        )}
+                      </div>
+
+                      <div className="media-panel-search-row">
+                        <input
+                          type="text"
+                          value={mediaPanelQuery}
+                          onChange={(event) => setMediaPanelQuery(event.target.value)}
+                          placeholder={
+                            mediaPanelTab === MEDIA_PANEL_TABS.emoji
+                              ? 'Поиск emoji (пример: heart, смех, cat)'
+                              : mediaPanelTab === MEDIA_PANEL_TABS.stickers
+                                ? 'Поиск по названию стикера'
+                                : 'Поиск по названию GIF'
+                          }
+                        />
+                        {mediaPanelQuery && (
+                          <button type="button" className="ghost media-search-clear" onClick={() => setMediaPanelQuery('')}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+
                       <div className="media-panel-body">
                         {mediaPanelTab === MEDIA_PANEL_TABS.emoji && (
-                          <div className="sticker-section">
-                            <span>Emoji</span>
-                            <div className="emoji-grid">
-                              {EMOJI_PICKER_ITEMS.map((emoji) => (
-                                <button
-                                  key={emoji}
-                                  type="button"
-                                  className="emoji-item"
-                                  onClick={() => appendEmojiToMessage(emoji)}
-                                  title={`Добавить ${emoji}`}
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
+                          <>
+                            {recentEmojis.length > 0 && !mediaQueryNormalized && (
+                              <div className="sticker-section">
+                                <span>Недавние</span>
+                                <div className="emoji-grid">
+                                  {recentEmojis.map((item) => (
+                                    <button
+                                      key={`recent-emoji-${item.value}`}
+                                      type="button"
+                                      className="emoji-item"
+                                      onClick={() => appendEmojiToMessage(item.value)}
+                                      title={`Добавить ${item.value}`}
+                                    >
+                                      {item.value}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {groupedVisibleEmojis.length === 0 && (
+                              <div className="empty small">Emoji не найдены</div>
+                            )}
+                            {groupedVisibleEmojis.map(([groupKey, items]) => (
+                              <div key={groupKey} className="sticker-section">
+                                <span>{EMOJI_GROUP_LABELS[groupKey] || 'Emoji'}</span>
+                                <div className="emoji-grid">
+                                  {items.map((item) => (
+                                    <button
+                                      key={item.value}
+                                      type="button"
+                                      className="emoji-item"
+                                      onClick={() => appendEmojiToMessage(item.value)}
+                                      title={`Добавить ${item.value}`}
+                                    >
+                                      {item.value}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </>
                         )}
 
                         {mediaPanelTab === MEDIA_PANEL_TABS.stickers && (
                           <>
-                            <div className="sticker-panel-head">
-                              <strong>Стикеры</strong>
-                              <label className="file-btn sticker-upload-btn">
-                                Новый
-                                <input
-                                  type="file"
-                                  accept="image/png,image/jpeg,image/webp,image/gif"
-                                  onChange={handleStickerUpload}
-                                  disabled={stickersLoading}
-                                />
-                              </label>
-                            </div>
-                            {recentStickers.length > 0 && (
+                            {visibleRecentStickers.length > 0 && (
                               <div className="sticker-section">
                                 <span>Недавние</span>
                                 <div className="sticker-grid">
-                                  {recentStickers.map((sticker) => (
+                                  {visibleRecentStickers.map((sticker) => (
                                     <button
                                       key={`recent-${sticker.id}`}
                                       type="button"
@@ -4632,9 +4917,11 @@ export default function App() {
                               <span>Мои</span>
                               {myStickers.length === 0 ? (
                                 <div className="empty small">Загрузите первый стикер</div>
+                              ) : visibleStickers.length === 0 ? (
+                                <div className="empty small">По запросу ничего не найдено</div>
                               ) : (
                                 <div className="sticker-grid">
-                                  {myStickers.map((sticker) => (
+                                  {visibleStickers.map((sticker) => (
                                     <div key={sticker.id} className="sticker-cell">
                                       <button
                                         type="button"
@@ -4662,23 +4949,11 @@ export default function App() {
 
                         {mediaPanelTab === MEDIA_PANEL_TABS.gifs && (
                           <>
-                            <div className="sticker-panel-head">
-                              <strong>GIF</strong>
-                              <label className="file-btn sticker-upload-btn">
-                                Новый
-                                <input
-                                  type="file"
-                                  accept="image/gif,.gif"
-                                  onChange={handleGifUpload}
-                                  disabled={gifsLoading}
-                                />
-                              </label>
-                            </div>
-                            {recentGifs.length > 0 && (
+                            {visibleRecentGifs.length > 0 && (
                               <div className="sticker-section">
                                 <span>Недавние</span>
                                 <div className="sticker-grid">
-                                  {recentGifs.map((gif) => (
+                                  {visibleRecentGifs.map((gif) => (
                                     <button
                                       key={`recent-gif-${gif.id}`}
                                       type="button"
@@ -4696,9 +4971,11 @@ export default function App() {
                               <span>Мои GIF</span>
                               {myGifs.length === 0 ? (
                                 <div className="empty small">Загрузите первый GIF</div>
+                              ) : visibleGifs.length === 0 ? (
+                                <div className="empty small">По запросу ничего не найдено</div>
                               ) : (
                                 <div className="sticker-grid">
-                                  {myGifs.map((gif) => (
+                                  {visibleGifs.map((gif) => (
                                     <div key={gif.id} className="sticker-cell">
                                       <button
                                         type="button"
@@ -4729,7 +5006,10 @@ export default function App() {
                         <button
                           type="button"
                           className={mediaPanelTab === MEDIA_PANEL_TABS.emoji ? 'active' : ''}
-                          onClick={() => setMediaPanelTab(MEDIA_PANEL_TABS.emoji)}
+                          onClick={() => {
+                            setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
+                            setMediaPanelQuery('')
+                          }}
                           title="Emoji"
                         >
                           😀 Emoji
@@ -4737,7 +5017,10 @@ export default function App() {
                         <button
                           type="button"
                           className={mediaPanelTab === MEDIA_PANEL_TABS.stickers ? 'active' : ''}
-                          onClick={() => setMediaPanelTab(MEDIA_PANEL_TABS.stickers)}
+                          onClick={() => {
+                            setMediaPanelTab(MEDIA_PANEL_TABS.stickers)
+                            setMediaPanelQuery('')
+                          }}
                           title="Стикеры"
                         >
                           ⭐ Стикеры
@@ -4745,7 +5028,10 @@ export default function App() {
                         <button
                           type="button"
                           className={mediaPanelTab === MEDIA_PANEL_TABS.gifs ? 'active' : ''}
-                          onClick={() => setMediaPanelTab(MEDIA_PANEL_TABS.gifs)}
+                          onClick={() => {
+                            setMediaPanelTab(MEDIA_PANEL_TABS.gifs)
+                            setMediaPanelQuery('')
+                          }}
                           title="GIF"
                         >
                           GIF
