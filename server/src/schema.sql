@@ -51,6 +51,15 @@ create table if not exists profile_tracks (
   created_at timestamptz default now()
 );
 
+create table if not exists user_stickers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade,
+  title text,
+  image_url text not null,
+  mime_type text,
+  created_at timestamptz default now()
+);
+
 create table if not exists conversations (
   id uuid primary key default gen_random_uuid(),
   title text,
@@ -86,7 +95,7 @@ create table if not exists messages (
   body text not null,
   attachment_url text,
   attachment_mime text,
-  attachment_kind text check (attachment_kind in ('image', 'video', 'video-note')),
+  attachment_kind text check (attachment_kind in ('image', 'video', 'video-note', 'sticker')),
   reply_to_id uuid references messages(id) on delete set null,
   edited_at timestamptz,
   deleted_at timestamptz,
@@ -148,6 +157,7 @@ create index if not exists idx_users_username on users (username);
 create index if not exists idx_subscriptions_target on user_subscriptions (target_user_id);
 create index if not exists idx_subscriptions_subscriber on user_subscriptions (subscriber_id);
 create index if not exists idx_profile_tracks_user on profile_tracks (user_id, created_at desc);
+create index if not exists idx_user_stickers_user on user_stickers (user_id, created_at desc);
 create index if not exists idx_members_user on conversation_members (user_id);
 create index if not exists idx_members_user_favorite on conversation_members (user_id, is_favorite);
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
@@ -183,11 +193,26 @@ DO $$ BEGIN
     FOREIGN KEY (reply_to_id) REFERENCES messages(id) ON DELETE SET NULL;
 EXCEPTION WHEN duplicate_object THEN END $$;
 
-DO $$ BEGIN
+DO $$
+DECLARE
+  constraint_name text;
+BEGIN
+  FOR constraint_name IN
+    SELECT conname
+    FROM pg_constraint
+    WHERE conrelid = 'messages'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%attachment_kind%'
+  LOOP
+    EXECUTE format('ALTER TABLE messages DROP CONSTRAINT IF EXISTS %I', constraint_name);
+  END LOOP;
+
   ALTER TABLE messages
     ADD CONSTRAINT chk_messages_attachment_kind
-    CHECK (attachment_kind in ('image', 'video', 'video-note'));
-EXCEPTION WHEN duplicate_object THEN END $$;
+    CHECK (attachment_kind in ('image', 'video', 'video-note', 'sticker'));
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_object THEN NULL;
+END $$;
 
 DO $$ BEGIN
   CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages (reply_to_id);
@@ -218,6 +243,16 @@ EXCEPTION WHEN duplicate_column THEN END $$;
 DO $$ BEGIN
   ALTER TABLE users ADD COLUMN status_emoji text;
 EXCEPTION WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_stickers ADD COLUMN title text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_stickers ADD COLUMN mime_type text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
 
 DO $$ BEGIN
   ALTER TABLE users ADD COLUMN is_admin boolean default false;

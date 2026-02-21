@@ -46,7 +46,11 @@ import {
   toggleSubscription,
   deleteProfileTrack,
   savePushSubscription,
-  deletePushSubscription
+  deletePushSubscription,
+  getMyStickers,
+  uploadSticker,
+  deleteSticker,
+  sendSticker
 } from './api.js'
 
 const icons = {
@@ -154,6 +158,7 @@ const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
 const FEED_BOOKMARKS_STORAGE_KEY = 'ktk_feed_bookmarks'
 const CHAT_WALLPAPER_STORAGE_KEY = 'ktk_chat_wallpapers'
 const CHAT_ALIAS_STORAGE_KEY = 'ktk_chat_aliases'
+const RECENT_STICKERS_STORAGE_KEY = 'ktk_recent_stickers'
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
@@ -365,6 +370,7 @@ function getMessagePreviewLabel(message, emptyText = 'Сообщение') {
     return text.length > 120 ? `${text.slice(0, 117)}...` : text
   }
   if (message && message.attachmentUrl) {
+    if (message.attachmentKind === 'sticker') return 'Стикер'
     if (message.attachmentKind === VIDEO_NOTE_KIND) return 'Видеосообщение'
     if (isVideoMessageAttachment(message)) return 'Видео'
     return 'Фото'
@@ -499,6 +505,18 @@ export default function App() {
   const [messageAttachmentKind, setMessageAttachmentKind] = useState('')
   const [videoNoteRecording, setVideoNoteRecording] = useState(false)
   const [videoNoteDuration, setVideoNoteDuration] = useState(0)
+  const [myStickers, setMyStickers] = useState([])
+  const [stickersLoading, setStickersLoading] = useState(false)
+  const [stickerPanelOpen, setStickerPanelOpen] = useState(false)
+  const [recentStickerIds, setRecentStickerIds] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RECENT_STICKERS_STORAGE_KEY) || '[]')
+      if (!Array.isArray(parsed)) return []
+      return parsed.map((item) => String(item || '')).filter(Boolean).slice(0, 40)
+    } catch (err) {
+      return []
+    }
+  })
   const [draftsByConversation, setDraftsByConversation] = useState(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem(DRAFT_STORAGE_KEY) || '{}')
@@ -707,6 +725,15 @@ export default function App() {
     const found = CHAT_WALLPAPERS.find((item) => item.value === storedValue)
     return found || CHAT_WALLPAPERS[0]
   }, [activeConversation, chatWallpaperByConversation])
+  const stickerById = useMemo(() => (
+    new Map(myStickers.map((sticker) => [sticker.id, sticker]))
+  ), [myStickers])
+  const recentStickers = useMemo(() => (
+    recentStickerIds
+      .map((stickerId) => stickerById.get(stickerId))
+      .filter(Boolean)
+      .slice(0, 16)
+  ), [recentStickerIds, stickerById])
   const feedQueryNormalized = feedQuery.trim().toLowerCase()
   const trendingTags = useMemo(() => {
     const tagCounts = new Map()
@@ -1779,6 +1806,37 @@ export default function App() {
   }, [chatAliasByConversation])
 
   useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_STICKERS_STORAGE_KEY, JSON.stringify(recentStickerIds.slice(0, 40)))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [recentStickerIds])
+
+  useEffect(() => {
+    if (!user) {
+      setMyStickers([])
+      setRecentStickerIds([])
+      setStickerPanelOpen(false)
+      return
+    }
+    const loadStickers = async () => {
+      try {
+        const data = await getMyStickers()
+        setMyStickers(data.stickers || [])
+      } catch (err) {
+        setMyStickers([])
+      }
+    }
+    loadStickers()
+  }, [user ? user.id : null])
+
+  useEffect(() => {
+    const availableStickerIds = new Set(myStickers.map((sticker) => sticker.id))
+    setRecentStickerIds((prev) => prev.filter((stickerId) => availableStickerIds.has(stickerId)))
+  }, [myStickers])
+
+  useEffect(() => {
     const handleHotkey = (event) => {
       if (!user || event.defaultPrevented) return
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return
@@ -1811,6 +1869,7 @@ export default function App() {
 
   useEffect(() => {
     stopTyping()
+    setStickerPanelOpen(false)
     if (!activeConversation) {
       setMessageText('')
       setReplyMessage(null)
@@ -2744,6 +2803,9 @@ export default function App() {
     setView('login')
     setActiveConversation(null)
     setMessages([])
+    setMyStickers([])
+    setRecentStickerIds([])
+    setStickerPanelOpen(false)
     setConversations([])
     setProfileView(null)
     setProfilePosts([])
@@ -2815,6 +2877,75 @@ export default function App() {
       setStatus({ type: 'success', message: 'Групповой чат создан.' })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
+    }
+  }
+
+  const rememberRecentSticker = (stickerId) => {
+    if (!stickerId) return
+    setRecentStickerIds((prev) => {
+      const next = [stickerId, ...prev.filter((id) => id !== stickerId)]
+      return next.slice(0, 40)
+    })
+  }
+
+  const handleStickerUpload = async (event) => {
+    const file = event.target.files && event.target.files[0]
+    if (!file) return
+    const rawTitle = String(file.name || '').replace(/\.[^.]+$/, '').trim()
+    const title = rawTitle.slice(0, 48)
+    setStickersLoading(true)
+    try {
+      const data = await uploadSticker(file, title)
+      if (data.sticker) {
+        setMyStickers((prev) => [data.sticker, ...prev.filter((item) => item.id !== data.sticker.id)])
+      }
+      setStatus({ type: 'success', message: 'Стикер добавлен.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setStickersLoading(false)
+      event.target.value = ''
+    }
+  }
+
+  const handleStickerDelete = async (stickerId) => {
+    if (!stickerId) return
+    try {
+      await deleteSticker(stickerId)
+      setMyStickers((prev) => prev.filter((sticker) => sticker.id !== stickerId))
+      setRecentStickerIds((prev) => prev.filter((id) => id !== stickerId))
+      setStatus({ type: 'info', message: 'Стикер удален.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
+  }
+
+  const handleSendSticker = async (sticker) => {
+    if (!activeConversation || !sticker || !sticker.id) return
+    if (isChatBlocked) {
+      setStatus({ type: 'error', message: 'Вы заблокировали пользователя.' })
+      return
+    }
+    stopTyping(activeConversation.id)
+    setLoading(true)
+    try {
+      const data = await sendSticker(activeConversation.id, sticker.id, {
+        replyToMessageId: replyMessage && replyMessage.id ? replyMessage.id : ''
+      })
+      const createdMessage = normalizeChatMessage(data.message)
+      setMessages((prev) => {
+        if (createdMessage && prev.some((msg) => msg.id === createdMessage.id)) return prev
+        return createdMessage ? [...prev, createdMessage] : prev
+      })
+      setReplyMessage(null)
+      clearMessageAttachment()
+      rememberRecentSticker(sticker.id)
+      const list = await getConversations()
+      setConversations(list.conversations || [])
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -4027,7 +4158,7 @@ export default function App() {
                             )}
                           </button>
                         )}
-                        <div className="message-bubble">
+                        <div className={`message-bubble ${msg.attachmentKind === 'sticker' ? 'sticker' : ''}`.trim()}>
                           {msg.replyTo && (
                             <div className="message-reply">
                               <span className="message-reply-author">
@@ -4266,6 +4397,15 @@ export default function App() {
                     </label>
                     <button
                       type="button"
+                      className={`record-btn sticker-btn ${stickerPanelOpen ? 'active' : ''}`.trim()}
+                      onClick={() => setStickerPanelOpen((prev) => !prev)}
+                      disabled={isChatBlocked || stickersLoading}
+                      title="Стикеры"
+                    >
+                      {stickersLoading ? '...' : 'Стикер'}
+                    </button>
+                    <button
+                      type="button"
                       className={`record-btn ${videoNoteRecording ? 'recording' : ''}`}
                       onClick={toggleVideoNoteRecording}
                       disabled={isChatBlocked}
@@ -4274,6 +4414,69 @@ export default function App() {
                     </button>
                     <button className="primary" type="submit" disabled={loading || isChatBlocked}>Отправить</button>
                   </form>
+                  {stickerPanelOpen && (
+                    <div className="sticker-panel">
+                      <div className="sticker-panel-head">
+                        <strong>Стикеры</strong>
+                        <label className="file-btn sticker-upload-btn">
+                          Новый
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif"
+                            onChange={handleStickerUpload}
+                            disabled={stickersLoading}
+                          />
+                        </label>
+                      </div>
+                      {recentStickers.length > 0 && (
+                        <div className="sticker-section">
+                          <span>Недавние</span>
+                          <div className="sticker-grid">
+                            {recentStickers.map((sticker) => (
+                              <button
+                                key={`recent-${sticker.id}`}
+                                type="button"
+                                className="sticker-item"
+                                onClick={() => handleSendSticker(sticker)}
+                                title={sticker.title || 'Стикер'}
+                              >
+                                <img src={resolveMediaUrl(sticker.imageUrl)} alt={sticker.title || 'sticker'} />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div className="sticker-section">
+                        <span>Мои</span>
+                        {myStickers.length === 0 ? (
+                          <div className="empty small">Загрузите первый стикер</div>
+                        ) : (
+                          <div className="sticker-grid">
+                            {myStickers.map((sticker) => (
+                              <div key={sticker.id} className="sticker-cell">
+                                <button
+                                  type="button"
+                                  className="sticker-item"
+                                  onClick={() => handleSendSticker(sticker)}
+                                  title={sticker.title || 'Стикер'}
+                                >
+                                  <img src={resolveMediaUrl(sticker.imageUrl)} alt={sticker.title || 'sticker'} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="sticker-remove"
+                                  onClick={() => handleStickerDelete(sticker.id)}
+                                  title="Удалить стикер"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {videoNoteRecording && (
                     <div className="video-note-live">
                       <video ref={videoNotePreviewRef} autoPlay muted playsInline />

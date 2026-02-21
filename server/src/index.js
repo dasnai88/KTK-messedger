@@ -37,6 +37,7 @@ const webPushPrivateKey = process.env.WEB_PUSH_PRIVATE_KEY || ''
 const webPushEnabled = Boolean(webPushPublicKey && webPushPrivateKey)
 const profileStatusTextMaxLength = 80
 const profileStatusEmojiMaxLength = 16
+const stickerTitleMaxLength = 48
 
 if (webPushEnabled) {
   webpush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey)
@@ -271,6 +272,7 @@ function getMessagePreviewText(body, attachmentUrl, attachmentKind) {
     return text.length > 120 ? `${text.slice(0, 117)}...` : text
   }
   if (attachmentUrl) {
+    if (attachmentKind === 'sticker') return 'Sticker'
     if (attachmentKind === 'video-note') return 'Video note'
     if (attachmentKind === 'video') return 'Video'
     return 'Photo'
@@ -289,14 +291,17 @@ function normalizeMessageAttachmentKind(file, requestedKind) {
   if (mime.startsWith('video/')) {
     return requested === 'video-note' ? 'video-note' : 'video'
   }
-  if (mime.startsWith('image/')) return 'image'
+  if (mime.startsWith('image/')) {
+    return requested === 'sticker' ? 'sticker' : 'image'
+  }
   if (videoAttachmentExtensions.has(extension)) {
     return requested === 'video-note' ? 'video-note' : 'video'
   }
   if (imageAttachmentExtensions.has(extension)) {
-    return 'image'
+    return requested === 'sticker' ? 'sticker' : 'image'
   }
   if (requested === 'video-note' || requested === 'video') return requested === 'video-note' ? 'video-note' : 'video'
+  if (requested === 'sticker') return 'sticker'
   if (requested === 'image') return 'image'
   return null
 }
@@ -416,11 +421,36 @@ function mapProfileTrack(row) {
   }
 }
 
+function mapSticker(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title || '',
+    imageUrl: row.image_url,
+    mimeType: row.mime_type || null,
+    createdAt: row.created_at
+  }
+}
+
 function isProfileFeaturesSchemaError(err) {
   if (!err || typeof err !== 'object') return false
   if (err.code !== '42P01' && err.code !== '42703') return false
   const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   return message.includes('user_subscriptions') || message.includes('profile_tracks')
+}
+
+function isStickerFeaturesSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('user_stickers')
+}
+
+function isAttachmentKindConstraintError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '23514') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('attachment_kind')
 }
 
 async function getUserByIdWithStats(userId, viewerId) {
@@ -1222,6 +1252,73 @@ app.post('/api/me/banner', uploadLimiter, auth, ensureNotBanned, imageUpload.sin
   }
 })
 
+app.get('/api/me/stickers', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `select id, user_id, title, image_url, mime_type, created_at
+       from user_stickers
+       where user_id = $1
+       order by created_at desc
+       limit 400`,
+      [req.userId]
+    )
+    res.json({ stickers: result.rows.map(mapSticker) })
+  } catch (err) {
+    if (isStickerFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Sticker feature is unavailable: database migration required' })
+    }
+    console.error('Get stickers error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/stickers', uploadLimiter, auth, ensureNotBanned, imageUpload.single('sticker'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Sticker image is required' })
+    }
+    const rawTitle = typeof req.body.title === 'string' ? req.body.title.trim() : ''
+    const title = rawTitle.slice(0, stickerTitleMaxLength) || null
+    const imageUrl = await storeUpload(req.file)
+    const mimeType = req.file.mimetype || null
+    const result = await pool.query(
+      `insert into user_stickers (user_id, title, image_url, mime_type)
+       values ($1, $2, $3, $4)
+       returning id, user_id, title, image_url, mime_type, created_at`,
+      [req.userId, title, imageUrl, mimeType]
+    )
+    res.json({ sticker: mapSticker(result.rows[0]) })
+  } catch (err) {
+    if (isStickerFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Sticker feature is unavailable: database migration required' })
+    }
+    console.error('Upload sticker error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.delete('/api/me/stickers/:id', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const stickerId = req.params.id
+    const result = await pool.query(
+      `delete from user_stickers
+       where id = $1 and user_id = $2
+       returning id`,
+      [stickerId, req.userId]
+    )
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Sticker not found' })
+    }
+    res.json({ ok: true, stickerId })
+  } catch (err) {
+    if (isStickerFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Sticker feature is unavailable: database migration required' })
+    }
+    console.error('Delete sticker error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 app.get('/api/users/search', auth, ensureNotBanned, async (req, res) => {
   try {
     const username = normalizeUsername(req.query.username)
@@ -1876,6 +1973,181 @@ app.post('/api/conversations/:id/read', auth, ensureNotBanned, async (req, res) 
     res.json({ ok: true })
   } catch (err) {
     console.error('Read update error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/conversations/:id/stickers', messageLimiter, auth, ensureNotBanned, async (req, res) => {
+  try {
+    const conversationId = req.params.id
+    const stickerId = typeof req.body.stickerId === 'string' ? req.body.stickerId.trim() : ''
+    const rawReplyToMessageId = typeof req.body.replyToMessageId === 'string' ? req.body.replyToMessageId.trim() : ''
+
+    if (!stickerId || !isValidUuid(stickerId)) {
+      return res.status(400).json({ error: 'Sticker id is required' })
+    }
+
+    const membership = await pool.query(
+      'select 1 from conversation_members where conversation_id = $1 and user_id = $2',
+      [conversationId, req.userId]
+    )
+    if (membership.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    const conversationResult = await pool.query(
+      'select is_group, title from conversations where id = $1',
+      [conversationId]
+    )
+    if (conversationResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Conversation not found' })
+    }
+
+    const membersResult = await pool.query(
+      `select cm.user_id, u.username, u.display_name
+       from conversation_members cm
+       join users u on u.id = cm.user_id
+       where cm.conversation_id = $1`,
+      [conversationId]
+    )
+
+    const stickerResult = await pool.query(
+      `select id, user_id, title, image_url, mime_type, created_at
+       from user_stickers
+       where id = $1 and user_id = $2
+       limit 1`,
+      [stickerId, req.userId]
+    )
+    if (stickerResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Sticker not found' })
+    }
+    const sticker = stickerResult.rows[0]
+
+    let replyToMessageId = null
+    let replyTo = null
+    if (rawReplyToMessageId) {
+      if (!isValidUuid(rawReplyToMessageId)) {
+        return res.status(400).json({ error: 'Invalid reply target' })
+      }
+      const replyResult = await pool.query(
+        `select m.id,
+                m.body,
+                m.attachment_url,
+                m.attachment_mime,
+                m.attachment_kind,
+                m.deleted_at,
+                u.id as sender_id,
+                u.username as sender_username,
+                u.display_name as sender_display_name,
+                u.avatar_url as sender_avatar_url
+         from messages m
+         left join users u on u.id = m.sender_id
+         where m.id = $1 and m.conversation_id = $2
+         limit 1`,
+        [rawReplyToMessageId, conversationId]
+      )
+      if (replyResult.rowCount === 0) {
+        return res.status(400).json({ error: 'Reply target not found' })
+      }
+      const replyRow = replyResult.rows[0]
+      replyToMessageId = replyRow.id
+      replyTo = {
+        id: replyRow.id,
+        body: replyRow.body,
+        attachmentUrl: replyRow.attachment_url,
+        attachmentMime: replyRow.attachment_mime || null,
+        attachmentKind: replyRow.attachment_kind || null,
+        deletedAt: replyRow.deleted_at || null,
+        senderId: replyRow.sender_id || null,
+        senderUsername: replyRow.sender_username || null,
+        senderDisplayName: replyRow.sender_display_name || null,
+        senderAvatarUrl: replyRow.sender_avatar_url || null
+      }
+    }
+
+    let result
+    try {
+      result = await pool.query(
+        `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind, reply_to_id)
+         values ($1, $2, $3, $4, $5, 'sticker', $6)
+         returning id, body, attachment_url, attachment_mime, attachment_kind, reply_to_id, created_at`,
+        [conversationId, req.userId, '', sticker.image_url, sticker.mime_type || null, replyToMessageId]
+      )
+    } catch (err) {
+      if (isAttachmentKindConstraintError(err)) {
+        return res.status(503).json({ error: 'Sticker feature is unavailable: database migration required' })
+      }
+      if (!isMessageReplySchemaError(err)) throw err
+      if (replyToMessageId) {
+        return res.status(503).json({ error: 'Reply feature is unavailable: database migration required' })
+      }
+      result = await pool.query(
+        `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind)
+         values ($1, $2, $3, $4, $5, 'sticker')
+         returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
+        [conversationId, req.userId, '', sticker.image_url, sticker.mime_type || null]
+      )
+    }
+
+    const senderRow = await pool.query(
+      'select username, display_name, avatar_url from users where id = $1',
+      [req.userId]
+    )
+    const sender = senderRow.rows[0] || {}
+
+    const message = {
+      id: result.rows[0].id,
+      body: result.rows[0].body,
+      attachmentUrl: result.rows[0].attachment_url,
+      attachmentMime: result.rows[0].attachment_mime,
+      attachmentKind: result.rows[0].attachment_kind,
+      editedAt: null,
+      createdAt: result.rows[0].created_at,
+      senderId: req.userId,
+      senderUsername: sender.username || null,
+      senderDisplayName: sender.display_name || null,
+      senderAvatarUrl: sender.avatar_url || null,
+      readByOther: false,
+      replyTo,
+      reactions: []
+    }
+
+    membersResult.rows.forEach((member) => {
+      emitToUser(member.user_id, 'message', { conversationId, message })
+    })
+
+    const recipients = membersResult.rows
+      .map((member) => member.user_id)
+      .filter((memberId) => memberId !== req.userId)
+
+    if (recipients.length > 0) {
+      const isGroup = conversationResult.rows[0].is_group === true
+      const senderName = sender.display_name || sender.username || 'New message'
+      const pushTitle = isGroup
+        ? (conversationResult.rows[0].title || 'New message in group')
+        : senderName
+      const pushPayload = {
+        title: pushTitle,
+        body: getMessagePreviewText(message.body, message.attachmentUrl, message.attachmentKind),
+        conversationId,
+        url: `/?conversation=${conversationId}`,
+        tag: `conversation-${conversationId}`,
+        senderId: req.userId,
+        messageId: message.id,
+        createdAt: message.createdAt,
+        skipWhenVisible: true
+      }
+      void sendPushToUsers(recipients, pushPayload).catch((err) => {
+        console.error('Push send error', err)
+      })
+    }
+
+    res.json({ message, sticker: mapSticker(sticker) })
+  } catch (err) {
+    if (isStickerFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'Sticker feature is unavailable: database migration required' })
+    }
+    console.error('Send sticker error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })

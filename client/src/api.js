@@ -165,7 +165,7 @@ export async function sendMessage(conversationId, body, file, options = {}) {
       const message = data.error || 'Unexpected error'
       const lowerMessage = String(message).toLowerCase()
       const shouldRetryAsVideo = isVideoLikeFile(file) && (
-        lowerMessage.includes('only images') || lowerMessage.includes('только изображения')
+        lowerMessage.includes('only images') || lowerMessage.includes('только изображения') || lowerMessage.includes('разрешены только изображения')
       )
       if (shouldRetryAsVideo) {
         const fallbackVideoFile = await createVideoFallbackFile(file)
@@ -284,6 +284,44 @@ export async function uploadBanner(file) {
     throw new Error(data.error || 'Unexpected error')
   }
   return data
+}
+
+export async function getMyStickers() {
+  return request('/me/stickers')
+}
+
+export async function uploadSticker(file, title = '') {
+  const token = getToken()
+  const formData = new FormData()
+  formData.append('sticker', file)
+  if (title) {
+    formData.append('title', title)
+  }
+  const response = await fetch(`${API_BASE}/me/stickers`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data.error || 'Unexpected error')
+  }
+  return data
+}
+
+export async function deleteSticker(stickerId) {
+  return request(`/me/stickers/${stickerId}`, { method: 'DELETE' })
+}
+
+export async function sendSticker(conversationId, stickerId, options = {}) {
+  const replyToMessageId = typeof options.replyToMessageId === 'string' ? options.replyToMessageId.trim() : ''
+  return request(`/conversations/${conversationId}/stickers`, {
+    method: 'POST',
+    body: {
+      stickerId,
+      ...(replyToMessageId ? { replyToMessageId } : {})
+    }
+  })
 }
 
 export async function uploadProfileTrack(file, meta = {}) {
