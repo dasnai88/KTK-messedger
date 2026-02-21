@@ -3680,17 +3680,6 @@ body {
   }
 }
 
-@keyframes ios-liquid-shift {
-  0% {
-    transform: translate3d(-4%, -6%, 0) scale(1);
-    opacity: 0.34;
-  }
-  100% {
-    transform: translate3d(4%, 6%, 0) scale(1.06);
-    opacity: 0.56;
-  }
-}
-
 body {
   background:
     radial-gradient(1200px 500px at 10% -20%, rgba(var(--accent-rgb), var(--ambient-opacity)), transparent 60%),
@@ -4011,111 +4000,47 @@ body {
   box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.28), 0 14px 30px rgba(var(--accent-rgb), 0.18);
 }
 
-:root[data-platform='ios'] .content,
-:root[data-platform='ios'] .panel,
-:root[data-platform='ios'] .chat-list,
-:root[data-platform='ios'] .chat-window,
-:root[data-platform='ios'] .feed-card,
-:root[data-platform='ios'] .music-panel,
-:root[data-platform='ios'] .music-editor,
-:root[data-platform='ios'] .feed-composer,
-:root[data-platform='ios'] .feed-toolbox,
-:root[data-platform='ios'] .profile-pro-card,
-:root[data-platform='ios'] .profile-showcase-editor,
-:root[data-platform='ios'] .ui-studio,
-:root[data-platform='ios'] .modal-card {
-  border-color: var(--ios-liquid-line);
-  background:
-    radial-gradient(130% 120% at -10% -30%, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 58%),
-    linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.05) 42%, rgba(255, 255, 255, 0.02)),
-    var(--ios-liquid-surface);
-  box-shadow: var(--ios-liquid-shadow);
-  backdrop-filter: blur(var(--ios-liquid-blur)) saturate(175%);
-  -webkit-backdrop-filter: blur(var(--ios-liquid-blur)) saturate(175%);
-  position: relative;
-  isolation: isolate;
-}
-
-:root[data-platform='ios'] .content::after,
-:root[data-platform='ios'] .panel::after,
-:root[data-platform='ios'] .chat-list::after,
-:root[data-platform='ios'] .chat-window::after,
-:root[data-platform='ios'] .feed-card::after,
-:root[data-platform='ios'] .music-panel::after,
-:root[data-platform='ios'] .music-editor::after,
-:root[data-platform='ios'] .feed-composer::after,
-:root[data-platform='ios'] .feed-toolbox::after,
-:root[data-platform='ios'] .profile-pro-card::after,
-:root[data-platform='ios'] .profile-showcase-editor::after,
-:root[data-platform='ios'] .ui-studio::after,
-:root[data-platform='ios'] .modal-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 0;
-  background: linear-gradient(125deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.08) 34%, rgba(255, 255, 255, 0) 58%, rgba(255, 255, 255, 0.24));
-  mix-blend-mode: screen;
-  opacity: 0.48;
-  animation: ios-liquid-shift 14s var(--ease-out) infinite alternate;
-}
-
-:root[data-platform='ios'] .content > *,
-:root[data-platform='ios'] .panel > *,
-:root[data-platform='ios'] .chat-list > *,
-:root[data-platform='ios'] .feed-card > *,
-:root[data-platform='ios'] .music-panel > *,
-:root[data-platform='ios'] .music-editor > *,
-:root[data-platform='ios'] .feed-composer > *,
-:root[data-platform='ios'] .feed-toolbox > *,
-:root[data-platform='ios'] .profile-pro-card > *,
-:root[data-platform='ios'] .profile-showcase-editor > *,
-:root[data-platform='ios'] .ui-studio > *,
-:root[data-platform='ios'] .modal-card > * {
-  position: relative;
-  z-index: 1;
-}
-
-:root[data-platform='ios'] .icon-rail,
 :root[data-platform='ios'] .user-pill,
 :root[data-platform='ios'] .theme-toggle,
 :root[data-platform='ios'] .push-toggle,
-:root[data-platform='ios'] .logout-btn {
+:root[data-platform='ios'] .logout-btn,
+:root[data-platform='ios'] .icon-rail button,
+:root[data-platform='ios'] .chat-action,
+:root[data-platform='ios'] .media-trigger-btn,
+:root[data-platform='ios'] .poll-trigger-btn,
+:root[data-platform='ios'] .record-btn,
+:root[data-platform='ios'] .sticker-btn {
   border-color: var(--ios-liquid-line);
   background:
-    linear-gradient(150deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.07) 40%, rgba(255, 255, 255, 0.02)),
-    color-mix(in srgb, var(--panel) 58%, transparent);
-  box-shadow: 0 10px 24px rgba(3, 8, 20, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(calc(var(--ios-liquid-blur) - 4px)) saturate(170%);
-  -webkit-backdrop-filter: blur(calc(var(--ios-liquid-blur) - 4px)) saturate(170%);
+    linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.07) 42%, rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--panel) 64%, transparent);
+  box-shadow: 0 8px 20px rgba(3, 8, 20, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(calc(var(--ios-liquid-blur) - 7px)) saturate(158%);
+  -webkit-backdrop-filter: blur(calc(var(--ios-liquid-blur) - 7px)) saturate(158%);
 }
 
 :root[data-platform='ios'] .icon-rail button {
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06) 44%, rgba(255, 255, 255, 0.02)),
-    color-mix(in srgb, var(--panel-2) 64%, transparent);
+    linear-gradient(160deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.08) 44%, rgba(255, 255, 255, 0.03)),
+    color-mix(in srgb, var(--panel-2) 70%, transparent);
 }
 
 :root[data-platform='ios'] .icon-rail button.active {
   border-color: rgba(var(--accent-rgb), 0.58);
 }
 
-:root[data-theme='light'][data-platform='ios'] .content::after,
-:root[data-theme='light'][data-platform='ios'] .panel::after,
-:root[data-theme='light'][data-platform='ios'] .chat-list::after,
-:root[data-theme='light'][data-platform='ios'] .chat-window::after,
-:root[data-theme='light'][data-platform='ios'] .feed-card::after,
-:root[data-theme='light'][data-platform='ios'] .music-panel::after,
-:root[data-theme='light'][data-platform='ios'] .music-editor::after,
-:root[data-theme='light'][data-platform='ios'] .feed-composer::after,
-:root[data-theme='light'][data-platform='ios'] .feed-toolbox::after,
-:root[data-theme='light'][data-platform='ios'] .profile-pro-card::after,
-:root[data-theme='light'][data-platform='ios'] .profile-showcase-editor::after,
-:root[data-theme='light'][data-platform='ios'] .ui-studio::after,
-:root[data-theme='light'][data-platform='ios'] .modal-card::after {
-  opacity: 0.32;
+:root[data-theme='light'][data-platform='ios'] .user-pill,
+:root[data-theme='light'][data-platform='ios'] .theme-toggle,
+:root[data-theme='light'][data-platform='ios'] .push-toggle,
+:root[data-theme='light'][data-platform='ios'] .logout-btn,
+:root[data-theme='light'][data-platform='ios'] .icon-rail button,
+:root[data-theme='light'][data-platform='ios'] .chat-action,
+:root[data-theme='light'][data-platform='ios'] .media-trigger-btn,
+:root[data-theme='light'][data-platform='ios'] .poll-trigger-btn,
+:root[data-theme='light'][data-platform='ios'] .record-btn,
+:root[data-theme='light'][data-platform='ios'] .sticker-btn {
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 :root[data-ui-density='compact'] .content {
