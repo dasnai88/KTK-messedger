@@ -60,6 +60,15 @@ create table if not exists user_stickers (
   created_at timestamptz default now()
 );
 
+create table if not exists user_gifs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade,
+  title text,
+  image_url text not null,
+  mime_type text,
+  created_at timestamptz default now()
+);
+
 create table if not exists conversations (
   id uuid primary key default gen_random_uuid(),
   title text,
@@ -95,7 +104,7 @@ create table if not exists messages (
   body text not null,
   attachment_url text,
   attachment_mime text,
-  attachment_kind text check (attachment_kind in ('image', 'video', 'video-note', 'sticker')),
+  attachment_kind text check (attachment_kind in ('image', 'video', 'video-note', 'sticker', 'gif')),
   reply_to_id uuid references messages(id) on delete set null,
   edited_at timestamptz,
   deleted_at timestamptz,
@@ -158,6 +167,7 @@ create index if not exists idx_subscriptions_target on user_subscriptions (targe
 create index if not exists idx_subscriptions_subscriber on user_subscriptions (subscriber_id);
 create index if not exists idx_profile_tracks_user on profile_tracks (user_id, created_at desc);
 create index if not exists idx_user_stickers_user on user_stickers (user_id, created_at desc);
+create index if not exists idx_user_gifs_user on user_gifs (user_id, created_at desc);
 create index if not exists idx_members_user on conversation_members (user_id);
 create index if not exists idx_members_user_favorite on conversation_members (user_id, is_favorite);
 create index if not exists idx_push_subscriptions_user on push_subscriptions (user_id);
@@ -209,7 +219,7 @@ BEGIN
 
   ALTER TABLE messages
     ADD CONSTRAINT chk_messages_attachment_kind
-    CHECK (attachment_kind in ('image', 'video', 'video-note', 'sticker'));
+    CHECK (attachment_kind in ('image', 'video', 'video-note', 'sticker', 'gif'));
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_object THEN NULL;
 END $$;
@@ -251,6 +261,16 @@ WHEN duplicate_column THEN END $$;
 
 DO $$ BEGIN
   ALTER TABLE user_stickers ADD COLUMN mime_type text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_gifs ADD COLUMN title text;
+EXCEPTION WHEN undefined_table THEN NULL;
+WHEN duplicate_column THEN END $$;
+
+DO $$ BEGIN
+  ALTER TABLE user_gifs ADD COLUMN mime_type text;
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_column THEN END $$;
 

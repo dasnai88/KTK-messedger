@@ -38,6 +38,7 @@ const webPushEnabled = Boolean(webPushPublicKey && webPushPrivateKey)
 const profileStatusTextMaxLength = 80
 const profileStatusEmojiMaxLength = 16
 const stickerTitleMaxLength = 48
+const gifTitleMaxLength = 48
 
 if (webPushEnabled) {
   webpush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey)
@@ -111,6 +112,16 @@ const imageUpload = createUpload({
   extensions: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
   maxFileSizeMb: 5,
   errorMessage: 'Only images are allowed'
+})
+
+const gifUpload = createUpload({
+  mimeTypes: ['image/gif'],
+  extensions: ['.gif'],
+  maxFileSizeMb: 12,
+  errorMessage: 'Only GIF files are allowed',
+  allowWithoutExtension: true,
+  allowOctetStreamByExtension: true,
+  allowUnknownMimeByExtension: true
 })
 
 const audioUpload = createUpload({
@@ -272,6 +283,7 @@ function getMessagePreviewText(body, attachmentUrl, attachmentKind) {
     return text.length > 120 ? `${text.slice(0, 117)}...` : text
   }
   if (attachmentUrl) {
+    if (attachmentKind === 'gif') return 'GIF'
     if (attachmentKind === 'sticker') return 'Sticker'
     if (attachmentKind === 'video-note') return 'Video note'
     if (attachmentKind === 'video') return 'Video'
@@ -292,16 +304,19 @@ function normalizeMessageAttachmentKind(file, requestedKind) {
     return requested === 'video-note' ? 'video-note' : 'video'
   }
   if (mime.startsWith('image/')) {
+    if (requested === 'gif') return 'gif'
     return requested === 'sticker' ? 'sticker' : 'image'
   }
   if (videoAttachmentExtensions.has(extension)) {
     return requested === 'video-note' ? 'video-note' : 'video'
   }
   if (imageAttachmentExtensions.has(extension)) {
+    if (requested === 'gif') return 'gif'
     return requested === 'sticker' ? 'sticker' : 'image'
   }
   if (requested === 'video-note' || requested === 'video') return requested === 'video-note' ? 'video-note' : 'video'
   if (requested === 'sticker') return 'sticker'
+  if (requested === 'gif') return 'gif'
   if (requested === 'image') return 'image'
   return null
 }
@@ -432,6 +447,17 @@ function mapSticker(row) {
   }
 }
 
+function mapGif(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title || '',
+    imageUrl: row.image_url,
+    mimeType: row.mime_type || null,
+    createdAt: row.created_at
+  }
+}
+
 function isProfileFeaturesSchemaError(err) {
   if (!err || typeof err !== 'object') return false
   if (err.code !== '42P01' && err.code !== '42703') return false
@@ -444,6 +470,13 @@ function isStickerFeaturesSchemaError(err) {
   if (err.code !== '42P01' && err.code !== '42703') return false
   const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   return message.includes('user_stickers')
+}
+
+function isGifFeaturesSchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return message.includes('user_gifs')
 }
 
 function isAttachmentKindConstraintError(err) {
@@ -1319,6 +1352,73 @@ app.delete('/api/me/stickers/:id', auth, ensureNotBanned, async (req, res) => {
   }
 })
 
+app.get('/api/me/gifs', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `select id, user_id, title, image_url, mime_type, created_at
+       from user_gifs
+       where user_id = $1
+       order by created_at desc
+       limit 400`,
+      [req.userId]
+    )
+    res.json({ gifs: result.rows.map(mapGif) })
+  } catch (err) {
+    if (isGifFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'GIF feature is unavailable: database migration required' })
+    }
+    console.error('Get gifs error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/gifs', uploadLimiter, auth, ensureNotBanned, gifUpload.single('gif'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'GIF file is required' })
+    }
+    const rawTitle = typeof req.body.title === 'string' ? req.body.title.trim() : ''
+    const title = rawTitle.slice(0, gifTitleMaxLength) || null
+    const imageUrl = await storeUpload(req.file)
+    const mimeType = req.file.mimetype || null
+    const result = await pool.query(
+      `insert into user_gifs (user_id, title, image_url, mime_type)
+       values ($1, $2, $3, $4)
+       returning id, user_id, title, image_url, mime_type, created_at`,
+      [req.userId, title, imageUrl, mimeType]
+    )
+    res.json({ gif: mapGif(result.rows[0]) })
+  } catch (err) {
+    if (isGifFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'GIF feature is unavailable: database migration required' })
+    }
+    console.error('Upload gif error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.delete('/api/me/gifs/:id', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const gifId = req.params.id
+    const result = await pool.query(
+      `delete from user_gifs
+       where id = $1 and user_id = $2
+       returning id`,
+      [gifId, req.userId]
+    )
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'GIF not found' })
+    }
+    res.json({ ok: true, gifId })
+  } catch (err) {
+    if (isGifFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'GIF feature is unavailable: database migration required' })
+    }
+    console.error('Delete gif error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 app.get('/api/users/search', auth, ensureNotBanned, async (req, res) => {
   try {
     const username = normalizeUsername(req.query.username)
@@ -2152,6 +2252,181 @@ app.post('/api/conversations/:id/stickers', messageLimiter, auth, ensureNotBanne
   }
 })
 
+app.post('/api/conversations/:id/gifs', messageLimiter, auth, ensureNotBanned, async (req, res) => {
+  try {
+    const conversationId = req.params.id
+    const gifId = typeof req.body.gifId === 'string' ? req.body.gifId.trim() : ''
+    const rawReplyToMessageId = typeof req.body.replyToMessageId === 'string' ? req.body.replyToMessageId.trim() : ''
+
+    if (!gifId || !isValidUuid(gifId)) {
+      return res.status(400).json({ error: 'GIF id is required' })
+    }
+
+    const membership = await pool.query(
+      'select 1 from conversation_members where conversation_id = $1 and user_id = $2',
+      [conversationId, req.userId]
+    )
+    if (membership.rowCount === 0) {
+      return res.status(403).json({ error: 'Access denied' })
+    }
+
+    const conversationResult = await pool.query(
+      'select is_group, title from conversations where id = $1',
+      [conversationId]
+    )
+    if (conversationResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Conversation not found' })
+    }
+
+    const membersResult = await pool.query(
+      `select cm.user_id, u.username, u.display_name
+       from conversation_members cm
+       join users u on u.id = cm.user_id
+       where cm.conversation_id = $1`,
+      [conversationId]
+    )
+
+    const gifResult = await pool.query(
+      `select id, user_id, title, image_url, mime_type, created_at
+       from user_gifs
+       where id = $1 and user_id = $2
+       limit 1`,
+      [gifId, req.userId]
+    )
+    if (gifResult.rowCount === 0) {
+      return res.status(404).json({ error: 'GIF not found' })
+    }
+    const gif = gifResult.rows[0]
+
+    let replyToMessageId = null
+    let replyTo = null
+    if (rawReplyToMessageId) {
+      if (!isValidUuid(rawReplyToMessageId)) {
+        return res.status(400).json({ error: 'Invalid reply target' })
+      }
+      const replyResult = await pool.query(
+        `select m.id,
+                m.body,
+                m.attachment_url,
+                m.attachment_mime,
+                m.attachment_kind,
+                m.deleted_at,
+                u.id as sender_id,
+                u.username as sender_username,
+                u.display_name as sender_display_name,
+                u.avatar_url as sender_avatar_url
+         from messages m
+         left join users u on u.id = m.sender_id
+         where m.id = $1 and m.conversation_id = $2
+         limit 1`,
+        [rawReplyToMessageId, conversationId]
+      )
+      if (replyResult.rowCount === 0) {
+        return res.status(400).json({ error: 'Reply target not found' })
+      }
+      const replyRow = replyResult.rows[0]
+      replyToMessageId = replyRow.id
+      replyTo = {
+        id: replyRow.id,
+        body: replyRow.body,
+        attachmentUrl: replyRow.attachment_url,
+        attachmentMime: replyRow.attachment_mime || null,
+        attachmentKind: replyRow.attachment_kind || null,
+        deletedAt: replyRow.deleted_at || null,
+        senderId: replyRow.sender_id || null,
+        senderUsername: replyRow.sender_username || null,
+        senderDisplayName: replyRow.sender_display_name || null,
+        senderAvatarUrl: replyRow.sender_avatar_url || null
+      }
+    }
+
+    let result
+    try {
+      result = await pool.query(
+        `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind, reply_to_id)
+         values ($1, $2, $3, $4, $5, 'gif', $6)
+         returning id, body, attachment_url, attachment_mime, attachment_kind, reply_to_id, created_at`,
+        [conversationId, req.userId, '', gif.image_url, gif.mime_type || null, replyToMessageId]
+      )
+    } catch (err) {
+      if (isAttachmentKindConstraintError(err)) {
+        return res.status(503).json({ error: 'GIF feature is unavailable: database migration required' })
+      }
+      if (!isMessageReplySchemaError(err)) throw err
+      if (replyToMessageId) {
+        return res.status(503).json({ error: 'Reply feature is unavailable: database migration required' })
+      }
+      result = await pool.query(
+        `insert into messages (conversation_id, sender_id, body, attachment_url, attachment_mime, attachment_kind)
+         values ($1, $2, $3, $4, $5, 'gif')
+         returning id, body, attachment_url, attachment_mime, attachment_kind, created_at`,
+        [conversationId, req.userId, '', gif.image_url, gif.mime_type || null]
+      )
+    }
+
+    const senderRow = await pool.query(
+      'select username, display_name, avatar_url from users where id = $1',
+      [req.userId]
+    )
+    const sender = senderRow.rows[0] || {}
+
+    const message = {
+      id: result.rows[0].id,
+      body: result.rows[0].body,
+      attachmentUrl: result.rows[0].attachment_url,
+      attachmentMime: result.rows[0].attachment_mime,
+      attachmentKind: result.rows[0].attachment_kind,
+      editedAt: null,
+      createdAt: result.rows[0].created_at,
+      senderId: req.userId,
+      senderUsername: sender.username || null,
+      senderDisplayName: sender.display_name || null,
+      senderAvatarUrl: sender.avatar_url || null,
+      readByOther: false,
+      replyTo,
+      reactions: []
+    }
+
+    membersResult.rows.forEach((member) => {
+      emitToUser(member.user_id, 'message', { conversationId, message })
+    })
+
+    const recipients = membersResult.rows
+      .map((member) => member.user_id)
+      .filter((memberId) => memberId !== req.userId)
+
+    if (recipients.length > 0) {
+      const isGroup = conversationResult.rows[0].is_group === true
+      const senderName = sender.display_name || sender.username || 'New message'
+      const pushTitle = isGroup
+        ? (conversationResult.rows[0].title || 'New message in group')
+        : senderName
+      const pushPayload = {
+        title: pushTitle,
+        body: getMessagePreviewText(message.body, message.attachmentUrl, message.attachmentKind),
+        conversationId,
+        url: `/?conversation=${conversationId}`,
+        tag: `conversation-${conversationId}`,
+        senderId: req.userId,
+        messageId: message.id,
+        createdAt: message.createdAt,
+        skipWhenVisible: true
+      }
+      void sendPushToUsers(recipients, pushPayload).catch((err) => {
+        console.error('Push send error', err)
+      })
+    }
+
+    res.json({ message, gif: mapGif(gif) })
+  } catch (err) {
+    if (isGifFeaturesSchemaError(err)) {
+      return res.status(503).json({ error: 'GIF feature is unavailable: database migration required' })
+    }
+    console.error('Send gif error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanned, messageUpload.single('file'), async (req, res) => {
   try {
     const conversationId = req.params.id
@@ -2784,6 +3059,9 @@ app.get('/api/presence', auth, async (req, res) => {
 app.use((err, req, res, next) => {
   if (err && err.message && err.message.includes('Only images')) {
     return res.status(400).json({ error: 'Разрешены только изображения (jpg, png, webp, gif)' })
+  }
+  if (err && err.message && err.message.includes('Only GIF files')) {
+    return res.status(400).json({ error: 'Only GIF files are allowed' })
   }
   if (err && err.message && err.message.includes('Only image or video attachments')) {
     return res.status(400).json({ error: 'Разрешены только изображения и видео файлы.' })

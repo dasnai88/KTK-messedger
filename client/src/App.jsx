@@ -50,7 +50,11 @@ import {
   getMyStickers,
   uploadSticker,
   deleteSticker,
-  sendSticker
+  sendSticker,
+  getMyGifs,
+  uploadGif,
+  deleteGif,
+  sendGif
 } from './api.js'
 
 const icons = {
@@ -159,6 +163,22 @@ const FEED_BOOKMARKS_STORAGE_KEY = 'ktk_feed_bookmarks'
 const CHAT_WALLPAPER_STORAGE_KEY = 'ktk_chat_wallpapers'
 const CHAT_ALIAS_STORAGE_KEY = 'ktk_chat_aliases'
 const RECENT_STICKERS_STORAGE_KEY = 'ktk_recent_stickers'
+const RECENT_GIFS_STORAGE_KEY = 'ktk_recent_gifs'
+const MEDIA_PANEL_TABS = {
+  emoji: 'emoji',
+  stickers: 'stickers',
+  gifs: 'gifs'
+}
+const EMOJI_PICKER_ITEMS = [
+  '😀', '😁', '😂', '🤣', '😊', '😍', '🥰', '😘', '😎', '🤩',
+  '😇', '🙂', '😉', '🤗', '🤔', '😴', '🤯', '🥶', '🥵', '😱',
+  '🙌', '👏', '👍', '👎', '🤝', '🙏', '💪', '🫶', '👀', '🔥',
+  '✨', '⚡', '💥', '🎉', '🎊', '🎯', '🏆', '💯', '❤️', '💔',
+  '💖', '💙', '💚', '🖤', '💜', '🤍', '🫡', '🤡', '💀', '👻',
+  '🐱', '🐶', '🦊', '🐼', '🐸', '🐵', '🐺', '🐯', '🐨', '🦄',
+  '🍓', '🍉', '🍕', '🍔', '🌮', '🌭', '🍩', '☕', '🎮', '🎧',
+  '📚', '✏️', '💡', '🚀', '🌙', '☀️', '🌈', '🌧️', '⭐', '🧠'
+]
 const CHAT_LIST_FILTERS = {
   all: 'all',
   unread: 'unread',
@@ -370,6 +390,7 @@ function getMessagePreviewLabel(message, emptyText = 'Сообщение') {
     return text.length > 120 ? `${text.slice(0, 117)}...` : text
   }
   if (message && message.attachmentUrl) {
+    if (message.attachmentKind === 'gif') return 'GIF'
     if (message.attachmentKind === 'sticker') return 'Стикер'
     if (message.attachmentKind === VIDEO_NOTE_KIND) return 'Видеосообщение'
     if (isVideoMessageAttachment(message)) return 'Видео'
@@ -506,11 +527,23 @@ export default function App() {
   const [videoNoteRecording, setVideoNoteRecording] = useState(false)
   const [videoNoteDuration, setVideoNoteDuration] = useState(0)
   const [myStickers, setMyStickers] = useState([])
+  const [myGifs, setMyGifs] = useState([])
   const [stickersLoading, setStickersLoading] = useState(false)
-  const [stickerPanelOpen, setStickerPanelOpen] = useState(false)
+  const [gifsLoading, setGifsLoading] = useState(false)
+  const [mediaPanelOpen, setMediaPanelOpen] = useState(false)
+  const [mediaPanelTab, setMediaPanelTab] = useState(MEDIA_PANEL_TABS.emoji)
   const [recentStickerIds, setRecentStickerIds] = useState(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem(RECENT_STICKERS_STORAGE_KEY) || '[]')
+      if (!Array.isArray(parsed)) return []
+      return parsed.map((item) => String(item || '')).filter(Boolean).slice(0, 40)
+    } catch (err) {
+      return []
+    }
+  })
+  const [recentGifIds, setRecentGifIds] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RECENT_GIFS_STORAGE_KEY) || '[]')
       if (!Array.isArray(parsed)) return []
       return parsed.map((item) => String(item || '')).filter(Boolean).slice(0, 40)
     } catch (err) {
@@ -734,6 +767,15 @@ export default function App() {
       .filter(Boolean)
       .slice(0, 16)
   ), [recentStickerIds, stickerById])
+  const gifById = useMemo(() => (
+    new Map(myGifs.map((gif) => [gif.id, gif]))
+  ), [myGifs])
+  const recentGifs = useMemo(() => (
+    recentGifIds
+      .map((gifId) => gifById.get(gifId))
+      .filter(Boolean)
+      .slice(0, 16)
+  ), [recentGifIds, gifById])
   const feedQueryNormalized = feedQuery.trim().toLowerCase()
   const trendingTags = useMemo(() => {
     const tagCounts = new Map()
@@ -1221,10 +1263,7 @@ export default function App() {
     state.isTyping = false
   }
 
-  const handleMessageInputChange = (event) => {
-    const value = event.target.value
-    setMessageText(value)
-
+  const syncTypingStateByValue = (value) => {
     if (!activeConversation || isChatBlocked) {
       if (!value.trim()) stopTyping()
       return
@@ -1262,6 +1301,19 @@ export default function App() {
       }
       state.timer = null
     }, 1600)
+  }
+
+  const handleMessageInputChange = (event) => {
+    const value = event.target.value
+    setMessageText(value)
+    syncTypingStateByValue(value)
+  }
+
+  const appendEmojiToMessage = (emoji) => {
+    if (!emoji || !activeConversation || isChatBlocked) return
+    const nextValue = `${messageText}${emoji}`
+    setMessageText(nextValue)
+    syncTypingStateByValue(nextValue)
   }
 
   const isPushSupported = () => (
@@ -1814,27 +1866,48 @@ export default function App() {
   }, [recentStickerIds])
 
   useEffect(() => {
+    try {
+      localStorage.setItem(RECENT_GIFS_STORAGE_KEY, JSON.stringify(recentGifIds.slice(0, 40)))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [recentGifIds])
+
+  useEffect(() => {
     if (!user) {
       setMyStickers([])
+      setMyGifs([])
       setRecentStickerIds([])
-      setStickerPanelOpen(false)
+      setRecentGifIds([])
+      setMediaPanelOpen(false)
+      setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
       return
     }
-    const loadStickers = async () => {
+    const loadMediaLibrary = async () => {
       try {
-        const data = await getMyStickers()
-        setMyStickers(data.stickers || [])
+        const [stickerData, gifData] = await Promise.all([
+          getMyStickers(),
+          getMyGifs()
+        ])
+        setMyStickers(stickerData.stickers || [])
+        setMyGifs(gifData.gifs || [])
       } catch (err) {
         setMyStickers([])
+        setMyGifs([])
       }
     }
-    loadStickers()
+    loadMediaLibrary()
   }, [user ? user.id : null])
 
   useEffect(() => {
     const availableStickerIds = new Set(myStickers.map((sticker) => sticker.id))
     setRecentStickerIds((prev) => prev.filter((stickerId) => availableStickerIds.has(stickerId)))
   }, [myStickers])
+
+  useEffect(() => {
+    const availableGifIds = new Set(myGifs.map((gif) => gif.id))
+    setRecentGifIds((prev) => prev.filter((gifId) => availableGifIds.has(gifId)))
+  }, [myGifs])
 
   useEffect(() => {
     const handleHotkey = (event) => {
@@ -1869,7 +1942,8 @@ export default function App() {
 
   useEffect(() => {
     stopTyping()
-    setStickerPanelOpen(false)
+    setMediaPanelOpen(false)
+    setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
     if (!activeConversation) {
       setMessageText('')
       setReplyMessage(null)
@@ -2804,8 +2878,11 @@ export default function App() {
     setActiveConversation(null)
     setMessages([])
     setMyStickers([])
+    setMyGifs([])
     setRecentStickerIds([])
-    setStickerPanelOpen(false)
+    setRecentGifIds([])
+    setMediaPanelOpen(false)
+    setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
     setConversations([])
     setProfileView(null)
     setProfilePosts([])
@@ -2888,6 +2965,14 @@ export default function App() {
     })
   }
 
+  const rememberRecentGif = (gifId) => {
+    if (!gifId) return
+    setRecentGifIds((prev) => {
+      const next = [gifId, ...prev.filter((id) => id !== gifId)]
+      return next.slice(0, 40)
+    })
+  }
+
   const handleStickerUpload = async (event) => {
     const file = event.target.files && event.target.files[0]
     if (!file) return
@@ -2940,6 +3025,74 @@ export default function App() {
       setReplyMessage(null)
       clearMessageAttachment()
       rememberRecentSticker(sticker.id)
+      const list = await getConversations()
+      setConversations(list.conversations || [])
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleGifUpload = async (event) => {
+    const file = event.target.files && event.target.files[0]
+    if (!file) return
+    const fileName = String(file.name || '').toLowerCase()
+    const isGif = String(file.type || '').toLowerCase() === 'image/gif' || fileName.endsWith('.gif')
+    if (!isGif) {
+      setStatus({ type: 'error', message: 'Разрешены только GIF файлы.' })
+      event.target.value = ''
+      return
+    }
+    const rawTitle = String(file.name || '').replace(/\.[^.]+$/, '').trim()
+    const title = rawTitle.slice(0, 48)
+    setGifsLoading(true)
+    try {
+      const data = await uploadGif(file, title)
+      if (data.gif) {
+        setMyGifs((prev) => [data.gif, ...prev.filter((item) => item.id !== data.gif.id)])
+      }
+      setStatus({ type: 'success', message: 'GIF добавлен.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setGifsLoading(false)
+      event.target.value = ''
+    }
+  }
+
+  const handleGifDelete = async (gifId) => {
+    if (!gifId) return
+    try {
+      await deleteGif(gifId)
+      setMyGifs((prev) => prev.filter((gif) => gif.id !== gifId))
+      setRecentGifIds((prev) => prev.filter((id) => id !== gifId))
+      setStatus({ type: 'info', message: 'GIF удален.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
+  }
+
+  const handleSendGif = async (gif) => {
+    if (!activeConversation || !gif || !gif.id) return
+    if (isChatBlocked) {
+      setStatus({ type: 'error', message: 'Вы заблокировали пользователя.' })
+      return
+    }
+    stopTyping(activeConversation.id)
+    setLoading(true)
+    try {
+      const data = await sendGif(activeConversation.id, gif.id, {
+        replyToMessageId: replyMessage && replyMessage.id ? replyMessage.id : ''
+      })
+      const createdMessage = normalizeChatMessage(data.message)
+      setMessages((prev) => {
+        if (createdMessage && prev.some((msg) => msg.id === createdMessage.id)) return prev
+        return createdMessage ? [...prev, createdMessage] : prev
+      })
+      setReplyMessage(null)
+      clearMessageAttachment()
+      rememberRecentGif(gif.id)
       const list = await getConversations()
       setConversations(list.conversations || [])
     } catch (err) {
@@ -4158,7 +4311,7 @@ export default function App() {
                             )}
                           </button>
                         )}
-                        <div className={`message-bubble ${msg.attachmentKind === 'sticker' ? 'sticker' : ''}`.trim()}>
+                        <div className={`message-bubble ${msg.attachmentKind === 'sticker' ? 'sticker' : ''} ${msg.attachmentKind === 'gif' ? 'gif' : ''}`.trim()}>
                           {msg.replyTo && (
                             <div className="message-reply">
                               <span className="message-reply-author">
@@ -4378,7 +4531,7 @@ export default function App() {
                       Файл
                       <input
                         type="file"
-                        accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.webm,.mov,.ogv,.ogg,.m4v"
+                        accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.webm,.mov,.ogv,.ogg,.m4v,.gif"
                         disabled={isChatBlocked}
                         onChange={(event) => {
                           const file = event.target.files && event.target.files[0] ? event.target.files[0] : null
@@ -4397,12 +4550,19 @@ export default function App() {
                     </label>
                     <button
                       type="button"
-                      className={`record-btn sticker-btn ${stickerPanelOpen ? 'active' : ''}`.trim()}
-                      onClick={() => setStickerPanelOpen((prev) => !prev)}
-                      disabled={isChatBlocked || stickersLoading}
-                      title="Стикеры"
+                      className={`record-btn media-trigger-btn ${mediaPanelOpen ? 'active' : ''}`.trim()}
+                      onClick={() => {
+                        if (mediaPanelOpen && mediaPanelTab === MEDIA_PANEL_TABS.emoji) {
+                          setMediaPanelOpen(false)
+                          return
+                        }
+                        setMediaPanelTab(MEDIA_PANEL_TABS.emoji)
+                        setMediaPanelOpen(true)
+                      }}
+                      disabled={isChatBlocked || stickersLoading || gifsLoading}
+                      title="Emoji / Стикеры / GIF"
                     >
-                      {stickersLoading ? '...' : 'Стикер'}
+                      {stickersLoading || gifsLoading ? '...' : '😊'}
                     </button>
                     <button
                       type="button"
@@ -4414,66 +4574,182 @@ export default function App() {
                     </button>
                     <button className="primary" type="submit" disabled={loading || isChatBlocked}>Отправить</button>
                   </form>
-                  {stickerPanelOpen && (
-                    <div className="sticker-panel">
-                      <div className="sticker-panel-head">
-                        <strong>Стикеры</strong>
-                        <label className="file-btn sticker-upload-btn">
-                          Новый
-                          <input
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp,image/gif"
-                            onChange={handleStickerUpload}
-                            disabled={stickersLoading}
-                          />
-                        </label>
-                      </div>
-                      {recentStickers.length > 0 && (
-                        <div className="sticker-section">
-                          <span>Недавние</span>
-                          <div className="sticker-grid">
-                            {recentStickers.map((sticker) => (
-                              <button
-                                key={`recent-${sticker.id}`}
-                                type="button"
-                                className="sticker-item"
-                                onClick={() => handleSendSticker(sticker)}
-                                title={sticker.title || 'Стикер'}
-                              >
-                                <img src={resolveMediaUrl(sticker.imageUrl)} alt={sticker.title || 'sticker'} />
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <div className="sticker-section">
-                        <span>Мои</span>
-                        {myStickers.length === 0 ? (
-                          <div className="empty small">Загрузите первый стикер</div>
-                        ) : (
-                          <div className="sticker-grid">
-                            {myStickers.map((sticker) => (
-                              <div key={sticker.id} className="sticker-cell">
+                  {mediaPanelOpen && (
+                    <div className="sticker-panel media-panel">
+                      <div className="media-panel-body">
+                        {mediaPanelTab === MEDIA_PANEL_TABS.emoji && (
+                          <div className="sticker-section">
+                            <span>Emoji</span>
+                            <div className="emoji-grid">
+                              {EMOJI_PICKER_ITEMS.map((emoji) => (
                                 <button
+                                  key={emoji}
                                   type="button"
-                                  className="sticker-item"
-                                  onClick={() => handleSendSticker(sticker)}
-                                  title={sticker.title || 'Стикер'}
+                                  className="emoji-item"
+                                  onClick={() => appendEmojiToMessage(emoji)}
+                                  title={`Добавить ${emoji}`}
                                 >
-                                  <img src={resolveMediaUrl(sticker.imageUrl)} alt={sticker.title || 'sticker'} />
+                                  {emoji}
                                 </button>
-                                <button
-                                  type="button"
-                                  className="sticker-remove"
-                                  onClick={() => handleStickerDelete(sticker.id)}
-                                  title="Удалить стикер"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
                           </div>
                         )}
+
+                        {mediaPanelTab === MEDIA_PANEL_TABS.stickers && (
+                          <>
+                            <div className="sticker-panel-head">
+                              <strong>Стикеры</strong>
+                              <label className="file-btn sticker-upload-btn">
+                                Новый
+                                <input
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp,image/gif"
+                                  onChange={handleStickerUpload}
+                                  disabled={stickersLoading}
+                                />
+                              </label>
+                            </div>
+                            {recentStickers.length > 0 && (
+                              <div className="sticker-section">
+                                <span>Недавние</span>
+                                <div className="sticker-grid">
+                                  {recentStickers.map((sticker) => (
+                                    <button
+                                      key={`recent-${sticker.id}`}
+                                      type="button"
+                                      className="sticker-item"
+                                      onClick={() => handleSendSticker(sticker)}
+                                      title={sticker.title || 'Стикер'}
+                                    >
+                                      <img src={resolveMediaUrl(sticker.imageUrl)} alt={sticker.title || 'sticker'} />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="sticker-section">
+                              <span>Мои</span>
+                              {myStickers.length === 0 ? (
+                                <div className="empty small">Загрузите первый стикер</div>
+                              ) : (
+                                <div className="sticker-grid">
+                                  {myStickers.map((sticker) => (
+                                    <div key={sticker.id} className="sticker-cell">
+                                      <button
+                                        type="button"
+                                        className="sticker-item"
+                                        onClick={() => handleSendSticker(sticker)}
+                                        title={sticker.title || 'Стикер'}
+                                      >
+                                        <img src={resolveMediaUrl(sticker.imageUrl)} alt={sticker.title || 'sticker'} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="sticker-remove"
+                                        onClick={() => handleStickerDelete(sticker.id)}
+                                        title="Удалить стикер"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+
+                        {mediaPanelTab === MEDIA_PANEL_TABS.gifs && (
+                          <>
+                            <div className="sticker-panel-head">
+                              <strong>GIF</strong>
+                              <label className="file-btn sticker-upload-btn">
+                                Новый
+                                <input
+                                  type="file"
+                                  accept="image/gif,.gif"
+                                  onChange={handleGifUpload}
+                                  disabled={gifsLoading}
+                                />
+                              </label>
+                            </div>
+                            {recentGifs.length > 0 && (
+                              <div className="sticker-section">
+                                <span>Недавние</span>
+                                <div className="sticker-grid">
+                                  {recentGifs.map((gif) => (
+                                    <button
+                                      key={`recent-gif-${gif.id}`}
+                                      type="button"
+                                      className="sticker-item gif-item"
+                                      onClick={() => handleSendGif(gif)}
+                                      title={gif.title || 'GIF'}
+                                    >
+                                      <img src={resolveMediaUrl(gif.imageUrl)} alt={gif.title || 'gif'} />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div className="sticker-section">
+                              <span>Мои GIF</span>
+                              {myGifs.length === 0 ? (
+                                <div className="empty small">Загрузите первый GIF</div>
+                              ) : (
+                                <div className="sticker-grid">
+                                  {myGifs.map((gif) => (
+                                    <div key={gif.id} className="sticker-cell">
+                                      <button
+                                        type="button"
+                                        className="sticker-item gif-item"
+                                        onClick={() => handleSendGif(gif)}
+                                        title={gif.title || 'GIF'}
+                                      >
+                                        <img src={resolveMediaUrl(gif.imageUrl)} alt={gif.title || 'gif'} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="sticker-remove"
+                                        onClick={() => handleGifDelete(gif.id)}
+                                        title="Удалить GIF"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="media-panel-tabs">
+                        <button
+                          type="button"
+                          className={mediaPanelTab === MEDIA_PANEL_TABS.emoji ? 'active' : ''}
+                          onClick={() => setMediaPanelTab(MEDIA_PANEL_TABS.emoji)}
+                          title="Emoji"
+                        >
+                          😀 Emoji
+                        </button>
+                        <button
+                          type="button"
+                          className={mediaPanelTab === MEDIA_PANEL_TABS.stickers ? 'active' : ''}
+                          onClick={() => setMediaPanelTab(MEDIA_PANEL_TABS.stickers)}
+                          title="Стикеры"
+                        >
+                          ⭐ Стикеры
+                        </button>
+                        <button
+                          type="button"
+                          className={mediaPanelTab === MEDIA_PANEL_TABS.gifs ? 'active' : ''}
+                          onClick={() => setMediaPanelTab(MEDIA_PANEL_TABS.gifs)}
+                          title="GIF"
+                        >
+                          GIF
+                        </button>
                       </div>
                     </div>
                   )}

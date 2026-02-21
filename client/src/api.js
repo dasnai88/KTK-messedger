@@ -324,6 +324,44 @@ export async function sendSticker(conversationId, stickerId, options = {}) {
   })
 }
 
+export async function getMyGifs() {
+  return request('/me/gifs')
+}
+
+export async function uploadGif(file, title = '') {
+  const token = getToken()
+  const formData = new FormData()
+  formData.append('gif', file)
+  if (title) {
+    formData.append('title', title)
+  }
+  const response = await fetch(`${API_BASE}/me/gifs`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data.error || 'Unexpected error')
+  }
+  return data
+}
+
+export async function deleteGif(gifId) {
+  return request(`/me/gifs/${gifId}`, { method: 'DELETE' })
+}
+
+export async function sendGif(conversationId, gifId, options = {}) {
+  const replyToMessageId = typeof options.replyToMessageId === 'string' ? options.replyToMessageId.trim() : ''
+  return request(`/conversations/${conversationId}/gifs`, {
+    method: 'POST',
+    body: {
+      gifId,
+      ...(replyToMessageId ? { replyToMessageId } : {})
+    }
+  })
+}
+
 export async function uploadProfileTrack(file, meta = {}) {
   const token = getToken()
   const formData = new FormData()
