@@ -1464,6 +1464,11 @@ export default function App() {
     triggered: false
   })
 
+  const setCallStateSync = (nextState) => {
+    callStateRef.current = nextState
+    setCallState(nextState)
+  }
+
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
   const pinnedMessage = useMemo(() => {
     if (!activeConversation) return null
@@ -3556,8 +3561,10 @@ export default function App() {
   }, [callState])
 
   useEffect(() => {
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = remoteStream || null
+    if (!remoteAudioRef.current) return
+    remoteAudioRef.current.srcObject = remoteStream || null
+    if (remoteStream && typeof remoteAudioRef.current.play === 'function') {
+      remoteAudioRef.current.play().catch(() => {})
     }
   }, [remoteStream])
 
@@ -3817,7 +3824,7 @@ export default function App() {
       }
       incomingOfferRef.current = offer
       pendingIceCandidatesRef.current = []
-      setCallState({ status: 'incoming', withUserId: fromUserId, direction: 'incoming', startedAt: null })
+      setCallStateSync({ status: 'incoming', withUserId: fromUserId, direction: 'incoming', startedAt: null })
     }
 
     const handleCallAnswer = async ({ fromUserId, answer }) => {
@@ -3825,7 +3832,7 @@ export default function App() {
       try {
         await pcRef.current.setRemoteDescription(new RTCSessionDescription(answer))
         await flushPendingIceCandidates()
-        setCallState({ status: 'in-call', withUserId: fromUserId, direction: 'outgoing', startedAt: Date.now() })
+        setCallStateSync({ status: 'in-call', withUserId: fromUserId, direction: 'outgoing', startedAt: Date.now() })
       } catch (err) {
         setStatus({ type: 'error', message: 'Не удалось установить соединение.' })
         cleanupCall()
@@ -5815,7 +5822,7 @@ export default function App() {
     incomingOfferRef.current = null
     pendingIceCandidatesRef.current = []
     setRemoteStream(null)
-    setCallState({ status: 'idle', withUserId: null, direction: null, startedAt: null })
+    setCallStateSync({ status: 'idle', withUserId: null, direction: null, startedAt: null })
   }
 
   const endCall = (notify = true) => {
@@ -5840,7 +5847,7 @@ export default function App() {
       return
     }
     try {
-      setCallState({ status: 'connecting', withUserId: fromUserId, direction: 'incoming', startedAt: null })
+      setCallStateSync({ status: 'connecting', withUserId: fromUserId, direction: 'incoming', startedAt: null })
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       localStreamRef.current = stream
       const pc = createPeerConnection(fromUserId)
@@ -5850,7 +5857,7 @@ export default function App() {
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
       socketRef.current.emit('call:answer', { toUserId: fromUserId, answer })
-      setCallState({ status: 'in-call', withUserId: fromUserId, direction: 'incoming', startedAt: Date.now() })
+      setCallStateSync({ status: 'in-call', withUserId: fromUserId, direction: 'incoming', startedAt: Date.now() })
     } catch (err) {
       setStatus({ type: 'error', message: 'Не удалось принять звонок.' })
       endCall(true)
@@ -5889,7 +5896,7 @@ export default function App() {
       return
     }
     try {
-      setCallState({ status: 'calling', withUserId: targetId, direction: 'outgoing', startedAt: null })
+      setCallStateSync({ status: 'calling', withUserId: targetId, direction: 'outgoing', startedAt: null })
       pendingIceCandidatesRef.current = []
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
       localStreamRef.current = stream
