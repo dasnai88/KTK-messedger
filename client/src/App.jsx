@@ -136,6 +136,54 @@ function extractHashtags(text) {
     .filter(Boolean)
 }
 
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function getFeedPostEngagementScore(post) {
+  if (!post || typeof post !== 'object') return 0
+  return (
+    (Number(post.likesCount || 0) * 3) +
+    Number(post.commentsCount || 0) +
+    (Number(post.repostsCount || 0) * 4)
+  )
+}
+
+function getFeedPostAgeMs(post) {
+  const createdAt = Date.parse(post?.createdAt || '') || 0
+  if (!createdAt) return Number.POSITIVE_INFINITY
+  return Math.max(0, Date.now() - createdAt)
+}
+
+function formatRelativeFeedAge(value) {
+  const timestamp = Date.parse(value || '')
+  if (!timestamp) return ''
+  const diffMs = Math.max(0, Date.now() - timestamp)
+  const minutes = Math.floor(diffMs / 60000)
+  if (minutes < 1) return 'только что'
+  if (minutes < 60) return `${minutes}м назад`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}ч назад`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}д назад`
+  return formatDate(value)
+}
+
+function renderHighlightedText(value, query) {
+  const text = String(value || '')
+  const normalizedQuery = String(query || '').trim()
+  if (!text || !normalizedQuery) return text
+  const regex = new RegExp(`(${escapeRegExp(normalizedQuery)})`, 'ig')
+  const parts = text.split(regex)
+  if (parts.length <= 1) return text
+  const normalizedLower = normalizedQuery.toLowerCase()
+  return parts.map((part, index) => (
+    part.toLowerCase() === normalizedLower
+      ? <mark key={`hl-${index}`}>{part}</mark>
+      : <span key={`tx-${index}`}>{part}</span>
+  ))
+}
+
 function getProfileMoodLabel(profile) {
   if (!profile || typeof profile !== 'object') return ''
   const emoji = String(profile.statusEmoji || '').trim()
@@ -173,6 +221,7 @@ const BANNER_EXPORT_HEIGHT = 520
 const PUSH_OPEN_STORAGE_KEY = 'ktk_push_open_conversation'
 const DRAFT_STORAGE_KEY = 'ktk_message_drafts'
 const FEED_BOOKMARKS_STORAGE_KEY = 'ktk_feed_bookmarks'
+const FEED_EXPLORER_STORAGE_KEY = 'ktk_feed_explorer_v1'
 const CHAT_WALLPAPER_STORAGE_KEY = 'ktk_chat_wallpapers'
 const CHAT_ALIAS_STORAGE_KEY = 'ktk_chat_aliases'
 const RECENT_STICKERS_STORAGE_KEY = 'ktk_recent_stickers'
@@ -305,6 +354,63 @@ const FEED_FILTERS = {
   popular: 'popular',
   mine: 'mine',
   bookmarks: 'bookmarks'
+}
+const FEED_SORT_MODES = {
+  latest: 'latest',
+  smart: 'smart',
+  engagement: 'engagement',
+  discussed: 'discussed'
+}
+const FEED_TIME_WINDOWS = {
+  all: 'all',
+  day: 'day',
+  week: 'week',
+  month: 'month'
+}
+const FEED_LAYOUTS = {
+  cards: 'cards',
+  compact: 'compact'
+}
+const FEED_SORT_TABS = [
+  { value: FEED_SORT_MODES.smart, label: 'Smart' },
+  { value: FEED_SORT_MODES.latest, label: 'Новые' },
+  { value: FEED_SORT_MODES.engagement, label: 'Хайп' },
+  { value: FEED_SORT_MODES.discussed, label: 'Дискуссии' }
+]
+const FEED_TIME_TABS = [
+  { value: FEED_TIME_WINDOWS.day, label: '24ч' },
+  { value: FEED_TIME_WINDOWS.week, label: '7д' },
+  { value: FEED_TIME_WINDOWS.month, label: '30д' },
+  { value: FEED_TIME_WINDOWS.all, label: 'Все' }
+]
+const FEED_LAYOUT_TABS = [
+  { value: FEED_LAYOUTS.cards, label: 'Cards' },
+  { value: FEED_LAYOUTS.compact, label: 'Compact' }
+]
+const DEFAULT_FEED_EXPLORER_SETTINGS = {
+  sortMode: FEED_SORT_MODES.smart,
+  timeWindow: FEED_TIME_WINDOWS.week,
+  mediaOnly: false,
+  layout: FEED_LAYOUTS.cards
+}
+
+function normalizeFeedExplorerSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const sortMode = Object.values(FEED_SORT_MODES).includes(source.sortMode)
+    ? source.sortMode
+    : DEFAULT_FEED_EXPLORER_SETTINGS.sortMode
+  const timeWindow = Object.values(FEED_TIME_WINDOWS).includes(source.timeWindow)
+    ? source.timeWindow
+    : DEFAULT_FEED_EXPLORER_SETTINGS.timeWindow
+  const layout = Object.values(FEED_LAYOUTS).includes(source.layout)
+    ? source.layout
+    : DEFAULT_FEED_EXPLORER_SETTINGS.layout
+  return {
+    sortMode,
+    timeWindow,
+    mediaOnly: Boolean(source.mediaOnly),
+    layout
+  }
 }
 const CHAT_WALLPAPERS = [
   { value: 'default', label: 'Классика' },
@@ -1210,6 +1316,14 @@ export default function App() {
   const [feedQuery, setFeedQuery] = useState('')
   const [activeFeedTag, setActiveFeedTag] = useState('')
   const [feedAuthorFilter, setFeedAuthorFilter] = useState('')
+  const [feedExplorer, setFeedExplorer] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(FEED_EXPLORER_STORAGE_KEY) || '{}')
+      return normalizeFeedExplorerSettings(parsed)
+    } catch (err) {
+      return DEFAULT_FEED_EXPLORER_SETTINGS
+    }
+  })
   const [bookmarkedPostIds, setBookmarkedPostIds] = useState(() => {
     try {
       const raw = JSON.parse(localStorage.getItem(FEED_BOOKMARKS_STORAGE_KEY) || '[]')
@@ -1591,6 +1705,43 @@ export default function App() {
       .slice(0, 6)
   }, [activeConversation, isChatBlocked, messageFile, messageText])
   const feedQueryNormalized = feedQuery.trim().toLowerCase()
+  const composerHashtags = useMemo(() => {
+    const seen = new Set()
+    return extractHashtags(postText).filter((tag) => {
+      if (seen.has(tag)) return false
+      seen.add(tag)
+      return true
+    })
+  }, [postText])
+  const feedComposerInsights = useMemo(() => {
+    const raw = String(postText || '')
+    const trimmed = raw.trim()
+    const mentionCount = (raw.match(/@[a-zA-Z0-9_]+/g) || []).length
+    const exclamations = (raw.match(/!/g) || []).length
+    const questions = (raw.match(/\?/g) || []).length
+    let tone = 'нейтральный'
+    if (exclamations >= 2) tone = 'энергичный'
+    if (questions >= 2 && exclamations === 0) tone = 'дискуссионный'
+    if (trimmed.length > 220) tone = 'лонгрид'
+    return {
+      chars: raw.length,
+      words: trimmed ? trimmed.split(/\s+/).length : 0,
+      hashtags: composerHashtags.length,
+      mentions: mentionCount,
+      tone,
+      hasMedia: Boolean(postFile)
+    }
+  }, [postText, composerHashtags, postFile])
+  const feedTimeWindowStartMs = useMemo(() => {
+    const now = Date.now()
+    if (feedExplorer.timeWindow === FEED_TIME_WINDOWS.day) return now - (24 * 60 * 60 * 1000)
+    if (feedExplorer.timeWindow === FEED_TIME_WINDOWS.week) return now - (7 * 24 * 60 * 60 * 1000)
+    if (feedExplorer.timeWindow === FEED_TIME_WINDOWS.month) return now - (30 * 24 * 60 * 60 * 1000)
+    return 0
+  }, [feedExplorer.timeWindow])
+  const effectiveFeedSortMode = feedFilter === FEED_FILTERS.popular
+    ? FEED_SORT_MODES.engagement
+    : feedExplorer.sortMode
   const trendingTags = useMemo(() => {
     const tagCounts = new Map()
     posts.forEach((post) => {
@@ -1619,7 +1770,7 @@ export default function App() {
         posts: 0,
         engagement: 0
       }
-      const engagement = (Number(post.likesCount || 0) * 3) + Number(post.commentsCount || 0) + (Number(post.repostsCount || 0) * 4)
+      const engagement = getFeedPostEngagementScore(post)
       existing.posts += 1
       existing.engagement += engagement
       authorStats.set(author.id, existing)
@@ -1638,14 +1789,9 @@ export default function App() {
     return posts
       .map((post) => {
         const createdAt = Date.parse(post.createdAt || '') || 0
-        const ageMs = Math.max(0, now - createdAt)
+        const ageMs = createdAt ? Math.max(0, now - createdAt) : Number.POSITIVE_INFINITY
         const recentBoost = ageMs <= oneDayMs ? 1 : 0
-        const score = (
-          (Number(post.likesCount || 0) * 3) +
-          Number(post.commentsCount || 0) +
-          (Number(post.repostsCount || 0) * 4) +
-          (recentBoost ? 8 : 0)
-        )
+        const score = getFeedPostEngagementScore(post) + (recentBoost ? 8 : 0)
         return { post, score, ageMs }
       })
       .filter((item) => item.score > 0)
@@ -1678,6 +1824,15 @@ export default function App() {
     if (feedFilter === FEED_FILTERS.bookmarks) {
       list = list.filter((post) => bookmarkedPostIds.has(post.id))
     }
+    if (feedTimeWindowStartMs) {
+      list = list.filter((post) => {
+        const createdAtMs = Date.parse(post.createdAt || '') || 0
+        return createdAtMs >= feedTimeWindowStartMs
+      })
+    }
+    if (feedExplorer.mediaOnly) {
+      list = list.filter((post) => Boolean(post.imageUrl || post.repostOf?.imageUrl))
+    }
     if (tagFilter) {
       list = list.filter((post) => extractHashtags(post.body).includes(tagFilter))
     }
@@ -1691,16 +1846,177 @@ export default function App() {
         return body.includes(feedQueryNormalized) || authorName.includes(feedQueryNormalized)
       })
     }
-    if (feedFilter === FEED_FILTERS.popular) {
-      list.sort((a, b) => {
-        const scoreA = (Number(a.likesCount || 0) * 3) + Number(a.commentsCount || 0) + (Number(a.repostsCount || 0) * 4)
-        const scoreB = (Number(b.likesCount || 0) * 3) + Number(b.commentsCount || 0) + (Number(b.repostsCount || 0) * 4)
-        if (scoreB !== scoreA) return scoreB - scoreA
-        return (Date.parse(b.createdAt || '') || 0) - (Date.parse(a.createdAt || '') || 0)
+    const now = Date.now()
+    list.sort((a, b) => {
+      const createdAtA = Date.parse(a.createdAt || '') || 0
+      const createdAtB = Date.parse(b.createdAt || '') || 0
+      const engagementA = getFeedPostEngagementScore(a)
+      const engagementB = getFeedPostEngagementScore(b)
+
+      if (effectiveFeedSortMode === FEED_SORT_MODES.engagement) {
+        if (engagementB !== engagementA) return engagementB - engagementA
+        return createdAtB - createdAtA
+      }
+
+      if (effectiveFeedSortMode === FEED_SORT_MODES.discussed) {
+        const commentsA = Number(a.commentsCount || 0)
+        const commentsB = Number(b.commentsCount || 0)
+        if (commentsB !== commentsA) return commentsB - commentsA
+        if (engagementB !== engagementA) return engagementB - engagementA
+        return createdAtB - createdAtA
+      }
+
+      if (effectiveFeedSortMode === FEED_SORT_MODES.smart) {
+        const ageHoursA = createdAtA ? Math.max(0, now - createdAtA) / 3600000 : 9999
+        const ageHoursB = createdAtB ? Math.max(0, now - createdAtB) / 3600000 : 9999
+        const freshnessA = Math.max(0, 18 - Math.min(ageHoursA, 18))
+        const freshnessB = Math.max(0, 18 - Math.min(ageHoursB, 18))
+        const mediaBoostA = (a.imageUrl || a.repostOf?.imageUrl) ? 2 : 0
+        const mediaBoostB = (b.imageUrl || b.repostOf?.imageUrl) ? 2 : 0
+        const bookmarkedBoostA = bookmarkedPostIds.has(a.id) ? 3 : 0
+        const bookmarkedBoostB = bookmarkedPostIds.has(b.id) ? 3 : 0
+        const smartScoreA = engagementA + freshnessA + mediaBoostA + bookmarkedBoostA
+        const smartScoreB = engagementB + freshnessB + mediaBoostB + bookmarkedBoostB
+        if (smartScoreB !== smartScoreA) return smartScoreB - smartScoreA
+        return createdAtB - createdAtA
+      }
+
+      return createdAtB - createdAtA
+    })
+    return list
+  }, [
+    posts,
+    feedFilter,
+    user,
+    bookmarkedPostIds,
+    feedTimeWindowStartMs,
+    feedExplorer.mediaOnly,
+    activeFeedTag,
+    feedAuthorFilter,
+    feedQueryNormalized,
+    effectiveFeedSortMode
+  ])
+  const feedDigest = useMemo(() => {
+    const list = visibleFeedPosts
+    if (list.length === 0) {
+      return {
+        visible: 0,
+        mediaShare: 0,
+        avgEngagement: 0,
+        activeAuthors: 0,
+        freshCount: 0,
+        hottestTag: '',
+        momentum: 0
+      }
+    }
+    const tagCounts = new Map()
+    const authors = new Set()
+    let mediaCount = 0
+    let totalEngagement = 0
+    let freshCount = 0
+    let momentum = 0
+    const now = Date.now()
+    list.forEach((post) => {
+      const engagement = getFeedPostEngagementScore(post)
+      const createdAt = Date.parse(post.createdAt || '') || 0
+      const ageHours = createdAt ? Math.max(0, now - createdAt) / 3600000 : 999
+      const freshnessWeight = Math.max(0.25, 1.8 - Math.min(ageHours / 12, 1.4))
+      totalEngagement += engagement
+      momentum += engagement * freshnessWeight
+      if (post.author?.id) authors.add(post.author.id)
+      if (post.imageUrl || post.repostOf?.imageUrl) mediaCount += 1
+      if (ageHours <= 6) freshCount += 1
+      extractHashtags(post.body).forEach((tag) => {
+        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1)
+      })
+    })
+    const hottestTagEntry = Array.from(tagCounts.entries())
+      .sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1]
+        return a[0].localeCompare(b[0])
+      })[0]
+    return {
+      visible: list.length,
+      mediaShare: Math.round((mediaCount / list.length) * 100),
+      avgEngagement: Math.round(totalEngagement / list.length),
+      activeAuthors: authors.size,
+      freshCount,
+      hottestTag: hottestTagEntry ? hottestTagEntry[0] : '',
+      momentum: Math.round(momentum)
+    }
+  }, [visibleFeedPosts])
+  const feedQuickPresets = useMemo(() => {
+    const presets = []
+    if (trendingTags[0]) {
+      presets.push({
+        id: `tag-${trendingTags[0].tag}`,
+        label: `Тег ${trendingTags[0].tag}`,
+        hint: `${trendingTags[0].count} постов`,
+        action: 'tag',
+        value: trendingTags[0].tag
       })
     }
-    return list
-  }, [posts, feedFilter, user, bookmarkedPostIds, activeFeedTag, feedAuthorFilter, feedQueryNormalized])
+    if (topFeedAuthors[0]) {
+      presets.push({
+        id: `author-${topFeedAuthors[0].id}`,
+        label: `Автор @${topFeedAuthors[0].username}`,
+        hint: `${topFeedAuthors[0].engagement} pts`,
+        action: 'author',
+        value: topFeedAuthors[0].id
+      })
+    }
+    if (bookmarkedPostIds.size > 0) {
+      presets.push({
+        id: 'bookmarks',
+        label: 'Закладки',
+        hint: `${bookmarkedPostIds.size} шт`,
+        action: 'filter',
+        value: FEED_FILTERS.bookmarks
+      })
+    }
+    if (feedMetrics.mine > 0) {
+      presets.push({
+        id: 'mine',
+        label: 'Мои посты',
+        hint: `${feedMetrics.mine} шт`,
+        action: 'filter',
+        value: FEED_FILTERS.mine
+      })
+    }
+    if (hotFeedPosts[0]?.post?.author?.id) {
+      presets.push({
+        id: `hot-author-${hotFeedPosts[0].post.author.id}`,
+        label: 'Хайп автор',
+        hint: `@${hotFeedPosts[0].post.author.username}`,
+        action: 'author',
+        value: hotFeedPosts[0].post.author.id
+      })
+    }
+    return presets.slice(0, 5)
+  }, [trendingTags, topFeedAuthors, hotFeedPosts, bookmarkedPostIds.size, feedMetrics.mine])
+  const feedActiveFilterCount = (
+    Number(Boolean(feedQueryNormalized)) +
+    Number(Boolean(activeFeedTag)) +
+    Number(Boolean(feedAuthorFilter)) +
+    Number(feedFilter !== FEED_FILTERS.all) +
+    Number(feedExplorer.mediaOnly) +
+    Number(feedExplorer.timeWindow !== DEFAULT_FEED_EXPLORER_SETTINGS.timeWindow) +
+    Number(feedFilter !== FEED_FILTERS.popular && feedExplorer.sortMode !== DEFAULT_FEED_EXPLORER_SETTINGS.sortMode)
+  )
+  const feedTimeWindowLabel = feedExplorer.timeWindow === FEED_TIME_WINDOWS.day
+    ? '24 часа'
+    : feedExplorer.timeWindow === FEED_TIME_WINDOWS.week
+      ? '7 дней'
+      : feedExplorer.timeWindow === FEED_TIME_WINDOWS.month
+        ? '30 дней'
+        : 'все время'
+  const feedSortModeLabel = effectiveFeedSortMode === FEED_SORT_MODES.latest
+    ? 'новые'
+    : effectiveFeedSortMode === FEED_SORT_MODES.engagement
+      ? 'по вовлечению'
+      : effectiveFeedSortMode === FEED_SORT_MODES.discussed
+        ? 'по обсуждениям'
+        : 'умный'
   const isActiveConversationFavorite = useMemo(() => {
     if (!activeConversation) return false
     return favoriteConversationSet.has(activeConversation.id)
@@ -2994,6 +3310,14 @@ export default function App() {
       // ignore storage errors
     }
   }, [bookmarkedPostIds])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FEED_EXPLORER_STORAGE_KEY, JSON.stringify(feedExplorer))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [feedExplorer])
 
   useEffect(() => {
     try {
@@ -4786,16 +5110,47 @@ export default function App() {
     })
   }
 
+  const updateFeedExplorer = (patch) => {
+    setFeedExplorer((prev) => normalizeFeedExplorerSettings({ ...prev, ...patch }))
+  }
+
   const resetFeedFilters = () => {
     setFeedFilter(FEED_FILTERS.all)
     setFeedQuery('')
     setActiveFeedTag('')
     setFeedAuthorFilter('')
+    setFeedExplorer(DEFAULT_FEED_EXPLORER_SETTINGS)
   }
 
   const toggleFeedAuthorFilter = (authorId) => {
     if (!authorId) return
     setFeedAuthorFilter((prev) => (prev === authorId ? '' : authorId))
+  }
+
+  const applyFeedQuickPreset = (preset) => {
+    if (!preset || typeof preset !== 'object') return
+    if (preset.action === 'tag') {
+      setActiveFeedTag((prev) => (prev === preset.value ? '' : preset.value))
+      return
+    }
+    if (preset.action === 'author') {
+      toggleFeedAuthorFilter(preset.value)
+      return
+    }
+    if (preset.action === 'filter' && preset.value) {
+      setFeedFilter(preset.value)
+    }
+  }
+
+  const insertComposerTag = (tagValue) => {
+    const tag = String(tagValue || '').trim().toLowerCase()
+    if (!tag.startsWith('#')) return
+    setPostText((prev) => {
+      const current = String(prev || '')
+      if (extractHashtags(current).includes(tag)) return current
+      const separator = current.trim().length > 0 && !/\s$/.test(current) ? ' ' : ''
+      return `${current}${separator}${tag}`.slice(0, 2000)
+    })
   }
 
   const loadConversationBookmarks = async (conversationId, { silent = false } = {}) => {
@@ -7167,6 +7522,37 @@ export default function App() {
                 onChange={(event) => setPostText(event.target.value)}
                 placeholder="Что нового в колледже?"
               />
+              <div className="feed-composer-insights">
+                <div className="feed-composer-metrics">
+                  <span><strong>{feedComposerInsights.chars}</strong> символов</span>
+                  <span><strong>{feedComposerInsights.words}</strong> слов</span>
+                  <span><strong>{feedComposerInsights.hashtags}</strong> тегов</span>
+                  <span><strong>{feedComposerInsights.mentions}</strong> упоминаний</span>
+                </div>
+                <div className="feed-composer-tone">
+                  <span className={`feed-tone-pill ${feedComposerInsights.hasMedia ? 'with-media' : ''}`.trim()}>
+                    {feedComposerInsights.hasMedia ? 'медиа' : 'текст'} • {feedComposerInsights.tone}
+                  </span>
+                </div>
+              </div>
+              {trendingTags.length > 0 && (
+                <div className="feed-composer-tags">
+                  <span>Быстро добавить:</span>
+                  <div>
+                    {trendingTags.slice(0, 5).map((item) => (
+                      <button
+                        key={`composer-tag-${item.tag}`}
+                        type="button"
+                        className={`feed-tag-mini ${composerHashtags.includes(item.tag) ? 'active' : ''}`.trim()}
+                        onClick={() => insertComposerTag(item.tag)}
+                        title={`Добавить ${item.tag}`}
+                      >
+                        {item.tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="feed-actions">
                 <label className="file-btn">
                   📷
@@ -7200,6 +7586,142 @@ export default function App() {
             </form>
 
             <section className="feed-toolbox">
+              <div className="feed-control-head">
+                <div>
+                  <strong>Feed Control Center</strong>
+                  <p>
+                    {visibleFeedPosts.length} постов • сортировка {feedSortModeLabel} • окно {feedTimeWindowLabel}
+                  </p>
+                </div>
+                <div className="feed-live-chip" title="Активные настройки ленты">
+                  <span className={`dot ${feedActiveFilterCount > 0 ? 'active' : ''}`.trim()}></span>
+                  {feedActiveFilterCount > 0 ? `${feedActiveFilterCount} фильтров` : 'Live'}
+                </div>
+              </div>
+
+              <div className="feed-segment-group" role="toolbar" aria-label="Сортировка ленты">
+                <span>Сортировка</span>
+                <div className="feed-segmented">
+                  {FEED_SORT_TABS.map((item) => (
+                    <button
+                      key={`feed-sort-${item.value}`}
+                      type="button"
+                      className={effectiveFeedSortMode === item.value ? 'active' : ''}
+                      onClick={() => {
+                        if (feedFilter === FEED_FILTERS.popular && item.value !== FEED_SORT_MODES.engagement) {
+                          setFeedFilter(FEED_FILTERS.all)
+                        }
+                        updateFeedExplorer({ sortMode: item.value })
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="feed-control-grid">
+                <div className="feed-segment-group" role="toolbar" aria-label="Период ленты">
+                  <span>Период</span>
+                  <div className="feed-segmented">
+                    {FEED_TIME_TABS.map((item) => (
+                      <button
+                        key={`feed-time-${item.value}`}
+                        type="button"
+                        className={feedExplorer.timeWindow === item.value ? 'active' : ''}
+                        onClick={() => updateFeedExplorer({ timeWindow: item.value })}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="feed-segment-group" role="toolbar" aria-label="Вид карточек">
+                  <span>Вид</span>
+                  <div className="feed-segmented">
+                    {FEED_LAYOUT_TABS.map((item) => (
+                      <button
+                        key={`feed-layout-${item.value}`}
+                        type="button"
+                        className={feedExplorer.layout === item.value ? 'active' : ''}
+                        onClick={() => updateFeedExplorer({ layout: item.value })}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="feed-toggle-row">
+                <button
+                  type="button"
+                  className={`feed-toggle-pill ${feedExplorer.mediaOnly ? 'active' : ''}`.trim()}
+                  onClick={() => updateFeedExplorer({ mediaOnly: !feedExplorer.mediaOnly })}
+                >
+                  🖼️ Только с медиа
+                </button>
+                <button
+                  type="button"
+                  className="feed-toggle-pill ghostish"
+                  onClick={() => {
+                    setFeedFilter(FEED_FILTERS.all)
+                    setFeedQuery('')
+                    setActiveFeedTag('')
+                    setFeedAuthorFilter('')
+                    updateFeedExplorer({ sortMode: FEED_SORT_MODES.smart })
+                  }}
+                >
+                  ⚡ Smart reset scope
+                </button>
+              </div>
+
+              <div className="feed-digest-grid">
+                <article className="feed-digest-card">
+                  <span>В выборке</span>
+                  <strong>{feedDigest.visible}</strong>
+                  <small>{feedDigest.activeAuthors} активных авторов</small>
+                </article>
+                <article className="feed-digest-card">
+                  <span>Momentum</span>
+                  <strong>{feedDigest.momentum}</strong>
+                  <small>{feedDigest.freshCount} свежих за ~6ч</small>
+                </article>
+                <article className="feed-digest-card">
+                  <span>Средний отклик</span>
+                  <strong>{feedDigest.avgEngagement}</strong>
+                  <small>{feedDigest.mediaShare}% постов с медиа</small>
+                </article>
+                <article className="feed-digest-card">
+                  <span>Лидер темы</span>
+                  <strong>{feedDigest.hottestTag || '—'}</strong>
+                  <small>{feedDigest.hottestTag ? 'самый частый тег' : 'без доминирующего тега'}</small>
+                </article>
+              </div>
+
+              {feedQuickPresets.length > 0 && (
+                <div className="feed-presets-panel">
+                  <div className="feed-presets-head">
+                    <strong>Быстрые пресеты</strong>
+                    <span>один клик для фокуса</span>
+                  </div>
+                  <div className="feed-presets-list">
+                    {feedQuickPresets.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        className="feed-preset-item"
+                        onClick={() => applyFeedQuickPreset(preset)}
+                      >
+                        <span>{preset.label}</span>
+                        <small>{preset.hint}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="feed-metrics">
                 <article>
                   <span>Total posts</span>
@@ -7257,7 +7779,7 @@ export default function App() {
                   onChange={(event) => setFeedQuery(event.target.value)}
                   placeholder="Search posts, authors, or #tags..."
                 />
-                {(feedQuery || activeFeedTag || feedAuthorFilter || feedFilter !== FEED_FILTERS.all) && (
+                {(feedActiveFilterCount > 0 || feedQuery || activeFeedTag || feedAuthorFilter || feedFilter !== FEED_FILTERS.all) && (
                   <button type="button" className="ghost" onClick={resetFeedFilters}>
                     Reset
                   </button>
@@ -7329,16 +7851,25 @@ export default function App() {
               </div>
             </section>
 
-            <div className="feed-list">
+            <div className={`feed-list ${feedExplorer.layout === FEED_LAYOUTS.compact ? 'feed-list-compact' : ''}`.trim()}>
               {visibleFeedPosts.length === 0 && (
                 <div className="empty">
                   {posts.length === 0 ? 'Постов пока нет.' : 'По текущим фильтрам посты не найдены.'}
                 </div>
               )}
-              {visibleFeedPosts.map((post) => (
+              {visibleFeedPosts.map((post) => {
+                const postEngagementScore = getFeedPostEngagementScore(post)
+                const postRelativeAge = formatRelativeFeedAge(post.createdAt)
+                const postIsFresh = getFeedPostAgeMs(post) <= (6 * 60 * 60 * 1000)
+                const feedCardClasses = [
+                  'feed-card',
+                  feedExplorer.layout === FEED_LAYOUTS.compact ? 'feed-card-compact' : '',
+                  postIsFresh && postEngagementScore >= 8 ? 'feed-card-hot' : ''
+                ].filter(Boolean).join(' ')
+                return (
                 <article
                   key={post.id}
-                  className="feed-card"
+                  className={feedCardClasses}
                   onContextMenu={(event) => openPostMenu(event, post)}
                   onTouchStart={(event) => handleTouchContextMenuStart(event, (menuEvent) => openPostMenu(menuEvent, post))}
                   onTouchMove={handleTouchContextMenuMove}
@@ -7360,13 +7891,22 @@ export default function App() {
                         post.author.username[0].toUpperCase()
                       )}
                     </div>
-                    <div>
-                      <strong>{post.author.displayName || post.author.username}</strong>
+                    <div className="feed-author-meta">
+                      <strong>{renderHighlightedText(post.author.displayName || post.author.username, feedQueryNormalized)}</strong>
                       <span>@{post.author.username}</span>
                     </div>
-                    <time>{formatTime(post.createdAt)}</time>
+                    <div className="feed-card-head-right">
+                      <time title={new Date(post.createdAt).toLocaleString('ru-RU')}>{formatTime(post.createdAt)}</time>
+                      {postRelativeAge && <span className="feed-age-chip">{postRelativeAge}</span>}
+                    </div>
                   </button>
-                  {post.body && <p>{post.body}</p>}
+                  <div className="feed-card-insights">
+                    <span className="feed-score-chip">⚡ {postEngagementScore} pts</span>
+                    {postIsFresh && <span className="feed-score-chip fresh">new</span>}
+                    {post.imageUrl && <span className="feed-score-chip media">media</span>}
+                    {post.repostOf && <span className="feed-score-chip repost">repost</span>}
+                  </div>
+                  {post.body && <p>{renderHighlightedText(post.body, feedQueryNormalized)}</p>}
                   {post.imageUrl && (
                     <img
                       className="feed-image media-thumb"
@@ -7381,7 +7921,7 @@ export default function App() {
                       <div className="repost-meta">
                         @{post.repostOf.authorUsername}
                       </div>
-                      {post.repostOf.body && <p>{post.repostOf.body}</p>}
+                      {post.repostOf.body && <p>{renderHighlightedText(post.repostOf.body, feedQueryNormalized)}</p>}
                       {post.repostOf.imageUrl && (
                         <img
                           className="feed-image media-thumb"
@@ -7480,7 +8020,8 @@ export default function App() {
                     </div>
                   )}
                 </article>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
