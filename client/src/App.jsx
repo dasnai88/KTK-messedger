@@ -2412,7 +2412,7 @@ export default function App() {
         const bTime = Date.parse(b.lastAt || '') || 0
         return bTime - aTime
       })
-      .slice(0, 7)
+      .slice(0, 5)
       .map((conv) => {
         const draftText = String(draftsByConversation[conv.id] || '').trim()
         const title = getConversationDisplayName(conv, chatAliasByConversation)
@@ -2434,7 +2434,7 @@ export default function App() {
         if (b.unreadCount !== a.unreadCount) return b.unreadCount - a.unreadCount
         return (Date.parse(b.lastAt || '') || 0) - (Date.parse(a.lastAt || '') || 0)
       })
-      .slice(0, 6)
+      .slice(0, 4)
   }, [dashboardTopConversations])
   const dashboardWorkspaceScore = useMemo(() => {
     const profileScore = Number(profileEditorScore || 0)
@@ -2478,18 +2478,18 @@ export default function App() {
         accent: hotFeedPosts[0] ? 'hot' : 'neutral'
       },
       {
-        id: 'profile-lab',
-        title: 'Прокачать профиль',
-        subtitle: `${profileEditorScore}% готовности`,
-        icon: '🛠️',
-        accent: profileEditorScore >= 80 ? 'ok' : 'neutral'
-      },
-      {
         id: 'resume-chat',
-        title: 'Продолжить чат',
+        title: 'Вернуться в чат',
         subtitle: activeConversation ? getConversationDisplayName(activeConversation, chatAliasByConversation) : 'Выбери диалог',
         icon: '🧭',
         accent: activeConversation ? 'accent' : 'neutral'
+      },
+      {
+        id: 'profile-lab',
+        title: 'Профиль',
+        subtitle: `${profileEditorScore}% готовности`,
+        icon: '🛠️',
+        accent: profileEditorScore >= 80 ? 'ok' : 'neutral'
       }
     ]
   }, [unreadConversationCount, hotFeedPosts, profileEditorScore, activeConversation, chatAliasByConversation])
@@ -2542,7 +2542,7 @@ export default function App() {
         text: `${unreadMessagesCount} сообщений в ${unreadConversationCount} чатах`
       })
     }
-    return items.slice(0, 6)
+    return items.slice(0, 4)
   }, [
     socketConnection,
     pushState.error,
@@ -2599,7 +2599,7 @@ export default function App() {
         action: 'trend'
       })
     }
-    return queue.slice(0, 6)
+    return queue.slice(0, 4)
   }, [
     dashboardDraftQueue,
     unreadConversationCount,
@@ -2647,7 +2647,7 @@ export default function App() {
     }
     return entries
       .sort((a, b) => (Date.parse(b.at || '') || 0) - (Date.parse(a.at || '') || 0))
-      .slice(0, 6)
+      .slice(0, 4)
   }, [conversations, posts, messages, activeConversation, chatAliasByConversation])
   const dashboardThemeMood = useMemo(() => {
     if (feedDigest.momentum >= 80) return 'surge'
@@ -6924,7 +6924,7 @@ export default function App() {
               type="button"
               className={view === 'dashboard' ? 'active' : ''}
               onClick={() => setView('dashboard')}
-              title="Dashboard"
+              title="Панель"
             >
               {icons.dashboard}
             </button>
@@ -7105,17 +7105,17 @@ export default function App() {
           <div className={`dashboard-layout mood-${dashboardThemeMood}`.trim()}>
             <section className="dashboard-hero">
               <div className="dashboard-hero-main">
-                <div className="dashboard-kicker">Workspace Control Center</div>
+                <div className="dashboard-kicker">Центр управления</div>
                 <div className="dashboard-hero-title-row">
                   <div>
-                    <h2>Dashboard</h2>
+                    <h2>Панель</h2>
                     <p>
                       {dashboardNow.date} • {dashboardNow.time}
                     </p>
                   </div>
                   <div className={`dashboard-socket-pill state-${socketConnection}`.trim()}>
                     <span className="dot"></span>
-                    {socketConnection === 'connected' ? 'Realtime online' : socketConnection === 'connecting' ? 'Connecting...' : 'Offline'}
+                    {socketConnection === 'connected' ? 'Связь онлайн' : socketConnection === 'connecting' ? 'Подключение...' : 'Нет связи'}
                   </div>
                 </div>
 
@@ -7128,22 +7128,25 @@ export default function App() {
                   <article>
                     <span>Лента</span>
                     <strong>{feedMetrics.total}</strong>
-                    <small>{feedDigest.freshCount} свежих / {feedDigest.momentum} momentum</small>
+                    <small>{feedDigest.freshCount} свежих • импульс {feedDigest.momentum}</small>
                   </article>
                   <article>
                     <span>Профиль</span>
                     <strong>{profileEditorScore}%</strong>
-                    <small>power {profilePowerScore} • achievements {profileAchievementsProgress}%</small>
+                    <small>сила {profilePowerScore} • достижения {profileAchievementsProgress}%</small>
                   </article>
                   <article>
                     <span>Система</span>
                     <strong>{onlineUsers.length}</strong>
-                    <small>онлайн пользователей • push {pushState.enabled ? 'on' : 'off'}</small>
+                    <small>онлайн • push {pushState.enabled ? 'вкл' : 'выкл'}</small>
                   </article>
                 </div>
 
                 <div className="dashboard-quick-actions">
-                  {dashboardQuickActions.map((item) => (
+                  {dashboardQuickActions
+                    .filter((item) => item.id !== 'profile-lab')
+                    .slice(0, 3)
+                    .map((item) => (
                     <button
                       key={item.id}
                       type="button"
@@ -7178,7 +7181,7 @@ export default function App() {
 
               <aside className="dashboard-score-card">
                 <div className="dashboard-score-head">
-                  <span>Workspace Score</span>
+                  <span>Индекс рабочего места</span>
                   <strong>{dashboardWorkspaceScore}</strong>
                 </div>
                 <div className="dashboard-score-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={dashboardWorkspaceScore}>
@@ -7186,7 +7189,7 @@ export default function App() {
                 </div>
                 <div className="dashboard-score-grid">
                   <div>
-                    <span>Realtime</span>
+                    <span>Связь</span>
                     <strong>{socketConnection === 'connected' ? '100%' : socketConnection === 'connecting' ? '60%' : '20%'}</strong>
                   </div>
                   <div>
@@ -7194,11 +7197,11 @@ export default function App() {
                     <strong>{pushState.enabled ? 'ON' : pushState.supported ? 'OFF' : 'N/A'}</strong>
                   </div>
                   <div>
-                    <span>Drafts</span>
+                    <span>Черновики</span>
                     <strong>{dashboardDraftQueue.length}</strong>
                   </div>
                   <div>
-                    <span>Health</span>
+                    <span>Сервер</span>
                     <strong>{health && health.ok ? 'OK' : '...'}</strong>
                   </div>
                 </div>
@@ -7219,10 +7222,9 @@ export default function App() {
               <article className="dashboard-card dashboard-card-chat">
                 <div className="dashboard-card-head">
                   <div>
-                    <strong>Chat Radar</strong>
-                    <span>приоритеты по диалогам, черновикам и unread</span>
+                    <strong>Чаты</strong>
+                    <span>важные диалоги и черновики</span>
                   </div>
-                  <button type="button" className="ghost" onClick={() => setView('chats')}>Открыть чаты</button>
                 </div>
 
                 <div className="dashboard-card-split">
@@ -7246,8 +7248,8 @@ export default function App() {
                               <div className="dashboard-chat-item-title">
                                 <strong>{conv.title}</strong>
                                 <div className="dashboard-chat-item-flags">
-                                  {conv.online && <span className="status online">online</span>}
-                                  {conv.hasDraft && <span className="status draft">draft</span>}
+                                  {conv.online && <span className="status online">онлайн</span>}
+                                  {conv.hasDraft && <span className="status draft">черн.</span>}
                                   {conv.isFavorite && <span className="status favorite">★</span>}
                                 </div>
                               </div>
@@ -7269,7 +7271,7 @@ export default function App() {
 
                   <div className="dashboard-list-block">
                     <div className="dashboard-list-head">
-                      <strong>Draft Queue</strong>
+                      <strong>Черновики</strong>
                       <span>{dashboardDraftQueue.length}</span>
                     </div>
                     {dashboardDraftQueue.length === 0 ? (
@@ -7285,7 +7287,7 @@ export default function App() {
                           >
                             <strong>{item.title}</strong>
                             <p>{item.draftText.length > 90 ? `${item.draftText.slice(0, 87)}...` : item.draftText}</p>
-                            <span>{item.unreadCount > 0 ? `Unread: ${item.unreadCount}` : 'Готов к отправке'}</span>
+                            <span>{item.unreadCount > 0 ? `Непрочитано: ${item.unreadCount}` : 'Готов к отправке'}</span>
                           </button>
                         ))}
                       </div>
@@ -7297,33 +7299,26 @@ export default function App() {
               <article className="dashboard-card dashboard-card-feed">
                 <div className="dashboard-card-head">
                   <div>
-                    <strong>Feed Pulse</strong>
-                    <span>тренды, хайп и быстрый вход в ленту</span>
+                    <strong>Лента</strong>
+                    <span>тренды и быстрый вход</span>
                   </div>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => openFeedFocus({ filter: FEED_FILTERS.all, sortMode: FEED_SORT_MODES.smart })}
-                  >
-                    Открыть ленту
-                  </button>
                 </div>
 
                 <div className="dashboard-feed-metrics">
                   <article>
-                    <span>Momentum</span>
+                    <span>Импульс</span>
                     <strong>{feedDigest.momentum}</strong>
                   </article>
                   <article>
-                    <span>Fresh</span>
+                    <span>Свежие</span>
                     <strong>{feedDigest.freshCount}</strong>
                   </article>
                   <article>
-                    <span>Avg</span>
+                    <span>Среднее</span>
                     <strong>{feedDigest.avgEngagement}</strong>
                   </article>
                   <article>
-                    <span>Media</span>
+                    <span>Медиа</span>
                     <strong>{feedDigest.mediaShare}%</strong>
                   </article>
                 </div>
@@ -7338,7 +7333,7 @@ export default function App() {
                       <div className="empty small">Тегов пока нет</div>
                     ) : (
                       <div className="dashboard-tag-cloud">
-                        {trendingTags.map((tag) => (
+                        {trendingTags.slice(0, 8).map((tag) => (
                           <button
                             key={`dash-tag-${tag.tag}`}
                             type="button"
@@ -7361,7 +7356,7 @@ export default function App() {
                       <div className="empty small">Нет данных</div>
                     ) : (
                       <div className="dashboard-rank-list">
-                        {topFeedAuthors.map((author) => (
+                        {topFeedAuthors.slice(0, 4).map((author) => (
                           <button
                             key={`dash-author-${author.id}`}
                             type="button"
@@ -7372,7 +7367,7 @@ export default function App() {
                               <strong>{author.displayName || author.username}</strong>
                               <span>@{author.username}</span>
                             </div>
-                            <small>{author.engagement} pts</small>
+                            <small>{author.engagement} очк.</small>
                           </button>
                         ))}
                       </div>
@@ -7388,7 +7383,7 @@ export default function App() {
                       <div className="empty small">Пока тихо</div>
                     ) : (
                       <div className="dashboard-rank-list">
-                        {hotFeedPosts.map((item) => (
+                        {hotFeedPosts.slice(0, 4).map((item) => (
                           <button
                             key={`dash-hot-${item.post.id}`}
                             type="button"
@@ -7399,7 +7394,7 @@ export default function App() {
                               <strong>{item.post.author.displayName || item.post.author.username}</strong>
                               <span>{String(item.post.body || '').trim() ? (String(item.post.body).slice(0, 52) + (String(item.post.body).length > 52 ? '...' : '')) : 'Пост без текста'}</span>
                             </div>
-                            <small>{item.score} pts</small>
+                            <small>{item.score} очк.</small>
                           </button>
                         ))}
                       </div>
@@ -7411,10 +7406,9 @@ export default function App() {
               <article className="dashboard-card dashboard-card-profile">
                 <div className="dashboard-card-head">
                   <div>
-                    <strong>Profile Lab</strong>
-                    <span>состояние профиля, витрины и контента</span>
+                    <strong>Профиль</strong>
+                    <span>состояние профиля и витрины</span>
                   </div>
-                  <button type="button" className="ghost" onClick={() => setView('profile')}>Открыть профиль</button>
                 </div>
 
                 <div className="dashboard-profile-top">
@@ -7424,12 +7418,12 @@ export default function App() {
                     <div className="dashboard-meter-bar"><span style={{ width: `${profileEditorScore}%` }}></span></div>
                   </div>
                   <div className="dashboard-profile-meter">
-                    <span>Power score</span>
+                    <span>Сила профиля</span>
                     <strong>{profilePowerScore}</strong>
                     <div className="dashboard-meter-bar"><span style={{ width: `${profilePowerScore}%` }}></span></div>
                   </div>
                   <div className="dashboard-profile-meter">
-                    <span>Achievements</span>
+                    <span>Достижения</span>
                     <strong>{profileAchievementsProgress}%</strong>
                     <div className="dashboard-meter-bar"><span style={{ width: `${profileAchievementsProgress}%` }}></span></div>
                   </div>
@@ -7438,14 +7432,14 @@ export default function App() {
                 <div className="dashboard-profile-stats">
                   <div><span>Посты</span><strong>{myPostsCount}</strong></div>
                   <div><span>Треки</span><strong>{myTracks.length}</strong></div>
-                  <div><span>Showcase skills</span><strong>{currentUserShowcase.skills.length}</strong></div>
-                  <div><span>Showcase badges</span><strong>{currentUserShowcase.badges.length}</strong></div>
-                  <div><span>Showcase links</span><strong>{currentUserShowcase.links.length}</strong></div>
-                  <div><span>Статус</span><strong>{userMoodLabel ? 'Yes' : 'No'}</strong></div>
+                  <div><span>Навыки</span><strong>{currentUserShowcase.skills.length}</strong></div>
+                  <div><span>Бейджи</span><strong>{currentUserShowcase.badges.length}</strong></div>
+                  <div><span>Ссылки</span><strong>{currentUserShowcase.links.length}</strong></div>
+                  <div><span>Статус</span><strong>{userMoodLabel ? 'Есть' : 'Нет'}</strong></div>
                 </div>
 
                 <div className="dashboard-checklist-preview">
-                  {profileEditorChecklist.slice(0, 6).map((item) => (
+                  {profileEditorChecklist.slice(0, 4).map((item) => (
                     <button
                       key={`dash-check-${item.id}`}
                       type="button"
@@ -7462,15 +7456,15 @@ export default function App() {
               <article className="dashboard-card dashboard-card-ops">
                 <div className="dashboard-card-head">
                   <div>
-                    <strong>Focus Queue</strong>
-                    <span>следующие действия для быстрого цикла работы</span>
+                    <strong>Приоритеты</strong>
+                    <span>что сделать дальше</span>
                   </div>
                 </div>
                 {dashboardFocusQueue.length === 0 ? (
                   <div className="empty small">Все ключевые задачи закрыты.</div>
                 ) : (
                   <div className="dashboard-focus-list">
-                    {dashboardFocusQueue.map((item) => (
+                    {dashboardFocusQueue.slice(0, 4).map((item) => (
                       <button
                         key={`dash-focus-${item.id}`}
                         type="button"
@@ -7481,7 +7475,7 @@ export default function App() {
                           <strong>{item.title}</strong>
                           <span>{item.text}</span>
                         </div>
-                        <small>Открыть</small>
+                        <small>Перейти</small>
                       </button>
                     ))}
                   </div>
@@ -7494,7 +7488,7 @@ export default function App() {
                       <span>Realtime, push и рабочая зона выглядят нормально.</span>
                     </div>
                   ) : (
-                    dashboardSystemAlerts.map((alert) => (
+                    dashboardSystemAlerts.slice(0, 3).map((alert) => (
                       <div key={`dash-alert-${alert.id}`} className={`dashboard-alert-card level-${alert.level}`.trim()}>
                         <strong>{alert.title}</strong>
                         <span>{alert.text}</span>
@@ -7504,18 +7498,18 @@ export default function App() {
                 </div>
               </article>
 
-              <article className="dashboard-card dashboard-card-wide">
+              <article className="dashboard-card dashboard-card-timeline">
                 <div className="dashboard-card-head">
                   <div>
-                    <strong>Activity Timeline</strong>
-                    <span>последние события по чатам, ленте и активной сессии</span>
+                    <strong>Активность</strong>
+                    <span>последние события</span>
                   </div>
                 </div>
                 {dashboardTimelineSnapshot.length === 0 ? (
                   <div className="empty small">Пока нет активности для отображения.</div>
                 ) : (
                   <div className="dashboard-timeline-list">
-                    {dashboardTimelineSnapshot.map((entry) => (
+                    {dashboardTimelineSnapshot.slice(0, 4).map((entry) => (
                       <button
                         key={entry.id}
                         type="button"
@@ -7556,14 +7550,9 @@ export default function App() {
               <article className="dashboard-card dashboard-card-session">
                 <div className="dashboard-card-head">
                   <div>
-                    <strong>Active Session</strong>
-                    <span>текущий чат и контекст работы</span>
+                    <strong>Текущий чат</strong>
+                    <span>быстрый срез по открытому диалогу</span>
                   </div>
-                  {activeConversation && (
-                    <button type="button" className="ghost" onClick={() => openConversationFromDashboard(activeConversation)}>
-                      В чат
-                    </button>
-                  )}
                 </div>
 
                 {!activeConversation ? (
@@ -7581,31 +7570,24 @@ export default function App() {
                       </span>
                     </div>
                     <div className="dashboard-session-metrics">
-                      <div><span>Messages</span><strong>{chatExplorerStats.messages}</strong></div>
-                      <div><span>Media</span><strong>{chatExplorerStats.media}</strong></div>
-                      <div><span>Links</span><strong>{chatExplorerStats.links}</strong></div>
-                      <div><span>Highlights</span><strong>{chatExplorerHighlights.length}</strong></div>
+                      <div><span>Сообщения</span><strong>{chatExplorerStats.messages}</strong></div>
+                      <div><span>Медиа</span><strong>{chatExplorerStats.media}</strong></div>
+                      <div><span>Ссылки</span><strong>{chatExplorerStats.links}</strong></div>
+                      <div><span>Важное</span><strong>{chatExplorerHighlights.length}</strong></div>
                     </div>
                     <div className="dashboard-session-actions">
                       <button type="button" className="ghost" onClick={() => {
                         openConversationFromDashboard(activeConversation)
                         setChatSearchOpen(true)
                       }}>
-                        Поиск в чате
-                      </button>
-                      <button type="button" className="ghost" onClick={() => {
-                        openConversationFromDashboard(activeConversation)
-                        setBookmarkPanelOpen(true)
-                        loadConversationBookmarks(activeConversation.id)
-                      }}>
-                        Сохраненные
+                        Поиск
                       </button>
                       <button type="button" className="ghost" onClick={() => {
                         openConversationFromDashboard(activeConversation)
                         setChatExplorerOpen(true)
                         setChatExplorerTab(CHAT_EXPLORER_TABS.overview)
                       }}>
-                        Explorer
+                        Обзор чата
                       </button>
                     </div>
                     {callState.status !== 'idle' && (
@@ -10608,7 +10590,7 @@ export default function App() {
             type="button"
             className={view === 'dashboard' ? 'active' : ''}
             onClick={() => setView('dashboard')}
-            title="Dashboard"
+            title="Панель"
           >
             {icons.dashboard}
           </button>
