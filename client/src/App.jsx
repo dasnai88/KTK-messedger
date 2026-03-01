@@ -5369,8 +5369,8 @@ export default function App() {
 
   useEffect(() => {
     if (!user || !user.isAdmin) return
-    if (view !== 'feed') return
-    if (!isFeedToolboxOpen || !isFeedAdminOpen) return
+    if (view !== 'dashboard') return
+    if (!isFeedAdminOpen) return
     if (adminUsers.length > 0 || adminCenterLoading) return
 
     let active = true
@@ -5388,7 +5388,6 @@ export default function App() {
     user ? user.id : null,
     user ? user.isAdmin : false,
     view,
-    isFeedToolboxOpen,
     isFeedAdminOpen,
     adminUsers.length,
     adminCenterLoading
@@ -7762,6 +7761,208 @@ export default function App() {
                 </div>
               </article>
 
+              {user.isAdmin && (
+                <article className="dashboard-card dashboard-card-admin">
+                  <div className="dashboard-card-head">
+                    <div>
+                      <strong>Admin Control Deck</strong>
+                      <span>модерация и массовые действия в центре управления</span>
+                    </div>
+                    <div className="feed-admin-head-actions">
+                      <button
+                        type="button"
+                        className={`feed-toolbox-toggle ${isFeedAdminOpen ? 'active' : ''}`.trim()}
+                        onClick={() => setIsFeedAdminOpen((prev) => !prev)}
+                        aria-expanded={isFeedAdminOpen}
+                        aria-controls="dashboard-admin-panel"
+                      >
+                        {isFeedAdminOpen ? 'Свернуть deck' : 'Открыть deck'}
+                      </button>
+                      <button type="button" className="feed-quick-action" onClick={() => setView('admin')}>
+                        Полная admin-панель
+                      </button>
+                    </div>
+                  </div>
+
+                  {isFeedAdminOpen && (
+                    <div id="dashboard-admin-panel" className="feed-admin-panel">
+                      <div className="feed-admin-metrics">
+                        <article>
+                          <span>В базе</span>
+                          <strong>{adminCenterSummary.total}</strong>
+                        </article>
+                        <article>
+                          <span>Баны</span>
+                          <strong>{adminCenterSummary.banned}</strong>
+                        </article>
+                        <article>
+                          <span>Модераторы</span>
+                          <strong>{adminCenterSummary.moderators}</strong>
+                        </article>
+                        <article>
+                          <span>Предупреждения</span>
+                          <strong>{adminCenterSummary.warnings}</strong>
+                        </article>
+                      </div>
+
+                      <div className="feed-admin-toolbar">
+                        <input
+                          type="text"
+                          value={adminQuery}
+                          onChange={(event) => setAdminQuery(event.target.value)}
+                          placeholder="Поиск пользователя по username..."
+                        />
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={refreshAdminCenter}
+                          disabled={adminCenterLoading}
+                        >
+                          {adminCenterLoading ? 'Загрузка...' : 'Обновить'}
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={exportAdminCenterReport}
+                        >
+                          Экспорт отчета
+                        </button>
+                      </div>
+
+                      <div className="feed-admin-filters">
+                        <div className="feed-admin-pills">
+                          <button
+                            type="button"
+                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.all ? 'active' : ''}
+                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.all))}
+                          >
+                            Все
+                          </button>
+                          <button
+                            type="button"
+                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.banned ? 'active' : ''}
+                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.banned))}
+                          >
+                            Баны
+                          </button>
+                          <button
+                            type="button"
+                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.warned ? 'active' : ''}
+                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.warned))}
+                          >
+                            С предупреждениями
+                          </button>
+                          <button
+                            type="button"
+                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.moderators ? 'active' : ''}
+                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.moderators))}
+                          >
+                            Модераторы
+                          </button>
+                        </div>
+                        <div className="feed-admin-sort">
+                          <label htmlFor="dashboard-admin-sort">Сортировка</label>
+                          <select
+                            id="dashboard-admin-sort"
+                            value={adminCenterSort}
+                            onChange={(event) => setAdminCenterSort(normalizeAdminCenterSortValue(event.target.value))}
+                          >
+                            <option value={ADMIN_CENTER_USER_SORTS.warnings}>по предупреждениям</option>
+                            <option value={ADMIN_CENTER_USER_SORTS.status}>по статусу</option>
+                            <option value={ADMIN_CENTER_USER_SORTS.username}>по username</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="feed-admin-bulk">
+                        <div className="feed-admin-bulk-main">
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={toggleAdminCenterSelectAllVisible}
+                          >
+                            {filteredAdminCenterUsers.length > 0 && filteredAdminCenterUsers.every((item) => adminCenterSelectedUserIds.has(item.id))
+                              ? 'Снять выбор'
+                              : 'Выбрать всех видимых'}
+                          </button>
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => setAdminCenterSelectedUserIds(new Set())}
+                          >
+                            Очистить выбор
+                          </button>
+                          <span>{adminCenterSelectedUserIds.size} выбрано</span>
+                        </div>
+                        <input
+                          type="text"
+                          value={adminCenterBulkReason}
+                          onChange={(event) => setAdminCenterBulkReason(String(event.target.value || '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 160))}
+                          placeholder="Причина массового предупреждения..."
+                        />
+                        <div className="feed-admin-bulk-actions">
+                          <button type="button" onClick={() => runAdminCenterBulkAction('warn')} disabled={adminCenterActionLoading}>Warn</button>
+                          <button type="button" onClick={() => runAdminCenterBulkAction('clear-warn')} disabled={adminCenterActionLoading}>Clear warns</button>
+                          <button type="button" onClick={() => runAdminCenterBulkAction('set-moder')} disabled={adminCenterActionLoading}>Set moder</button>
+                          <button type="button" onClick={() => runAdminCenterBulkAction('unset-moder')} disabled={adminCenterActionLoading}>Unset moder</button>
+                          <button type="button" onClick={() => runAdminCenterBulkAction('ban')} disabled={adminCenterActionLoading}>Ban</button>
+                          <button type="button" onClick={() => runAdminCenterBulkAction('unban')} disabled={adminCenterActionLoading}>Unban</button>
+                        </div>
+                      </div>
+
+                      <div className="feed-admin-list">
+                        {filteredAdminCenterUsers.length === 0 && (
+                          <div className="empty">Пользователи не найдены по текущему фильтру.</div>
+                        )}
+                        {filteredAdminCenterUsers.map((u) => (
+                          <article key={`dashboard-admin-${u.id}`} className="feed-admin-item">
+                            <label className="feed-admin-item-select">
+                              <input
+                                type="checkbox"
+                                checked={adminCenterSelectedUserIds.has(u.id)}
+                                onChange={() => toggleAdminCenterUserSelection(u.id)}
+                              />
+                            </label>
+                            <div className="feed-admin-item-main">
+                              <strong>{u.display_name || u.username}</strong>
+                              <span>@{u.username}</span>
+                              <div className="admin-badges">
+                                {u.is_admin && <span className="badge admin">ADMIN</span>}
+                                {u.is_moderator && <span className="badge moder">MODER</span>}
+                                {u.is_banned && <span className="badge">BANNED</span>}
+                              </div>
+                            </div>
+                            <div className="feed-admin-item-meta">
+                              <span>warn: {u.warnings_count}</span>
+                              <span>{u.is_banned ? 'в бане' : 'активен'}</span>
+                            </div>
+                            <div className="feed-admin-item-actions">
+                              {u.is_banned ? (
+                                <button type="button" onClick={() => adminUnbanUser(u.id).then(() => loadAdminUsers(adminQuery))}>Разбан</button>
+                              ) : (
+                                <button type="button" onClick={() => adminBanUser(u.id).then(() => loadAdminUsers(adminQuery))}>Бан</button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => adminSetModerator(u.id, !u.is_moderator).then(() => loadAdminUsers(adminQuery))}
+                              >
+                                {u.is_moderator ? 'Снять модер' : 'Назначить модер'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => adminClearWarnings(u.id).then(() => loadAdminUsers(adminQuery))}
+                              >
+                                Снять предупреждения
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              )}
+
               <article className="dashboard-card dashboard-card-timeline">
                 <div className="dashboard-card-head">
                   <div>
@@ -9686,208 +9887,6 @@ export default function App() {
               </div>
               )}
 
-              {user && user.isAdmin && (
-                <section className={`feed-admin-center ${isFeedAdminOpen ? 'open' : ''}`.trim()}>
-                  <div className="feed-admin-head">
-                    <div>
-                      <span>admin</span>
-                      <strong>Admin Control Deck</strong>
-                      <p>Модерация, массовые действия и контроль рисков в ленте.</p>
-                    </div>
-                    <div className="feed-admin-head-actions">
-                      <button
-                        type="button"
-                        className={`feed-toolbox-toggle ${isFeedAdminOpen ? 'active' : ''}`.trim()}
-                        onClick={() => setIsFeedAdminOpen((prev) => !prev)}
-                        aria-expanded={isFeedAdminOpen}
-                        aria-controls="feed-admin-panel"
-                      >
-                        {isFeedAdminOpen ? 'Свернуть deck' : 'Открыть deck'}
-                      </button>
-                      <button type="button" className="feed-quick-action" onClick={() => setView('admin')}>
-                        Полная admin-панель
-                      </button>
-                    </div>
-                  </div>
-
-                  {isFeedAdminOpen && (
-                    <div id="feed-admin-panel" className="feed-admin-panel">
-                      <div className="feed-admin-metrics">
-                        <article>
-                          <span>В базе</span>
-                          <strong>{adminCenterSummary.total}</strong>
-                        </article>
-                        <article>
-                          <span>Баны</span>
-                          <strong>{adminCenterSummary.banned}</strong>
-                        </article>
-                        <article>
-                          <span>Модераторы</span>
-                          <strong>{adminCenterSummary.moderators}</strong>
-                        </article>
-                        <article>
-                          <span>Предупреждения</span>
-                          <strong>{adminCenterSummary.warnings}</strong>
-                        </article>
-                      </div>
-
-                      <div className="feed-admin-toolbar">
-                        <input
-                          type="text"
-                          value={adminQuery}
-                          onChange={(event) => setAdminQuery(event.target.value)}
-                          placeholder="Поиск пользователя по username..."
-                        />
-                        <button
-                          type="button"
-                          className="primary"
-                          onClick={refreshAdminCenter}
-                          disabled={adminCenterLoading}
-                        >
-                          {adminCenterLoading ? 'Загрузка...' : 'Обновить'}
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={exportAdminCenterReport}
-                        >
-                          Экспорт отчета
-                        </button>
-                      </div>
-
-                      <div className="feed-admin-filters">
-                        <div className="feed-admin-pills">
-                          <button
-                            type="button"
-                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.all ? 'active' : ''}
-                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.all))}
-                          >
-                            Все
-                          </button>
-                          <button
-                            type="button"
-                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.banned ? 'active' : ''}
-                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.banned))}
-                          >
-                            Баны
-                          </button>
-                          <button
-                            type="button"
-                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.warned ? 'active' : ''}
-                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.warned))}
-                          >
-                            С предупреждениями
-                          </button>
-                          <button
-                            type="button"
-                            className={adminCenterFilter === ADMIN_CENTER_USER_FILTERS.moderators ? 'active' : ''}
-                            onClick={() => setAdminCenterFilter(normalizeAdminCenterFilterValue(ADMIN_CENTER_USER_FILTERS.moderators))}
-                          >
-                            Модераторы
-                          </button>
-                        </div>
-                        <div className="feed-admin-sort">
-                          <label htmlFor="feed-admin-sort">Сортировка</label>
-                          <select
-                            id="feed-admin-sort"
-                            value={adminCenterSort}
-                            onChange={(event) => setAdminCenterSort(normalizeAdminCenterSortValue(event.target.value))}
-                          >
-                            <option value={ADMIN_CENTER_USER_SORTS.warnings}>по предупреждениям</option>
-                            <option value={ADMIN_CENTER_USER_SORTS.status}>по статусу</option>
-                            <option value={ADMIN_CENTER_USER_SORTS.username}>по username</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="feed-admin-bulk">
-                        <div className="feed-admin-bulk-main">
-                          <button
-                            type="button"
-                            className="ghost"
-                            onClick={toggleAdminCenterSelectAllVisible}
-                          >
-                            {filteredAdminCenterUsers.length > 0 && filteredAdminCenterUsers.every((item) => adminCenterSelectedUserIds.has(item.id))
-                              ? 'Снять выбор'
-                              : 'Выбрать всех видимых'}
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost"
-                            onClick={() => setAdminCenterSelectedUserIds(new Set())}
-                          >
-                            Очистить выбор
-                          </button>
-                          <span>{adminCenterSelectedUserIds.size} выбрано</span>
-                        </div>
-                        <input
-                          type="text"
-                          value={adminCenterBulkReason}
-                          onChange={(event) => setAdminCenterBulkReason(String(event.target.value || '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 160))}
-                          placeholder="Причина массового предупреждения..."
-                        />
-                        <div className="feed-admin-bulk-actions">
-                          <button type="button" onClick={() => runAdminCenterBulkAction('warn')} disabled={adminCenterActionLoading}>Warn</button>
-                          <button type="button" onClick={() => runAdminCenterBulkAction('clear-warn')} disabled={adminCenterActionLoading}>Clear warns</button>
-                          <button type="button" onClick={() => runAdminCenterBulkAction('set-moder')} disabled={adminCenterActionLoading}>Set moder</button>
-                          <button type="button" onClick={() => runAdminCenterBulkAction('unset-moder')} disabled={adminCenterActionLoading}>Unset moder</button>
-                          <button type="button" onClick={() => runAdminCenterBulkAction('ban')} disabled={adminCenterActionLoading}>Ban</button>
-                          <button type="button" onClick={() => runAdminCenterBulkAction('unban')} disabled={adminCenterActionLoading}>Unban</button>
-                        </div>
-                      </div>
-
-                      <div className="feed-admin-list">
-                        {filteredAdminCenterUsers.length === 0 && (
-                          <div className="empty">Пользователи не найдены по текущему фильтру.</div>
-                        )}
-                        {filteredAdminCenterUsers.map((u) => (
-                          <article key={`feed-admin-${u.id}`} className="feed-admin-item">
-                            <label className="feed-admin-item-select">
-                              <input
-                                type="checkbox"
-                                checked={adminCenterSelectedUserIds.has(u.id)}
-                                onChange={() => toggleAdminCenterUserSelection(u.id)}
-                              />
-                            </label>
-                            <div className="feed-admin-item-main">
-                              <strong>{u.display_name || u.username}</strong>
-                              <span>@{u.username}</span>
-                              <div className="admin-badges">
-                                {u.is_admin && <span className="badge admin">ADMIN</span>}
-                                {u.is_moderator && <span className="badge moder">MODER</span>}
-                                {u.is_banned && <span className="badge">BANNED</span>}
-                              </div>
-                            </div>
-                            <div className="feed-admin-item-meta">
-                              <span>warn: {u.warnings_count}</span>
-                              <span>{u.is_banned ? 'в бане' : 'активен'}</span>
-                            </div>
-                            <div className="feed-admin-item-actions">
-                              {u.is_banned ? (
-                                <button type="button" onClick={() => adminUnbanUser(u.id).then(() => loadAdminUsers(adminQuery))}>Разбан</button>
-                              ) : (
-                                <button type="button" onClick={() => adminBanUser(u.id).then(() => loadAdminUsers(adminQuery))}>Бан</button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => adminSetModerator(u.id, !u.is_moderator).then(() => loadAdminUsers(adminQuery))}
-                              >
-                                {u.is_moderator ? 'Снять модер' : 'Назначить модер'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => adminClearWarnings(u.id).then(() => loadAdminUsers(adminQuery))}
-                              >
-                                Снять предупреждения
-                              </button>
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </section>
-              )}
               </div>
               )}
             </section>

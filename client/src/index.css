@@ -4767,7 +4767,8 @@ body {
   animation: feedToolboxPanelIn 0.18s var(--ease-out);
 }
 
-.feed-admin-center {
+.dashboard-card-admin {
+  grid-column: span 12;
   border: 1px solid rgba(var(--accent-rgb), 0.28);
   border-radius: 16px;
   padding: 12px;
