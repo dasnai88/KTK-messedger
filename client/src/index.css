@@ -9739,6 +9739,207 @@ body {
 }
 
 @media (max-width: 720px) {
+  .page {
+    gap: 12px;
+    padding:
+      calc(10px + var(--safe-top))
+      calc(10px + var(--safe-right))
+      calc(10px + var(--safe-bottom))
+      calc(10px + var(--safe-left));
+  }
+
+  .content {
+    padding: 12px 10px calc(var(--mobile-rail-height) + var(--safe-bottom) + 12px) 10px;
+    gap: 12px;
+    border-radius: 16px;
+  }
+
+  .topbar {
+    gap: 8px;
+  }
+
+  .brand-inline {
+    align-items: flex-start;
+  }
+
+  .brand-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    font-size: 15px;
+  }
+
+  .top-actions {
+    gap: 8px;
+  }
+
+  .theme-toggle,
+  .command-toggle,
+  .push-toggle,
+  .logout-btn,
+  .user-pill {
+    min-height: 38px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  .panel {
+    padding: 14px;
+    border-radius: 16px;
+    gap: 12px;
+  }
+
+  .settings-panel {
+    border-radius: 18px;
+  }
+
+  .settings-sidebar,
+  .settings-content {
+    padding: 12px;
+  }
+
+  .settings-account-card {
+    padding: 12px;
+    gap: 9px;
+  }
+
+  .settings-pane {
+    padding: 11px;
+    border-radius: 14px;
+    gap: 10px;
+  }
+
+  .settings-pane h2 {
+    font-size: 18px;
+  }
+
+  .settings-pane .subtitle {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .settings-action-row {
+    padding: 11px 32px 11px 11px;
+    gap: 4px;
+  }
+
+  .settings-action-row strong {
+    font-size: 14px;
+  }
+
+  .settings-action-row span {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  .settings-kpi {
+    padding: 8px 9px;
+  }
+
+  .settings-kpi strong {
+    font-size: 14px;
+  }
+
+  .chat-list,
+  .chat-window {
+    padding: 12px 10px;
+    border-radius: 14px;
+  }
+
+  .composer {
+    gap: 6px;
+  }
+
+  .composer > input {
+    min-height: 40px;
+  }
+
+  .composer .primary,
+  .composer .file-btn,
+  .composer .media-trigger-btn,
+  .composer .sticker-btn,
+  .composer .poll-trigger-btn,
+  .composer .record-btn {
+    min-height: 38px;
+  }
+
+  .feed-composer {
+    padding: 12px;
+    border-radius: 16px;
+    gap: 10px;
+  }
+
+  .feed-toolbox {
+    padding: 10px;
+    border-radius: 14px;
+    gap: 8px;
+  }
+
+  .feed-control-head {
+    padding: 9px 10px;
+    border-radius: 12px;
+  }
+
+  .profile-hero.profile-hero-expanded {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .profile-stats {
+    gap: 6px;
+  }
+
+  .profile-stats span {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .profile-actions-row {
+    gap: 8px;
+  }
+
+  .profile-actions-row .primary,
+  .profile-actions-row .ghost {
+    min-height: 40px;
+  }
+
+  .profile-insights-grid,
+  .profile-pro-grid {
+    gap: 10px;
+  }
+
+  .profile-power-card,
+  .profile-achievements-card,
+  .profile-showcase-card,
+  .profile-dev-card {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .admin-list {
+    gap: 10px;
+  }
+
+  .admin-item {
+    padding: 10px;
+    gap: 10px;
+    border-radius: 12px;
+  }
+
+  .admin-actions button {
+    min-height: 36px;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .admin-role-picker button {
+    padding: 5px 10px;
+  }
+
+  .message-menu {
+    border-radius: 14px;
+  }
+
   .settings-kpi-grid {
     grid-template-columns: 1fr;
   }
@@ -9939,6 +10140,57 @@ body {
 
   .message-menu-reactions-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .content {
+    padding: 10px 8px calc(var(--mobile-rail-height) + var(--safe-bottom) + 10px) 8px;
+  }
+
+  .brand-inline h1 {
+    font-size: 18px;
+  }
+
+  .settings-hero-main h2 {
+    font-size: 18px;
+  }
+
+  .settings-quick-tabs button {
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+
+  .appearance-preset-row button {
+    flex: 1 1 100%;
+  }
+
+  .admin-meta {
+    text-align: left;
+  }
+
+  .admin-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .feed-composer-metrics span {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+
+  .chat-user h3 {
+    font-size: 16px;
+  }
+
+  .icon-rail {
+    padding: 6px;
+    gap: 6px;
+    border-radius: 16px;
+  }
+
+  .icon-rail button {
+    width: 40px;
+    height: 40px;
   }
 }
 
