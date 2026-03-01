@@ -5962,6 +5962,13 @@ body {
   gap: 6px;
 }
 
+.mini-profile-role-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
 .mini-profile-meta span {
   display: inline-flex;
   align-items: center;

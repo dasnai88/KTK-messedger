@@ -1708,6 +1708,8 @@ export default function App() {
   const profileThemeWheelPointerRef = useRef(null)
   const miniProfileOpenTimerRef = useRef(null)
   const miniProfileCloseTimerRef = useRef(null)
+  const miniProfileCacheRef = useRef(new Map())
+  const miniProfileLoadingRef = useRef(new Set())
   const touchContextMenuRef = useRef({
     timer: null,
     startX: 0,
@@ -5584,6 +5586,8 @@ export default function App() {
     dashboardRefreshLoadingRef.current = false
     setDashboardRefreshLoading(false)
     clearMiniProfileTimers()
+    miniProfileCacheRef.current.clear()
+    miniProfileLoadingRef.current.clear()
     setMiniProfileCard(INITIAL_MINI_PROFILE_CARD_STATE)
     setDashboardCommandInput('')
     setDashboardLastRefreshAt(null)
@@ -6390,27 +6394,84 @@ export default function App() {
     )
   }
 
+  const getMiniProfileCacheKey = (targetUser) => {
+    if (!targetUser || typeof targetUser !== 'object') return ''
+    const username = String(targetUser.username || '').trim().toLowerCase()
+    if (username) return `username:${username}`
+    const id = String(targetUser.id || '').trim()
+    return id ? `id:${id}` : ''
+  }
+
   const normalizeMiniProfileUser = (rawUser) => {
     if (!rawUser || typeof rawUser !== 'object') return null
     const username = String(rawUser.username || '').trim()
     const id = rawUser.id ? String(rawUser.id) : (username ? `username:${username}` : '')
     if (!id && !username) return null
-    const roleValue = String(rawUser.role || '').trim()
-    const roleLabel = roleValue
-      ? (roleLabelByValue.get(roleValue) || roleValue)
-      : 'Участник'
+    const roleValues = getUserRoleList(rawUser)
+    const roleLabels = roleValues
+      .map((value) => roleLabelByValue.get(value) || value)
+      .filter(Boolean)
     const displayName = String(rawUser.displayName || username || 'Пользователь').trim()
     const statusEmoji = String(rawUser.statusEmoji || '').trim()
     const statusText = String(rawUser.statusText || '').trim()
+    const onlineKnown = Object.prototype.hasOwnProperty.call(rawUser, 'online')
     return {
       id,
       username,
       displayName,
       avatarUrl: rawUser.avatarUrl || '',
-      roleLabel,
+      roleLabels: roleLabels.length > 0 ? roleLabels : ['Участник'],
       statusEmoji,
       statusText,
-      online: rawUser.online === true
+      online: rawUser.online === true,
+      onlineKnown
+    }
+  }
+
+  const mergeMiniProfileUser = (baseUser, extraUser) => {
+    if (!baseUser && !extraUser) return null
+    if (!baseUser) return extraUser
+    if (!extraUser) return baseUser
+    const roleLabels = Array.from(new Set([
+      ...(Array.isArray(extraUser.roleLabels) ? extraUser.roleLabels : []),
+      ...(Array.isArray(baseUser.roleLabels) ? baseUser.roleLabels : [])
+    ].filter(Boolean)))
+    const onlineKnown = baseUser.onlineKnown === true || extraUser.onlineKnown === true
+    const online = baseUser.onlineKnown === true
+      ? baseUser.online
+      : (extraUser.onlineKnown === true ? extraUser.online : (baseUser.online === true || extraUser.online === true))
+    return {
+      ...baseUser,
+      ...extraUser,
+      roleLabels: roleLabels.length > 0 ? roleLabels : ['Участник'],
+      online,
+      onlineKnown
+    }
+  }
+
+  const hydrateMiniProfileUser = async (baseUser) => {
+    if (!baseUser || !baseUser.username) return
+    const cacheKey = getMiniProfileCacheKey(baseUser)
+    if (!cacheKey || miniProfileLoadingRef.current.has(cacheKey)) return
+    miniProfileLoadingRef.current.add(cacheKey)
+    try {
+      const data = await getProfile(baseUser.username)
+      const fetchedUser = normalizeMiniProfileUser(data && data.user)
+      if (!fetchedUser) return
+      const merged = mergeMiniProfileUser(baseUser, fetchedUser)
+      miniProfileCacheRef.current.set(cacheKey, merged)
+      setMiniProfileCard((prev) => {
+        if (!prev.open || !prev.user) return prev
+        if (getMiniProfileCacheKey(prev.user) !== cacheKey) return prev
+        return {
+          ...prev,
+          user: mergeMiniProfileUser(prev.user, merged)
+        }
+      })
+    } catch (err) {
+      // Profile hydration is opportunistic; ignore transient hover fetch failures.
+    } finally {
+      miniProfileLoadingRef.current.delete(cacheKey)
     }
   }
 
@@ -6421,6 +6482,9 @@ export default function App() {
     }
     const normalized = normalizeMiniProfileUser(rawUser)
     if (!normalized) return
+    const cacheKey = getMiniProfileCacheKey(normalized)
+    const cached = cacheKey ? miniProfileCacheRef.current.get(cacheKey) : null
+    const preparedUser = mergeMiniProfileUser(normalized, cached)
     clearMiniProfileTimers()
     const openAtX = Number(event.clientX || 0)
     const openAtY = Number(event.clientY || 0)
@@ -6430,10 +6494,13 @@ export default function App() {
         open: true,
         x: coords.x,
         y: coords.y,
-        user: normalized
+        user: preparedUser
       })
       miniProfileOpenTimerRef.current = null
     }, 110)
+    if (preparedUser && preparedUser.username && !cached) {
+      hydrateMiniProfileUser(preparedUser)
+    }
   }
 
   const moveMiniProfileCard = (event) => {
@@ -8317,7 +8384,15 @@ export default function App() {
                           className="chat-user chat-header-link"
                           onClick={() => openProfile(activeConversation.other.username)}
                         >
-                          <div className="avatar small">
+                          <div
+                            className="avatar small with-mini-profile"
+                            onMouseEnter={(event) => queueMiniProfileCard(event, {
+                              ...activeConversation.other,
+                              online: isOnline(activeConversation.other.id)
+                            })}
+                            onMouseMove={moveMiniProfileCard}
+                            onMouseLeave={() => hideMiniProfileCard()}
+                          >
                             {activeConversation.other.avatarUrl ? (
                               <img src={resolveMediaUrl(activeConversation.other.avatarUrl)} alt="avatar" />
                             ) : (
@@ -11280,7 +11355,11 @@ export default function App() {
               </span>
             </div>
             <div className="mini-profile-meta">
-              <span className="mini-profile-role">{miniProfileCard.user.roleLabel}</span>
+              <div className="mini-profile-role-list">
+                {(Array.isArray(miniProfileCard.user.roleLabels) ? miniProfileCard.user.roleLabels : ['Участник']).map((roleLabel, index) => (
+                  <span key={`mini-profile-role-${index}-${roleLabel}`} className="mini-profile-role">{roleLabel}</span>
+                ))}
+              </div>
               {(miniProfileCard.user.statusEmoji || miniProfileCard.user.statusText) && (
                 <span className="mini-profile-status">
                   {miniProfileCard.user.statusEmoji ? `${miniProfileCard.user.statusEmoji} ` : ''}
