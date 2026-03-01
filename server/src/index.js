@@ -130,7 +130,15 @@ const twoFactorBackupCodesCount = 10
 const twoFactorBackupCodeLength = 10
 const sessionListLimit = 30
 const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-const PERSONAL_FAVORITES_TITLE = 'РР·Р±СЂР°РЅРЅРѕРµ'
+const PERSONAL_FAVORITES_TITLE = '\u0418\u0437\u0431\u0440\u0430\u043d\u043d\u043e\u0435'
+const LEGACY_PERSONAL_FAVORITES_TITLES = [
+  'РР·Р±СЂР°РЅРЅРѕРµ',
+  'Избранное'
+]
+const PERSONAL_FAVORITES_TITLE_ALIASES = Array.from(new Set([
+  PERSONAL_FAVORITES_TITLE,
+  ...LEGACY_PERSONAL_FAVORITES_TITLES
+]))
 
 if (webPushEnabled) {
   webpush.setVapidDetails(webPushSubject, webPushPublicKey, webPushPrivateKey)
@@ -1894,25 +1902,88 @@ async function getPostByIdForViewer(postId, viewerId) {
   return mapPost(result.rows[0])
 }
 
-async function getPersonalFavoritesConversationId(client, userId) {
+async function getPersonalFavoritesConversations(client, userId) {
   const result = await client.query(
-    `select c.id
+    `select c.id,
+            c.title,
+            c.created_at,
+            coalesce((
+              select count(*)
+              from messages m
+              where m.conversation_id = c.id
+                and m.deleted_at is null
+            ), 0)::int as message_count
      from conversations c
      join conversation_members me on me.conversation_id = c.id and me.user_id = $1
      where c.is_group = true
-       and c.title = $2
+       and c.title = any($2::text[])
        and not exists (
          select 1
          from conversation_members other
          where other.conversation_id = c.id
            and other.user_id <> $1
        )
-     order by c.created_at asc
-     limit 1`,
-    [userId, PERSONAL_FAVORITES_TITLE]
+     order by (c.title = $3) desc, message_count desc, c.created_at asc, c.id asc`,
+    [userId, PERSONAL_FAVORITES_TITLE_ALIASES, PERSONAL_FAVORITES_TITLE]
   )
-  if (result.rowCount === 0) return null
-  return result.rows[0].id
+  return result.rows || []
+}
+
+async function normalizePersonalFavoritesConversations(client, userId) {
+  const conversations = await getPersonalFavoritesConversations(client, userId)
+  if (!Array.isArray(conversations) || conversations.length === 0) return null
+
+  const primary = conversations[0]
+  const primaryId = primary.id
+
+  if (primary.title !== PERSONAL_FAVORITES_TITLE) {
+    await client.query(
+      'update conversations set title = $1 where id = $2',
+      [PERSONAL_FAVORITES_TITLE, primaryId]
+    )
+  }
+
+  const duplicates = conversations.slice(1)
+  for (const duplicate of duplicates) {
+    const duplicateId = duplicate.id
+    if (!duplicateId || duplicateId === primaryId) continue
+
+    await client.query(
+      `update messages
+       set conversation_id = $1
+       where conversation_id = $2`,
+      [primaryId, duplicateId]
+    )
+
+    try {
+      await client.query(
+        `update message_bookmarks
+         set conversation_id = $1
+         where conversation_id = $2`,
+        [primaryId, duplicateId]
+      )
+    } catch (err) {
+      if (!isMessageBookmarksSchemaError(err)) throw err
+    }
+
+    try {
+      await client.query(
+        `update message_forwards
+         set source_conversation_id = $1
+         where source_conversation_id = $2`,
+        [primaryId, duplicateId]
+      )
+    } catch (err) {
+      if (!isMessageForwardSchemaError(err)) throw err
+    }
+
+    await client.query(
+      'delete from conversations where id = $1',
+      [duplicateId]
+    )
+  }
+
+  return primaryId
 }
 
 async function setConversationFavoriteIfSupported(client, conversationId, userId) {
@@ -1935,7 +2006,7 @@ async function ensurePersonalFavoritesConversation(userId) {
     await client.query('begin')
     await client.query('select pg_advisory_xact_lock(hashtext($1))', [`personal-favorites:${userId}`])
 
-    let conversationId = await getPersonalFavoritesConversationId(client, userId)
+    let conversationId = await normalizePersonalFavoritesConversations(client, userId)
     if (!conversationId) {
       const createdConversation = await client.query(
         'insert into conversations (title, is_group) values ($1, true) returning id',
@@ -1960,6 +2031,45 @@ async function ensurePersonalFavoritesConversation(userId) {
     throw err
   } finally {
     client.release()
+  }
+}
+
+async function repairLegacyPersonalFavoritesConversations() {
+  try {
+    const result = await pool.query(
+      `select distinct me.user_id
+       from conversations c
+       join conversation_members me on me.conversation_id = c.id
+       where c.is_group = true
+         and c.title = any($1::text[])
+         and not exists (
+           select 1
+           from conversation_members other
+           where other.conversation_id = c.id
+             and other.user_id <> me.user_id
+         )`,
+      [LEGACY_PERSONAL_FAVORITES_TITLES]
+    )
+
+    const userIds = result.rows
+      .map((row) => row.user_id)
+      .filter((value) => isValidUuid(value))
+
+    if (userIds.length === 0) return
+
+    let repairedCount = 0
+    for (const userId of userIds) {
+      try {
+        await ensurePersonalFavoritesConversation(userId)
+        repairedCount += 1
+      } catch (err) {
+        console.error('Personal favorites repair user error', { userId, err })
+      }
+    }
+
+    console.log(`Personal favorites repair completed: ${repairedCount}/${userIds.length}`)
+  } catch (err) {
+    console.error('Personal favorites repair failed', err)
   }
 }
 
@@ -6438,6 +6548,7 @@ async function applySchemaOnStartup() {
 async function startServer() {
   try {
     await applySchemaOnStartup()
+    await repairLegacyPersonalFavoritesConversations()
     server.listen(port, () => {
       console.log('Server listening on http://localhost:' + port)
     })
@@ -6448,3 +6559,4 @@ async function startServer() {
 }
 
 startServer()
+
