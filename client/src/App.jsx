@@ -12125,7 +12125,7 @@ export default function App() {
               <div className="mini-profile-identity">
                 <strong>
                   {miniProfileCard.user.displayName || miniProfileCard.user.username || 'Пользователь'}
-                  {miniProfileCard.user.isVerified && <span className="verified-mark" title="Верифицированный профиль">✓</span>}
+                  {miniProfileCard.user.isVerified && <span className="verified-mark mini-profile-verified" title="Верифицированный профиль">✓</span>}
                 </strong>
                 {miniProfileCard.user.username && <span>@{miniProfileCard.user.username}</span>}
               </div>
