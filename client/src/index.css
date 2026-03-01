@@ -6360,9 +6360,13 @@ body {
   text-overflow: ellipsis;
 }
 
+.mini-profile-counter {
+  font-weight: 600;
+}
+
 .mini-profile-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -6380,6 +6384,16 @@ body {
 .mini-profile-actions .ghost {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(var(--accent-rgb), 0.22);
+}
+
+.mini-profile-actions .ghost.mini-profile-follow.active {
+  border-color: rgba(52, 211, 153, 0.44);
+  background: rgba(52, 211, 153, 0.14);
+  color: #9ef7d2;
+}
+
+.mini-profile-actions .ghost.mini-profile-copy {
+  border-style: dashed;
 }
 
 .mini-profile-actions .primary {

@@ -6831,6 +6831,19 @@ export default function App() {
     const statusEmoji = String(rawUser.statusEmoji || '').trim()
     const statusText = String(rawUser.statusText || '').trim()
     const isVerified = rawUser.isVerified === true || rawUser.is_verified === true
+    const subscriptionKnown = Object.prototype.hasOwnProperty.call(rawUser, 'isSubscribed')
+      || Object.prototype.hasOwnProperty.call(rawUser, 'is_subscribed')
+    const isSubscribed = subscriptionKnown && (rawUser.isSubscribed === true || rawUser.is_subscribed === true)
+    const subscribersCountKnown = Object.prototype.hasOwnProperty.call(rawUser, 'subscribersCount')
+      || Object.prototype.hasOwnProperty.call(rawUser, 'subscribers_count')
+    const subscribersCountRaw = Number(
+      Object.prototype.hasOwnProperty.call(rawUser, 'subscribersCount')
+        ? rawUser.subscribersCount
+        : rawUser.subscribers_count
+    )
+    const subscribersCount = Number.isFinite(subscribersCountRaw)
+      ? Math.max(0, Math.floor(subscribersCountRaw))
+      : 0
     const onlineKnown = Object.prototype.hasOwnProperty.call(rawUser, 'online')
     return {
       id,
@@ -6841,6 +6854,10 @@ export default function App() {
       isVerified,
       statusEmoji,
       statusText,
+      isSubscribed,
+      subscriptionKnown,
+      subscribersCount,
+      subscribersCountKnown,
       online: rawUser.online === true,
       onlineKnown
     }
@@ -6858,11 +6875,25 @@ export default function App() {
     const online = baseUser.onlineKnown === true
       ? baseUser.online
       : (extraUser.onlineKnown === true ? extraUser.online : (baseUser.online === true || extraUser.online === true))
+    const subscriptionKnown = baseUser.subscriptionKnown === true || extraUser.subscriptionKnown === true
+    const isSubscribed = baseUser.subscriptionKnown === true
+      ? baseUser.isSubscribed === true
+      : (extraUser.subscriptionKnown === true ? extraUser.isSubscribed === true : (baseUser.isSubscribed === true || extraUser.isSubscribed === true))
+    const subscribersCountKnown = baseUser.subscribersCountKnown === true || extraUser.subscribersCountKnown === true
+    const subscribersCount = extraUser.subscribersCountKnown === true
+      ? Math.max(0, Number(extraUser.subscribersCount || 0))
+      : (baseUser.subscribersCountKnown === true
+        ? Math.max(0, Number(baseUser.subscribersCount || 0))
+        : Math.max(0, Number(baseUser.subscribersCount || 0), Number(extraUser.subscribersCount || 0)))
     return {
       ...baseUser,
       ...extraUser,
       roleLabels: roleLabels.length > 0 ? roleLabels : ['Студент'],
       isVerified: baseUser.isVerified === true || extraUser.isVerified === true,
+      isSubscribed,
+      subscriptionKnown,
+      subscribersCount,
+      subscribersCountKnown,
       online,
       onlineKnown
     }
@@ -6959,6 +6990,86 @@ export default function App() {
     }
     hideMiniProfileCard({ immediate: true })
     handleStartConversation(target.username)
+  }
+
+  const handleMiniProfileCopyUsername = async () => {
+    const target = miniProfileCard.user
+    if (!target || !target.username) return
+    const value = `@${target.username}`
+    if (typeof navigator === 'undefined' || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+      setStatus({ type: 'info', message: value })
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(value)
+      setStatus({ type: 'success', message: 'Username скопирован.' })
+    } catch (_err) {
+      setStatus({ type: 'error', message: 'Не удалось скопировать username.' })
+    }
+  }
+
+  const handleMiniProfileToggleSubscription = async () => {
+    const target = miniProfileCard.user
+    if (!user || !target || !target.username) return
+    if (target.username === user.username) return
+
+    try {
+      const data = await toggleSubscription(target.username)
+      const subscribed = data && data.subscribed === true
+      const cacheKey = getMiniProfileCacheKey(target)
+      const fetched = normalizeMiniProfileUser(data && data.user)
+
+      setMiniProfileCard((prev) => {
+        if (!prev.open || !prev.user || prev.user.username !== target.username) return prev
+        const currentFollowers = Math.max(0, Number(prev.user.subscribersCount || 0))
+        const fallbackFollowers = Math.max(0, currentFollowers + (subscribed ? 1 : -1))
+        const patched = {
+          ...prev.user,
+          isSubscribed: subscribed,
+          subscriptionKnown: true,
+          subscribersCount: fetched ? fetched.subscribersCount : fallbackFollowers,
+          subscribersCountKnown: true
+        }
+        return {
+          ...prev,
+          user: fetched ? mergeMiniProfileUser(patched, fetched) : patched
+        }
+      })
+
+      if (cacheKey) {
+        const cached = miniProfileCacheRef.current.get(cacheKey)
+        const currentFollowers = Math.max(0, Number((cached && cached.subscribersCount) || target.subscribersCount || 0))
+        const fallbackFollowers = Math.max(0, currentFollowers + (subscribed ? 1 : -1))
+        const patched = {
+          ...(cached || target),
+          isSubscribed: subscribed,
+          subscriptionKnown: true,
+          subscribersCount: fetched ? fetched.subscribersCount : fallbackFollowers,
+          subscribersCountKnown: true
+        }
+        miniProfileCacheRef.current.set(cacheKey, fetched ? mergeMiniProfileUser(patched, fetched) : patched)
+      }
+
+      if (profileView && profileView.username === target.username && data && data.user) {
+        setProfileView(data.user)
+      }
+
+      setUser((prev) => {
+        if (!prev) return prev
+        const delta = subscribed ? 1 : -1
+        return {
+          ...prev,
+          subscriptionsCount: Math.max(0, Number(prev.subscriptionsCount || 0) + delta)
+        }
+      })
+
+      setStatus({
+        type: 'success',
+        message: subscribed ? 'Подписка оформлена.' : 'Подписка отменена.'
+      })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
   }
 
   const applyFeedQuickPreset = (preset) => {
@@ -12139,6 +12250,9 @@ export default function App() {
                   <span key={`mini-profile-role-${index}-${roleLabel}`} className="mini-profile-role">{roleLabel}</span>
                 ))}
               </div>
+              {miniProfileCard.user.subscribersCountKnown ? (
+                <span className="mini-profile-counter">{miniProfileCard.user.subscribersCount} подписчиков</span>
+              ) : null}
               {(miniProfileCard.user.statusEmoji || miniProfileCard.user.statusText) && (
                 <span className="mini-profile-status">
                   {miniProfileCard.user.statusEmoji ? `${miniProfileCard.user.statusEmoji} ` : ''}
@@ -12148,6 +12262,20 @@ export default function App() {
             </div>
             <div className="mini-profile-actions">
               <button type="button" className="ghost" onClick={handleMiniProfileOpen}>Профиль</button>
+              {miniProfileCard.user.username && user && miniProfileCard.user.username !== user.username && (
+                <button
+                  type="button"
+                  className={`ghost mini-profile-follow ${miniProfileCard.user.isSubscribed ? 'active' : ''}`.trim()}
+                  onClick={handleMiniProfileToggleSubscription}
+                >
+                  {miniProfileCard.user.isSubscribed ? 'Отписаться' : 'Подписаться'}
+                </button>
+              )}
+              {miniProfileCard.user.username && (
+                <button type="button" className="ghost mini-profile-copy" onClick={handleMiniProfileCopyUsername}>
+                  Копировать @
+                </button>
+              )}
               {miniProfileCard.user.username && (
                 <button type="button" className="primary" onClick={handleMiniProfileMessage}>Написать</button>
               )}
