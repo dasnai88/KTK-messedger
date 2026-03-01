@@ -818,6 +818,10 @@ function normalizeHexColor(value, fallback = '#7a1f1d') {
   return fallback
 }
 
+function formatHexColorLabel(value, fallback = '#7a1f1d') {
+  return normalizeHexColor(value, fallback).toUpperCase()
+}
+
 function hexToRgb(hex) {
   const value = normalizeHexColor(hex).slice(1)
   return {
@@ -13076,7 +13080,10 @@ export default function App() {
 
                       <div className="appearance-accent-grid">
                         <label>
-                          Primary accent
+                          <span className="appearance-color-label">
+                            Primary accent
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.accent, DEFAULT_UI_PREFERENCES.accentColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.accent}
@@ -13084,7 +13091,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Secondary accent
+                          <span className="appearance-color-label">
+                            Secondary accent
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.accent2, DEFAULT_UI_PREFERENCES.accent2Color)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.accent2}
@@ -13092,7 +13102,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Outline color
+                          <span className="appearance-color-label">
+                            Outline color
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.outline, DEFAULT_UI_PREFERENCES.outlineColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.outline}
@@ -13100,7 +13113,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Stripe lines
+                          <span className="appearance-color-label">
+                            Stripe lines
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.stripe, DEFAULT_UI_PREFERENCES.stripeColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.stripe}
@@ -13108,7 +13124,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Chat frame
+                          <span className="appearance-color-label">
+                            Chat frame
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.chat, DEFAULT_UI_PREFERENCES.chatAccentColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.chat}
@@ -13116,7 +13135,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Feed frame
+                          <span className="appearance-color-label">
+                            Feed frame
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.feed, DEFAULT_UI_PREFERENCES.feedAccentColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.feed}
@@ -13127,7 +13149,10 @@ export default function App() {
 
                       <div className="appearance-accent-grid">
                         <label>
-                          Background
+                          <span className="appearance-color-label">
+                            Background
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.bg, DEFAULT_UI_PREFERENCES.bgColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.bg}
@@ -13135,7 +13160,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Panel
+                          <span className="appearance-color-label">
+                            Panel
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.panel, DEFAULT_UI_PREFERENCES.panelColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.panel}
@@ -13143,7 +13171,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Panel 2
+                          <span className="appearance-color-label">
+                            Panel 2
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.panel2, DEFAULT_UI_PREFERENCES.panel2Color)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.panel2}
@@ -13151,7 +13182,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Card
+                          <span className="appearance-color-label">
+                            Card
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.card, DEFAULT_UI_PREFERENCES.cardColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.card}
@@ -13159,7 +13193,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Text
+                          <span className="appearance-color-label">
+                            Text
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.text, DEFAULT_UI_PREFERENCES.textColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.text}
@@ -13167,7 +13204,10 @@ export default function App() {
                           />
                         </label>
                         <label>
-                          Muted text
+                          <span className="appearance-color-label">
+                            Muted text
+                            <small className="appearance-color-value">{formatHexColorLabel(appearanceEditableColors.muted, DEFAULT_UI_PREFERENCES.mutedColor)}</small>
+                          </span>
                           <input
                             type="color"
                             value={appearanceEditableColors.muted}
@@ -13189,6 +13229,83 @@ export default function App() {
                         {' '}
                         Surface palette colors apply app-wide when custom palette is enabled.
                       </p>
+
+                      <section className="appearance-live-map">
+                        <div className="appearance-live-map-head">
+                          <strong>What changes where</strong>
+                          <span>Live example</span>
+                        </div>
+                        <div
+                          className="appearance-live-canvas"
+                          style={{
+                            background: appearanceEditableColors.bg,
+                            color: appearanceEditableColors.text
+                          }}
+                        >
+                          <div
+                            className="appearance-live-panel"
+                            style={{
+                              background: appearanceEditableColors.panel,
+                              borderColor: appearanceOutlinePreview
+                            }}
+                          >
+                            <div
+                              className="appearance-live-stripe"
+                              style={{
+                                background: 'linear-gradient(90deg, ' + appearanceEditableColors.stripe + ' 0%, transparent 100%)'
+                              }}
+                            />
+                            <div className="appearance-live-grid">
+                              <article
+                                className="appearance-live-card"
+                                style={{
+                                  background: appearanceEditableColors.card,
+                                  borderColor: appearanceOutlinePreview
+                                }}
+                              >
+                                <strong>Card + outline</strong>
+                                <p style={{ color: appearanceEditableColors.muted }}>Muted text sample</p>
+                                <button
+                                  type="button"
+                                  className="appearance-live-primary"
+                                  style={{ background: appearanceEditableColors.accent, color: '#ffffff' }}
+                                >
+                                  Primary accent
+                                </button>
+                              </article>
+                              <article
+                                className="appearance-live-card"
+                                style={{
+                                  background: appearanceEditableColors.panel2,
+                                  borderColor: appearanceEditableColors.chat
+                                }}
+                              >
+                                <strong>Chat + feed frames</strong>
+                                <div className="appearance-live-frames">
+                                  <span
+                                    className="appearance-live-frame"
+                                    style={{ borderColor: appearanceEditableColors.chat, color: appearanceEditableColors.text }}
+                                  >
+                                    Chat frame
+                                  </span>
+                                  <span
+                                    className="appearance-live-frame"
+                                    style={{ borderColor: appearanceEditableColors.feed, color: appearanceEditableColors.text }}
+                                  >
+                                    Feed frame
+                                  </span>
+                                </div>
+                                <span
+                                  className="appearance-live-secondary"
+                                  style={{ background: appearanceEditableColors.accent2, color: '#ffffff' }}
+                                >
+                                  Secondary accent
+                                </span>
+                              </article>
+                            </div>
+                          </div>
+                        </div>
+                      </section>
 
                       <div className="appearance-preset-row">
                         {UI_THEME_COLOR_PRESETS.map((preset) => (

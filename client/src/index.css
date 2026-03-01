@@ -9342,6 +9342,22 @@ body {
   color: var(--muted);
 }
 
+.appearance-color-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.appearance-color-value {
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .appearance-accent-grid label.is-disabled {
   opacity: 0.62;
 }
@@ -9360,6 +9376,107 @@ body {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
+}
+
+.appearance-live-map {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.appearance-live-map-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.appearance-live-map-head strong {
+  font-size: 13px;
+}
+
+.appearance-live-map-head span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.appearance-live-canvas {
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  padding: 10px;
+}
+
+.appearance-live-panel {
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.appearance-live-stripe {
+  height: 2px;
+  border-radius: 999px;
+}
+
+.appearance-live-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.appearance-live-card {
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.appearance-live-card strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.appearance-live-card p {
+  margin: 0;
+  font-size: 11px;
+}
+
+.appearance-live-primary {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.appearance-live-frames {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.appearance-live-frame {
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.appearance-live-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .appearance-preset-row {
@@ -10089,6 +10206,10 @@ body {
   .appearance-preset-row button {
     flex: 1 1 calc(50% - 8px);
     justify-content: center;
+  }
+
+  .appearance-live-grid {
+    grid-template-columns: 1fr;
   }
 
   .appearance-custom-presets-form {
