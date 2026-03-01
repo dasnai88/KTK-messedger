@@ -729,6 +729,9 @@ const DEFAULT_UI_PREFERENCES = {
   syncAccent: true,
   outlineMode: 'auto',
   outlineColor: '#38bdf8',
+  stripeColor: '#38bdf8',
+  chatAccentColor: '#38bdf8',
+  feedAccentColor: '#7a1f1d',
   accentColor: '#7a1f1d',
   accent2Color: '#b64d45'
 }
@@ -915,6 +918,9 @@ function normalizeUiPreferences(value) {
   const syncAccent = source.syncAccent !== false
   const outlineMode = source.outlineMode === 'custom' ? 'custom' : 'auto'
   const outlineColor = normalizeHexColor(source.outlineColor, DEFAULT_UI_PREFERENCES.outlineColor)
+  const stripeColor = normalizeHexColor(source.stripeColor, DEFAULT_UI_PREFERENCES.stripeColor)
+  const chatAccentColor = normalizeHexColor(source.chatAccentColor, DEFAULT_UI_PREFERENCES.chatAccentColor)
+  const feedAccentColor = normalizeHexColor(source.feedAccentColor, DEFAULT_UI_PREFERENCES.feedAccentColor)
   const accentColor = normalizeHexColor(source.accentColor, DEFAULT_UI_PREFERENCES.accentColor)
   const accent2Color = normalizeHexColor(source.accent2Color, DEFAULT_UI_PREFERENCES.accent2Color)
   return {
@@ -925,6 +931,9 @@ function normalizeUiPreferences(value) {
     syncAccent,
     outlineMode,
     outlineColor,
+    stripeColor,
+    chatAccentColor,
+    feedAccentColor,
     accentColor,
     accent2Color
   }
@@ -3328,13 +3337,15 @@ export default function App() {
       ? normalizeHexColor(normalized.outlineColor, DEFAULT_UI_PREFERENCES.outlineColor)
       : autoOutlineSource
     const outlineRgb = hexToRgb(outlineSource)
+    const stripeSource = normalizeHexColor(normalized.stripeColor, DEFAULT_UI_PREFERENCES.stripeColor)
+    const stripeRgb = hexToRgb(stripeSource)
     const lineAlpha = normalized.style === 'neo'
       ? (theme === 'light' ? 0.24 : 0.28)
       : (theme === 'light' ? 0.18 : 0.08)
-    const chatOutlineSource = normalized.outlineMode === 'custom'
-      ? outlineSource
-      : '#38bdf8'
+    const chatOutlineSource = normalizeHexColor(normalized.chatAccentColor, DEFAULT_UI_PREFERENCES.chatAccentColor)
     const chatOutlineRgb = hexToRgb(chatOutlineSource)
+    const feedOutlineSource = normalizeHexColor(normalized.feedAccentColor, DEFAULT_UI_PREFERENCES.feedAccentColor)
+    const feedOutlineRgb = hexToRgb(feedOutlineSource)
 
     root.style.setProperty('--accent', accentSource)
     root.style.setProperty('--accent-2', accent2Source)
@@ -3343,7 +3354,9 @@ export default function App() {
     root.style.setProperty('--accent-2-rgb', rgbToCssTriplet(accent2Rgb))
     root.style.setProperty('--outline-rgb', rgbToCssTriplet(outlineRgb))
     root.style.setProperty('--line', `rgba(${outlineRgb.r}, ${outlineRgb.g}, ${outlineRgb.b}, ${lineAlpha.toFixed(3)})`)
+    root.style.setProperty('--stripe-rgb', rgbToCssTriplet(stripeRgb))
     root.style.setProperty('--chat-surface-accent-rgb', rgbToCssTriplet(chatOutlineRgb))
+    root.style.setProperty('--feed-surface-accent-rgb', rgbToCssTriplet(feedOutlineRgb))
 
     try {
       localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify(normalized))
@@ -8117,7 +8130,10 @@ export default function App() {
     setUiPreferences((prev) => normalizeUiPreferences({
       ...prev,
       syncAccent: false,
-      outlineMode: 'custom'
+      outlineMode: 'custom',
+      stripeColor: prev.stripeColor || prev.outlineColor || prev.accent2Color,
+      chatAccentColor: prev.chatAccentColor || prev.outlineColor || prev.accentColor,
+      feedAccentColor: prev.feedAccentColor || prev.accentColor
     }))
   }
 
@@ -9033,7 +9049,10 @@ export default function App() {
     return {
       accent: normalizeHexColor(normalized.accentColor, DEFAULT_UI_PREFERENCES.accentColor),
       accent2: normalizeHexColor(normalized.accent2Color, DEFAULT_UI_PREFERENCES.accent2Color),
-      outline: normalizeHexColor(normalized.outlineColor, DEFAULT_UI_PREFERENCES.outlineColor)
+      outline: normalizeHexColor(normalized.outlineColor, DEFAULT_UI_PREFERENCES.outlineColor),
+      stripe: normalizeHexColor(normalized.stripeColor, DEFAULT_UI_PREFERENCES.stripeColor),
+      chat: normalizeHexColor(normalized.chatAccentColor, DEFAULT_UI_PREFERENCES.chatAccentColor),
+      feed: normalizeHexColor(normalized.feedAccentColor, DEFAULT_UI_PREFERENCES.feedAccentColor)
     }
   }, [uiPreferences])
   const appearanceAccentPreview = useMemo(() => {
@@ -12853,6 +12872,30 @@ export default function App() {
                             onChange={(event) => updateUiColorPreference('outlineColor', event.target.value)}
                           />
                         </label>
+                        <label>
+                          Stripe lines
+                          <input
+                            type="color"
+                            value={appearanceEditableColors.stripe}
+                            onChange={(event) => updateUiColorPreference('stripeColor', event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Chat frame
+                          <input
+                            type="color"
+                            value={appearanceEditableColors.chat}
+                            onChange={(event) => updateUiColorPreference('chatAccentColor', event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          Feed frame
+                          <input
+                            type="color"
+                            value={appearanceEditableColors.feed}
+                            onChange={(event) => updateUiColorPreference('feedAccentColor', event.target.value)}
+                          />
+                        </label>
                       </div>
 
                       <p className="appearance-accent-hint">
@@ -12863,6 +12906,8 @@ export default function App() {
                         {uiPreferences.outlineMode === 'custom'
                           ? 'Outline color is custom and affects borders in chat, feed and panels.'
                           : 'Outline color is in auto mode. Changing outline picker switches it to manual.'}
+                        {' '}
+                        Stripe/chat/feed pickers apply globally to line highlights and surface frames.
                       </p>
 
                       <div className="appearance-preset-row">

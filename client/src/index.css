@@ -7,6 +7,7 @@
   --card: #201719;
   --line: rgba(255, 255, 255, 0.08);
   --outline-rgb: 255 255 255;
+  --stripe-rgb: 56 189 248;
   --text: #f6f2f2;
   --muted: #c5b8b8;
   --accent: #7a1f1d;
@@ -37,6 +38,7 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --mobile-rail-height: 72px;
   --chat-surface-accent-rgb: 56 189 248;
+  --feed-surface-accent-rgb: var(--accent-rgb);
   --font-body: 'Manrope', 'IBM Plex Sans', 'Segoe UI', sans-serif;
   --font-display: 'Space Grotesk', 'Manrope', 'Avenir Next', sans-serif;
   --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
@@ -53,6 +55,7 @@
   --card: #f6eeee;
   --line: rgba(var(--accent-rgb), 0.18);
   --outline-rgb: var(--accent-rgb);
+  --stripe-rgb: var(--accent-rgb);
   --text: #1d1919;
   --muted: #6f5f5f;
   --accent: #7a1f1d;
@@ -715,7 +718,7 @@ pre,
   top: 0;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(var(--chat-surface-accent-rgb), 0.75), rgba(var(--chat-surface-accent-rgb), 0.08));
+  background: linear-gradient(90deg, rgba(var(--stripe-rgb), 0.75), rgba(var(--stripe-rgb), 0.08));
 }
 
 .chat-list,
@@ -3925,7 +3928,8 @@ pre,
 }
 
 .feed-layout-surface {
-  --feed-surface-accent-rgb: var(--accent-rgb);
+  position: relative;
+  overflow: hidden;
   padding: 14px;
   border-radius: 24px;
   border: 1px solid rgba(var(--feed-surface-accent-rgb), 0.22);
@@ -3934,6 +3938,18 @@ pre,
     radial-gradient(circle at 100% 0%, rgba(var(--accent-2-rgb), 0.12), transparent 34%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
   box-shadow: 0 24px 42px rgba(0, 0, 0, 0.24);
+}
+
+.feed-layout-surface::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(var(--stripe-rgb), 0.7), rgba(var(--stripe-rgb), 0.08));
+  pointer-events: none;
 }
 
 .feed-hero-strip {
