@@ -6,6 +6,7 @@
   --panel-2: #1d1517;
   --card: #201719;
   --line: rgba(255, 255, 255, 0.08);
+  --outline-rgb: 255 255 255;
   --text: #f6f2f2;
   --muted: #c5b8b8;
   --accent: #7a1f1d;
@@ -35,6 +36,7 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --mobile-rail-height: 72px;
+  --chat-surface-accent-rgb: 56 189 248;
   --font-body: 'Manrope', 'IBM Plex Sans', 'Segoe UI', sans-serif;
   --font-display: 'Space Grotesk', 'Manrope', 'Avenir Next', sans-serif;
   --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
@@ -50,6 +52,7 @@
   --panel-2: #faf5f5;
   --card: #f6eeee;
   --line: rgba(var(--accent-rgb), 0.18);
+  --outline-rgb: var(--accent-rgb);
   --text: #1d1919;
   --muted: #6f5f5f;
   --accent: #7a1f1d;
@@ -692,7 +695,6 @@ pre,
 }
 
 .chat-layout-surface {
-  --chat-surface-accent-rgb: 56, 189, 248;
   position: relative;
   padding: 14px;
   border: 1px solid rgba(var(--chat-surface-accent-rgb), 0.22);
@@ -9313,7 +9315,7 @@ body {
 
 .appearance-accent-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
 }
 

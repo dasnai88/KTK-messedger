@@ -727,6 +727,8 @@ const DEFAULT_UI_PREFERENCES = {
   ambient: 58,
   radius: 22,
   syncAccent: true,
+  outlineMode: 'auto',
+  outlineColor: '#38bdf8',
   accentColor: '#7a1f1d',
   accent2Color: '#b64d45'
 }
@@ -911,6 +913,8 @@ function normalizeUiPreferences(value) {
   const ambient = clampNumber(source.ambient, 0, 100)
   const radius = clampNumber(source.radius, 12, 36)
   const syncAccent = source.syncAccent !== false
+  const outlineMode = source.outlineMode === 'custom' ? 'custom' : 'auto'
+  const outlineColor = normalizeHexColor(source.outlineColor, DEFAULT_UI_PREFERENCES.outlineColor)
   const accentColor = normalizeHexColor(source.accentColor, DEFAULT_UI_PREFERENCES.accentColor)
   const accent2Color = normalizeHexColor(source.accent2Color, DEFAULT_UI_PREFERENCES.accent2Color)
   return {
@@ -919,6 +923,8 @@ function normalizeUiPreferences(value) {
     ambient,
     radius,
     syncAccent,
+    outlineMode,
+    outlineColor,
     accentColor,
     accent2Color
   }
@@ -3315,12 +3321,29 @@ export default function App() {
       : normalizeHexColor(normalized.accent2Color, DEFAULT_UI_PREFERENCES.accent2Color)
     const accent2Rgb = hexToRgb(accent2Source)
     const accent3Rgb = mixRgbColor(accent2Rgb, { r: 255, g: 255, b: 255 }, theme === 'light' ? 0.18 : 0.28)
+    const autoOutlineSource = (theme === 'light' || normalized.style === 'neo')
+      ? accentSource
+      : '#ffffff'
+    const outlineSource = normalized.outlineMode === 'custom'
+      ? normalizeHexColor(normalized.outlineColor, DEFAULT_UI_PREFERENCES.outlineColor)
+      : autoOutlineSource
+    const outlineRgb = hexToRgb(outlineSource)
+    const lineAlpha = normalized.style === 'neo'
+      ? (theme === 'light' ? 0.24 : 0.28)
+      : (theme === 'light' ? 0.18 : 0.08)
+    const chatOutlineSource = normalized.outlineMode === 'custom'
+      ? outlineSource
+      : '#38bdf8'
+    const chatOutlineRgb = hexToRgb(chatOutlineSource)
 
     root.style.setProperty('--accent', accentSource)
     root.style.setProperty('--accent-2', accent2Source)
     root.style.setProperty('--accent-3', rgbToHex(accent3Rgb))
     root.style.setProperty('--accent-rgb', rgbToCssTriplet(accentRgb))
     root.style.setProperty('--accent-2-rgb', rgbToCssTriplet(accent2Rgb))
+    root.style.setProperty('--outline-rgb', rgbToCssTriplet(outlineRgb))
+    root.style.setProperty('--line', `rgba(${outlineRgb.r}, ${outlineRgb.g}, ${outlineRgb.b}, ${lineAlpha.toFixed(3)})`)
+    root.style.setProperty('--chat-surface-accent-rgb', rgbToCssTriplet(chatOutlineRgb))
 
     try {
       localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify(normalized))
@@ -8999,6 +9022,19 @@ export default function App() {
       accent2: normalizeHexColor(normalized.accent2Color, DEFAULT_UI_PREFERENCES.accent2Color)
     }
   }, [profileForm.themeColor, theme, uiPreferences, user ? user.themeColor : null])
+  const appearanceOutlinePreview = useMemo(() => {
+    const normalized = normalizeUiPreferences(uiPreferences)
+    if (normalized.outlineMode === 'custom') {
+      return normalizeHexColor(normalized.outlineColor, DEFAULT_UI_PREFERENCES.outlineColor)
+    }
+    if (theme === 'light' || normalized.style === 'neo') {
+      return appearanceAccentPreview.accent
+    }
+    return '#ffffff'
+  }, [appearanceAccentPreview.accent, theme, uiPreferences])
+  const appearanceOutlinePreviewRgb = useMemo(() => (
+    hexToRgb(appearanceOutlinePreview)
+  ), [appearanceOutlinePreview])
   const appearanceActivePresetId = useMemo(() => {
     const normalized = normalizeUiPreferences(uiPreferences)
     if (normalized.syncAccent) return ''
@@ -12748,6 +12784,15 @@ export default function App() {
                         Sync accent with profile color
                       </label>
 
+                      <label className="ui-studio-toggle">
+                        <input
+                          type="checkbox"
+                          checked={uiPreferences.outlineMode === 'custom'}
+                          onChange={(event) => updateUiPreference('outlineMode', event.target.checked ? 'custom' : 'auto')}
+                        />
+                        Custom outline color
+                      </label>
+
                       <div className="appearance-accent-grid">
                         <label className={uiPreferences.syncAccent ? 'is-disabled' : ''}>
                           Primary accent
@@ -12767,12 +12812,25 @@ export default function App() {
                             onChange={(event) => updateUiPreference('accent2Color', event.target.value)}
                           />
                         </label>
+                        <label className={uiPreferences.outlineMode !== 'custom' ? 'is-disabled' : ''}>
+                          Outline color
+                          <input
+                            type="color"
+                            value={appearanceOutlinePreview}
+                            disabled={uiPreferences.outlineMode !== 'custom'}
+                            onChange={(event) => updateUiPreference('outlineColor', event.target.value)}
+                          />
+                        </label>
                       </div>
 
                       <p className="appearance-accent-hint">
                         {uiPreferences.syncAccent
                           ? 'Accent currently follows your profile color. Disable sync to choose custom colors.'
                           : 'Custom accents are active. Pick a preset below or fine tune manually.'}
+                        {' '}
+                        {uiPreferences.outlineMode === 'custom'
+                          ? 'Outline color is custom and affects borders in chat, feed and panels.'
+                          : 'Outline color is in auto mode.'}
                       </p>
 
                       <div className="appearance-preset-row">
@@ -12797,7 +12855,8 @@ export default function App() {
                       <div
                         className="appearance-preview-card"
                         style={{
-                          background: 'linear-gradient(135deg, ' + appearanceAccentPreview.accent + ' 0%, ' + appearanceAccentPreview.accent2 + ' 100%)'
+                          background: 'linear-gradient(135deg, ' + appearanceAccentPreview.accent + ' 0%, ' + appearanceAccentPreview.accent2 + ' 100%)',
+                          borderColor: 'rgba(' + appearanceOutlinePreviewRgb.r + ', ' + appearanceOutlinePreviewRgb.g + ', ' + appearanceOutlinePreviewRgb.b + ', 0.42)'
                         }}
                       >
                         <strong>Theme preview</strong>
