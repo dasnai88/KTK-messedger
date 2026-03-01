@@ -9727,8 +9727,19 @@ export default function App() {
         )}
 
         {view === 'chats' && user && (
-          <div className={`chat-layout ${activeConversation && chatMobilePane === 'chat' ? 'chat-layout-mobile-active' : ''}`.trim()}>
+          <div className={`chat-layout chat-layout-surface ${activeConversation && chatMobilePane === 'chat' ? 'chat-layout-mobile-active' : ''}`.trim()}>
             <section className="chat-list">
+              <div className="chat-list-hero">
+                <div className="chat-list-hero-main">
+                  <span className="chat-list-hero-overline">Conversations</span>
+                  <strong>Message Center</strong>
+                </div>
+                <div className="chat-list-hero-stats">
+                  <span>{conversations.length} total</span>
+                  <span>{unreadConversationCount} unread</span>
+                  <span>{favoriteConversationCount} favorites</span>
+                </div>
+              </div>
               <div className="chat-search">
                 <input
                   ref={chatSearchInputRef}
@@ -11180,7 +11191,28 @@ export default function App() {
         )}
 
         {view === 'feed' && user && (
-          <div className="feed-layout">
+          <div className="feed-layout feed-layout-surface">
+            <section className="feed-hero-strip">
+              <div className="feed-hero-main">
+                <span className="feed-hero-kicker">Feed workspace</span>
+                <strong>Community stream</strong>
+                <p>{visibleFeedPosts.length} posts in focus</p>
+              </div>
+              <div className="feed-hero-stats">
+                <article>
+                  <span>Momentum</span>
+                  <strong>{feedDigest.momentum}</strong>
+                </article>
+                <article>
+                  <span>Media share</span>
+                  <strong>{feedDigest.mediaShare}%</strong>
+                </article>
+                <article>
+                  <span>Avg engage</span>
+                  <strong>{feedDigest.avgEngagement}</strong>
+                </article>
+              </div>
+            </section>
             <form className="feed-composer" onSubmit={handleCreatePost}>
               <div className="feed-header">
                 <div className="avatar small">
