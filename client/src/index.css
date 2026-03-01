@@ -193,6 +193,32 @@ pre,
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+  position: sticky;
+  top: calc(var(--safe-top) + 6px);
+  z-index: 35;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 10px 12px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--panel) 82%, transparent);
+  box-shadow:
+    0 12px 24px rgba(2, 6, 23, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+}
+
+.topbar::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(var(--accent-rgb), 0.55), rgba(var(--accent-2-rgb), 0.2));
+  pointer-events: none;
 }
 
 .top-actions {
@@ -577,6 +603,59 @@ pre,
   gap: 16px;
   border: 1px solid var(--line);
   box-shadow: 0 16px 32px rgba(2, 6, 23, 0.35);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.panel::before,
+.settings-pane::before,
+.profile-pro-card::before,
+.profile-showcase-editor::before,
+.ui-studio::before,
+.profile-theme-customizer::before,
+.profile-visual-scenes::before,
+.appearance-scene-block::before,
+.appearance-live-map::before,
+.appearance-custom-presets::before,
+.appearance-share-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 64px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent);
+  z-index: 0;
+}
+
+.settings-pane,
+.profile-pro-card,
+.profile-showcase-editor,
+.ui-studio,
+.profile-theme-customizer,
+.profile-visual-scenes,
+.appearance-scene-block,
+.appearance-live-map,
+.appearance-custom-presets,
+.appearance-share-panel {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.panel > *,
+.settings-pane > *,
+.profile-pro-card > *,
+.profile-showcase-editor > *,
+.ui-studio > *,
+.profile-theme-customizer > *,
+.profile-visual-scenes > *,
+.appearance-scene-block > *,
+.appearance-live-map > *,
+.appearance-custom-presets > *,
+.appearance-share-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 .panel label {
@@ -645,10 +724,10 @@ pre,
 }
 
 .primary {
-  border: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 16px;
   padding: 12px 20px;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
   color: var(--accent-ink);
   font-weight: 700;
   cursor: pointer;
@@ -661,7 +740,7 @@ pre,
 
 .ghost {
   border: 1px solid var(--line);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.01);
   color: var(--text);
   padding: 10px 16px;
   border-radius: 999px;
@@ -682,6 +761,19 @@ pre,
 .group-toggle:hover,
 .search-results button:hover {
   transform: translateY(-1px);
+}
+
+.primary:hover {
+  box-shadow:
+    0 0 0 1px rgba(var(--accent-rgb), 0.24),
+    0 14px 26px rgba(var(--accent-rgb), 0.34);
+  filter: saturate(1.08);
+}
+
+.ghost:hover {
+  border-color: var(--ui-glow-active-border);
+  background: var(--ui-glow-active-bg);
+  box-shadow: var(--ui-glow-ring), var(--ui-glow-shadow-soft);
 }
 
 .primary:active,
