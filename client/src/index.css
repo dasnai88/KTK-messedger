@@ -5799,79 +5799,169 @@ body {
 .mini-profile-card {
   position: fixed;
   z-index: 1400;
-  width: min(280px, calc(100vw - 16px));
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 10px;
+  width: min(320px, calc(100vw - 16px));
+  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  border-radius: 18px;
+  padding: 12px;
   background:
-    radial-gradient(140% 120% at 0% 0%, rgba(var(--accent-rgb), 0.2), rgba(255, 255, 255, 0) 58%),
-    var(--card);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.38);
+    linear-gradient(158deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01) 42%),
+    radial-gradient(130% 120% at 0% 0%, rgba(var(--accent-rgb), 0.26), rgba(255, 255, 255, 0) 62%),
+    var(--panel-glass);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.44),
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset;
   display: grid;
-  gap: 8px;
+  gap: 10px;
   pointer-events: auto;
   animation: fade-up 0.16s ease;
+  backdrop-filter: blur(10px) saturate(1.08);
+  overflow: hidden;
+}
+
+.mini-profile-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  pointer-events: none;
 }
 
 .mini-profile-head {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.mini-profile-head .avatar.small {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+}
+
+.mini-profile-identity {
+  min-width: 0;
 }
 
 .mini-profile-head strong {
   display: block;
-  font-size: 13px;
-  line-height: 1.2;
+  font-size: 14px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.mini-profile-head span {
-  font-size: 11px;
+.mini-profile-identity span {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mini-profile-presence {
-  border: 1px solid var(--line);
+  grid-column: 2;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(var(--accent-rgb), 0.28);
   border-radius: 999px;
-  padding: 3px 7px;
+  padding: 4px 9px;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.25px;
+  letter-spacing: 0.35px;
+  font-weight: 700;
   color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mini-profile-presence::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.36);
 }
 
 .mini-profile-presence.online {
   border-color: rgba(52, 211, 153, 0.5);
   color: #8ef0c9;
-  background: rgba(52, 211, 153, 0.12);
+  background: rgba(52, 211, 153, 0.18);
+}
+
+.mini-profile-presence.online::before {
+  background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.65);
 }
 
 .mini-profile-meta {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .mini-profile-meta span {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 6px 8px;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 7px 9px;
+  font-size: 12px;
   color: var(--muted);
-  line-height: 1.3;
+  line-height: 1.25;
+  max-width: 100%;
+}
+
+.mini-profile-role {
+  font-weight: 600;
+  color: var(--text) !important;
+  background: rgba(var(--accent-rgb), 0.12) !important;
+  border-color: rgba(var(--accent-rgb), 0.3) !important;
+}
+
+.mini-profile-status {
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mini-profile-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 8px;
 }
 
 .mini-profile-actions .ghost,
 .mini-profile-actions .primary {
   width: 100%;
+  min-height: 36px;
   justify-content: center;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+
+.mini-profile-actions .ghost {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(var(--accent-rgb), 0.22);
+}
+
+.mini-profile-actions .primary {
+  box-shadow: 0 10px 24px rgba(var(--accent-rgb), 0.26);
+}
+
+.mini-profile-actions > :only-child {
+  grid-column: 1 / -1;
 }
 
 .comment-item p {

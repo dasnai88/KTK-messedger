@@ -637,8 +637,8 @@ const INITIAL_MINI_PROFILE_CARD_STATE = {
   y: 0,
   user: null
 }
-const MINI_PROFILE_CARD_ESTIMATED_WIDTH = 280
-const MINI_PROFILE_CARD_ESTIMATED_HEIGHT = 190
+const MINI_PROFILE_CARD_ESTIMATED_WIDTH = 320
+const MINI_PROFILE_CARD_ESTIMATED_HEIGHT = 220
 const QUICK_MESSAGE_REACTIONS = ['❤️', '👍', '😭', '👎', '🤩', '🐳', '❤️‍🔥']
 const ALL_MESSAGE_REACTIONS = Array.from(new Set([
   ...QUICK_MESSAGE_REACTIONS,
@@ -11156,18 +11156,18 @@ export default function App() {
                   (miniProfileCard.user.displayName || miniProfileCard.user.username || 'U')[0].toUpperCase()
                 )}
               </div>
-              <div>
+              <div className="mini-profile-identity">
                 <strong>{miniProfileCard.user.displayName || miniProfileCard.user.username || 'Пользователь'}</strong>
                 {miniProfileCard.user.username && <span>@{miniProfileCard.user.username}</span>}
               </div>
               <span className={`mini-profile-presence ${miniProfileCard.user.online ? 'online' : ''}`.trim()}>
-                {miniProfileCard.user.online ? 'online' : 'offline'}
+                {miniProfileCard.user.online ? 'в сети' : 'не в сети'}
               </span>
             </div>
             <div className="mini-profile-meta">
-              <span>{miniProfileCard.user.roleLabel}</span>
+              <span className="mini-profile-role">{miniProfileCard.user.roleLabel}</span>
               {(miniProfileCard.user.statusEmoji || miniProfileCard.user.statusText) && (
-                <span>
+                <span className="mini-profile-status">
                   {miniProfileCard.user.statusEmoji ? `${miniProfileCard.user.statusEmoji} ` : ''}
                   {miniProfileCard.user.statusText || 'без статуса'}
                 </span>
