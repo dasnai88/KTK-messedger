@@ -1699,11 +1699,7 @@ app.post('/api/auth/register', async (req, res) => {
     const login = normalizeLogin(req.body.login)
     const username = normalizeUsername(req.body.username)
     const password = req.body.password
-    const requestedRoles = normalizeRoleValues(
-      Array.isArray(req.body.roles) && req.body.roles.length > 0
-        ? req.body.roles
-        : req.body.role
-    )
+    const requestedRoles = ['student']
 
     if (login.length < 3) {
       return res.status(400).json({ error: 'Login must be at least 3 characters' })
@@ -1714,12 +1710,9 @@ app.post('/api/auth/register', async (req, res) => {
     if (!isValidPassword(password)) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' })
     }
-    if (requestedRoles.length === 0) {
-      return res.status(400).json({ error: 'At least one role is required' })
-    }
     const allowedRoles = await getAllowedRoleValues(requestedRoles)
     if (allowedRoles.length !== requestedRoles.length) {
-      return res.status(400).json({ error: 'Invalid role' })
+      return res.status(500).json({ error: 'Role catalog is not ready' })
     }
 
     const passwordHash = await bcrypt.hash(password, 10)
@@ -1825,6 +1818,13 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
     }
     if (role && !(await hasAllowedRole(role))) {
       return res.status(400).json({ error: 'Invalid role' })
+    }
+    if (role === 'teacher') {
+      const adminRow = await pool.query('select is_admin from users where id = $1', [req.userId])
+      const isAdmin = Boolean(adminRow.rows[0] && adminRow.rows[0].is_admin)
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Only admin can assign teacher role' })
+      }
     }
     if (themeColor && !/^#([0-9a-fA-F]{6})$/.test(themeColor)) {
       return res.status(400).json({ error: 'Theme color must be hex like #1a2b3c' })

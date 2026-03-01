@@ -119,7 +119,7 @@ const initialRegister = {
   login: '',
   username: '',
   password: '',
-  role: 'programmist'
+  role: 'student'
 }
 
 const initialLogin = {
@@ -1400,7 +1400,7 @@ export default function App() {
     bio: '',
     statusText: '',
     statusEmoji: '',
-    role: '',
+    role: 'student',
     themeColor: '#7a1f1d'
   })
   const [status, setStatus] = useState({ type: 'info', message: '' })
@@ -3875,7 +3875,7 @@ export default function App() {
           bio: data.user.bio || '',
           statusText: data.user.statusText || '',
           statusEmoji: data.user.statusEmoji || '',
-          role: data.user.role || '',
+          role: data.user.role || 'student',
           themeColor: data.user.themeColor || '#7a1f1d'
         })
         setView(readStoredView(Boolean(data.user && data.user.isAdmin)))
@@ -4940,7 +4940,7 @@ export default function App() {
         bio: data.user.bio || '',
         statusText: data.user.statusText || '',
         statusEmoji: data.user.statusEmoji || '',
-        role: data.user.role || '',
+        role: data.user.role || 'student',
         themeColor: data.user.themeColor || '#7a1f1d'
       })
       setView('feed')
@@ -4975,7 +4975,7 @@ export default function App() {
         bio: data.user.bio || '',
         statusText: data.user.statusText || '',
         statusEmoji: data.user.statusEmoji || '',
-        role: data.user.role || '',
+        role: data.user.role || 'student',
         themeColor: data.user.themeColor || '#7a1f1d'
       })
       if (data.user && data.user.id) {
@@ -6420,7 +6420,7 @@ export default function App() {
       username,
       displayName,
       avatarUrl: rawUser.avatarUrl || '',
-      roleLabels: roleLabels.length > 0 ? roleLabels : ['Участник'],
+      roleLabels: roleLabels.length > 0 ? roleLabels : ['Студент'],
       statusEmoji,
       statusText,
       online: rawUser.online === true,
@@ -6443,7 +6443,7 @@ export default function App() {
     return {
       ...baseUser,
       ...extraUser,
-      roleLabels: roleLabels.length > 0 ? roleLabels : ['Участник'],
+      roleLabels: roleLabels.length > 0 ? roleLabels : ['Студент'],
       online,
       onlineKnown
     }
@@ -7820,7 +7820,7 @@ export default function App() {
         {view === 'register' && !user && (
           <form className="panel" onSubmit={handleRegister}>
             <h2>Создать аккаунт</h2>
-            <p className="subtitle">Выбери роль и будь на связи.</p>
+            <p className="subtitle">Новый аккаунт создается со стартовой ролью Студент.</p>
             <label>
               Логин
               <input
@@ -7856,14 +7856,9 @@ export default function App() {
               />
             </label>
             <label>
-              Специализация
-              <select
-                value={registerForm.role}
-                onChange={(event) => setRegisterForm({ ...registerForm, role: event.target.value })}
-              >
-                {roleOptions.map((role) => (
-                  <option key={role.value} value={role.value}>{role.label}</option>
-                ))}
+              Стартовая роль
+              <select value="student" disabled>
+                <option value="student">Студент</option>
               </select>
             </label>
             <button className="primary" type="submit" disabled={loading}>Зарегистрироваться</button>
@@ -10898,7 +10893,13 @@ export default function App() {
                 onChange={(event) => setProfileForm({ ...profileForm, role: event.target.value })}
               >
                 {roleOptions.map((role) => (
-                  <option key={role.value} value={role.value}>{role.label}</option>
+                  <option
+                    key={role.value}
+                    value={role.value}
+                    disabled={role.value === 'teacher' && !(user && user.isAdmin)}
+                  >
+                    {role.label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -11356,7 +11357,7 @@ export default function App() {
             </div>
             <div className="mini-profile-meta">
               <div className="mini-profile-role-list">
-                {(Array.isArray(miniProfileCard.user.roleLabels) ? miniProfileCard.user.roleLabels : ['Участник']).map((roleLabel, index) => (
+                {(Array.isArray(miniProfileCard.user.roleLabels) ? miniProfileCard.user.roleLabels : ['Студент']).map((roleLabel, index) => (
                   <span key={`mini-profile-role-${index}-${roleLabel}`} className="mini-profile-role">{roleLabel}</span>
                 ))}
               </div>
