@@ -9170,6 +9170,98 @@ body {
   justify-self: flex-start;
 }
 
+.profile-visual-scenes {
+  border: 1px solid var(--line);
+  border-radius: var(--surface-radius-sm);
+  background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.1), rgba(var(--accent-rgb), 0.03));
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.profile-visual-scenes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.profile-visual-scenes-head strong {
+  font-size: 14px;
+}
+
+.profile-visual-scenes-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-visual-scenes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.profile-visual-scene-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  text-align: left;
+  padding: 9px 10px;
+  display: grid;
+  gap: 8px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.profile-visual-scene-card:hover {
+  border-color: rgba(var(--accent-rgb), 0.5);
+  background: rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
+}
+
+.profile-visual-scene-card.active {
+  border-color: rgba(var(--accent-rgb), 0.72);
+  background: rgba(var(--accent-rgb), 0.12);
+  box-shadow: 0 10px 22px rgba(var(--accent-rgb), 0.2);
+}
+
+.profile-visual-scene-swatches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.profile-visual-scene-swatches span {
+  height: 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+}
+
+.profile-visual-scene-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.profile-visual-scene-title strong {
+  font-size: 12px;
+}
+
+.profile-visual-scene-title small {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.profile-visual-scene-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .profile-color-preset-row {
   display: flex;
   flex-wrap: wrap;
@@ -9747,6 +9839,60 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
+.appearance-share-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.appearance-share-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.appearance-share-head strong {
+  font-size: 13px;
+}
+
+.appearance-share-head span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.appearance-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.appearance-share-field {
+  display: grid;
+  gap: 6px;
+}
+
+.appearance-share-field span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.appearance-share-field textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  resize: vertical;
+}
+
 .appearance-preview-card {
   border: 1px solid rgba(var(--accent-rgb), 0.35);
   border-radius: 12px;
@@ -10077,11 +10223,17 @@ body {
   }
 
   .profile-settings-panel .profile-theme-customizer-grid,
+  .profile-settings-panel .profile-visual-scenes-grid,
   .profile-settings-panel .profile-pro-grid,
   .profile-settings-panel .profile-dev-preset-grid,
   .profile-settings-panel .ui-studio-grid,
   .profile-settings-panel .showcase-links-grid {
     grid-template-columns: 1fr;
+  }
+
+  .profile-settings-panel .profile-visual-scenes-head {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .profile-settings-panel .profile-theme-wheel {
@@ -10335,6 +10487,16 @@ body {
 
   .appearance-scene-grid {
     grid-template-columns: 1fr;
+  }
+
+  .appearance-share-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .appearance-share-actions button {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
   }
 
   .appearance-preset-row button {

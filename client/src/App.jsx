@@ -837,6 +837,45 @@ const UI_THEME_SCENE_PRESETS = [
     }
   }
 ]
+const PROFILE_VISUAL_SCENE_PRESETS = [
+  {
+    id: 'frost-neon',
+    label: 'Frost Neon',
+    hint: 'Холодный баннер + неон в карточке профиля.',
+    themeColor: '#2d68ff',
+    heroTheme: 'neon'
+  },
+  {
+    id: 'sunset-warm',
+    label: 'Sunset Warm',
+    hint: 'Теплый акцент для баннера и мягкий градиент.',
+    themeColor: '#d46a2c',
+    heroTheme: 'sunset'
+  },
+  {
+    id: 'forest-deep',
+    label: 'Forest Deep',
+    hint: 'Сдержанный зеленый стиль с чистой читабельностью.',
+    themeColor: '#1b7a4f',
+    heroTheme: 'forest'
+  },
+  {
+    id: 'ocean-calm',
+    label: 'Ocean Calm',
+    hint: 'Спокойный синий стиль для повседневного профиля.',
+    themeColor: '#1f4f7a',
+    heroTheme: 'ocean'
+  },
+  {
+    id: 'classic-ruby',
+    label: 'Classic Ruby',
+    hint: 'Классический фирменный вид.',
+    themeColor: '#7a1f1d',
+    heroTheme: 'default'
+  }
+]
+const THEME_PACK_VERSION = 1
+const THEME_PACK_KIND = 'ktk-ui-theme'
 const DEFAULT_UI_PREFERENCES = {
   style: 'glass',
   density: 'comfortable',
@@ -1110,6 +1149,54 @@ function normalizeUiCustomThemePresets(value) {
     if (normalized.length >= UI_CUSTOM_THEME_PRESET_LIMIT) break
   }
   return normalized
+}
+
+function normalizeImportedThemePack(value) {
+  if (!value || typeof value !== 'object') return null
+  const rawTheme = String(value.theme || '').trim().toLowerCase()
+  const theme = rawTheme === 'light' || rawTheme === 'dark' ? rawTheme : null
+  const uiPreferences = normalizeUiPreferences(value.uiPreferences)
+  const customPresets = normalizeUiCustomThemePresets(value.customPresets)
+  const rawProfile = value.profile && typeof value.profile === 'object' ? value.profile : null
+  const profile = rawProfile
+    ? {
+      themeColor: normalizeHexColor(rawProfile.themeColor, '#7a1f1d'),
+      heroTheme: PROFILE_HERO_THEMES.some((item) => item.value === rawProfile.heroTheme)
+        ? rawProfile.heroTheme
+        : DEFAULT_PROFILE_SHOWCASE.heroTheme
+    }
+    : null
+  const kind = String(value.kind || '').trim()
+  const version = Number(value.version) || 1
+  return {
+    kind,
+    version,
+    theme,
+    uiPreferences,
+    customPresets,
+    profile
+  }
+}
+
+function buildUiThemePackPayload(theme, uiPreferences, customPresets, profile) {
+  const safeTheme = theme === 'light' || theme === 'dark' ? theme : 'dark'
+  const safeProfile = profile && typeof profile === 'object'
+    ? {
+      themeColor: normalizeHexColor(profile.themeColor, '#7a1f1d'),
+      heroTheme: PROFILE_HERO_THEMES.some((item) => item.value === profile.heroTheme)
+        ? profile.heroTheme
+        : DEFAULT_PROFILE_SHOWCASE.heroTheme
+    }
+    : null
+  return {
+    kind: THEME_PACK_KIND,
+    version: THEME_PACK_VERSION,
+    exportedAt: new Date().toISOString(),
+    theme: safeTheme,
+    uiPreferences: normalizeUiPreferences(uiPreferences),
+    customPresets: normalizeUiCustomThemePresets(customPresets),
+    profile: safeProfile
+  }
 }
 
 function areUiPreferencesEqual(left, right) {
@@ -1786,6 +1873,7 @@ export default function App() {
     }
   })
   const [uiCustomPresetName, setUiCustomPresetName] = useState('')
+  const [appearanceImportJson, setAppearanceImportJson] = useState('')
   const [profileShowcaseByUserId, setProfileShowcaseByUserId] = useState(() => {
     if (typeof window === 'undefined') return {}
     try {
@@ -2097,6 +2185,7 @@ export default function App() {
   const previousViewRef = useRef(view)
   const profileThemeWheelRef = useRef(null)
   const profileThemeWheelPointerRef = useRef(null)
+  const appearanceImportInputRef = useRef(null)
   const miniProfileOpenTimerRef = useRef(null)
   const miniProfileCloseTimerRef = useRef(null)
   const miniProfileCacheRef = useRef(new Map())
@@ -2507,6 +2596,16 @@ export default function App() {
     profileEditorChecklist.filter((item) => !item.done)
   ), [profileEditorChecklist])
   const normalizedThemeColor = normalizeHexColor(profileForm.themeColor, '#7a1f1d')
+  const activeProfileVisualSceneId = useMemo(() => {
+    const activeHeroTheme = PROFILE_HERO_THEMES.some((item) => item.value === profileShowcaseForm.heroTheme)
+      ? profileShowcaseForm.heroTheme
+      : DEFAULT_PROFILE_SHOWCASE.heroTheme
+    const match = PROFILE_VISUAL_SCENE_PRESETS.find((scene) => (
+      normalizeHexColor(scene.themeColor, '#7a1f1d') === normalizedThemeColor &&
+      scene.heroTheme === activeHeroTheme
+    ))
+    return match ? match.id : ''
+  }, [normalizedThemeColor, profileShowcaseForm.heroTheme])
   const profileThemeHsl = useMemo(() => (
     rgbToHsl(hexToRgb(normalizedThemeColor))
   ), [normalizedThemeColor])
@@ -8223,6 +8322,19 @@ export default function App() {
     setProfileThemeColor(color)
   }
 
+  const applyProfileVisualScenePreset = (sceneId) => {
+    const scene = PROFILE_VISUAL_SCENE_PRESETS.find((item) => item.id === sceneId)
+    if (!scene) return
+    setProfileThemeColor(scene.themeColor)
+    setProfileShowcaseForm((prev) => ({
+      ...prev,
+      heroTheme: PROFILE_HERO_THEMES.some((item) => item.value === scene.heroTheme)
+        ? scene.heroTheme
+        : prev.heroTheme
+    }))
+    setStatus({ type: 'success', message: `Профильная сцена "${scene.label}" применена.` })
+  }
+
   const applyDeveloperPreset = (presetId) => {
     const preset = DEV_PROFILE_PRESETS.find((item) => item.id === presetId)
     if (!preset) return
@@ -8482,6 +8594,108 @@ export default function App() {
       : UI_THEME_SCENE_PRESETS
     const selected = pool[Math.floor(Math.random() * pool.length)] || UI_THEME_SCENE_PRESETS[0]
     applyUiScenePreset(selected)
+  }
+
+  const exportUiThemePackToFile = () => {
+    if (typeof document === 'undefined') return
+    const payload = buildUiThemePackPayload(theme, uiPreferences, uiCustomThemePresets, {
+      themeColor: profileForm.themeColor,
+      heroTheme: profileShowcaseForm.heroTheme
+    })
+    const json = JSON.stringify(payload, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    link.href = url
+    link.download = `ktk-theme-pack-${stamp}.json`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    setStatus({ type: 'success', message: 'Theme pack exported to JSON.' })
+  }
+
+  const copyUiThemePackJson = async () => {
+    const payload = buildUiThemePackPayload(theme, uiPreferences, uiCustomThemePresets, {
+      themeColor: profileForm.themeColor,
+      heroTheme: profileShowcaseForm.heroTheme
+    })
+    const json = JSON.stringify(payload, null, 2)
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(json)
+        setStatus({ type: 'success', message: 'Theme JSON copied to clipboard.' })
+        return
+      } catch (err) {
+        // fallback to local field
+      }
+    }
+    setAppearanceImportJson(json)
+    setStatus({ type: 'info', message: 'Clipboard unavailable. JSON inserted into import field.' })
+  }
+
+  const applyImportedUiThemePack = (rawText) => {
+    const text = String(rawText || '').trim()
+    if (!text) {
+      setStatus({ type: 'error', message: 'Paste JSON first.' })
+      return
+    }
+    let parsed
+    try {
+      parsed = JSON.parse(text)
+    } catch (err) {
+      setStatus({ type: 'error', message: 'Invalid JSON format.' })
+      return
+    }
+    const imported = normalizeImportedThemePack(parsed)
+    if (!imported) {
+      setStatus({ type: 'error', message: 'Theme pack is empty or invalid.' })
+      return
+    }
+    if (imported.kind && imported.kind !== THEME_PACK_KIND) {
+      setStatus({ type: 'error', message: 'Unsupported theme pack format.' })
+      return
+    }
+    setUiPreferences(imported.uiPreferences)
+    if (imported.theme === 'light' || imported.theme === 'dark') {
+      setTheme(imported.theme)
+    }
+    if (Array.isArray(imported.customPresets) && imported.customPresets.length > 0) {
+      setUiCustomThemePresets((prev) => normalizeUiCustomThemePresets([
+        ...imported.customPresets,
+        ...prev
+      ]))
+    }
+    if (imported.profile) {
+      setProfileThemeColor(imported.profile.themeColor)
+      setProfileShowcaseForm((prev) => ({
+        ...prev,
+        heroTheme: imported.profile.heroTheme
+      }))
+    }
+    setStatus({
+      type: 'success',
+      message: `Theme pack imported${imported.version ? ` (v${imported.version})` : ''}.`
+    })
+  }
+
+  const handleAppearanceImportJsonApply = () => {
+    applyImportedUiThemePack(appearanceImportJson)
+  }
+
+  const handleAppearanceImportFileChange = async (event) => {
+    const file = event.target && event.target.files && event.target.files[0] ? event.target.files[0] : null
+    if (!file) return
+    try {
+      const text = await file.text()
+      setAppearanceImportJson(text)
+      applyImportedUiThemePack(text)
+    } catch (err) {
+      setStatus({ type: 'error', message: 'Failed to read JSON file.' })
+    } finally {
+      if (event.target) event.target.value = ''
+    }
   }
 
   const resetUiPreferences = () => {
@@ -13558,10 +13772,48 @@ export default function App() {
                             ))}
                           </div>
                         )}
-                      </section>
+	                      </section>
 
-                      <div
-                        className="appearance-preview-card"
+	                      <section className="appearance-share-panel">
+	                        <div className="appearance-share-head">
+	                          <strong>Theme JSON sharing</strong>
+	                          <span>UI + профильная сцена</span>
+	                        </div>
+	                        <div className="appearance-share-actions">
+	                          <button type="button" className="ghost" onClick={copyUiThemePackJson}>Copy JSON</button>
+	                          <button type="button" className="ghost" onClick={exportUiThemePackToFile}>Download JSON</button>
+	                          <button
+	                            type="button"
+	                            className="ghost"
+	                            onClick={() => appearanceImportInputRef.current && appearanceImportInputRef.current.click()}
+	                          >
+	                            Import file
+	                          </button>
+	                          <input
+	                            ref={appearanceImportInputRef}
+	                            type="file"
+	                            accept="application/json,.json"
+	                            onChange={handleAppearanceImportFileChange}
+	                            style={{ display: 'none' }}
+	                          />
+	                        </div>
+	                        <label className="appearance-share-field">
+	                          <span>Paste JSON</span>
+	                          <textarea
+	                            rows={6}
+	                            value={appearanceImportJson}
+	                            onChange={(event) => setAppearanceImportJson(event.target.value)}
+	                            placeholder='{"kind":"ktk-ui-theme","version":1,"theme":"dark","uiPreferences":{...}}'
+	                          />
+	                        </label>
+	                        <div className="appearance-share-actions">
+	                          <button type="button" className="primary" onClick={handleAppearanceImportJsonApply}>Apply JSON</button>
+	                          <button type="button" className="ghost" onClick={() => setAppearanceImportJson('')}>Clear</button>
+	                        </div>
+	                      </section>
+
+	                      <div
+	                        className="appearance-preview-card"
                         style={{
                           background: 'linear-gradient(135deg, ' + appearanceAccentPreview.accent + ' 0%, ' + appearanceAccentPreview.accent2 + ' 100%)',
                           borderColor: 'rgba(' + appearanceOutlinePreviewRgb.r + ', ' + appearanceOutlinePreviewRgb.g + ', ' + appearanceOutlinePreviewRgb.b + ', 0.42)'
@@ -14020,8 +14272,38 @@ export default function App() {
                   </button>
                 </div>
               </div>
-            </section>
-            <label>
+	            </section>
+	            <section className="profile-visual-scenes" aria-label="Профильные сцены">
+	              <div className="profile-visual-scenes-head">
+	                <strong>Сцены профиля</strong>
+	                <span>Баннер + тема карточки</span>
+	              </div>
+	              <div className="profile-visual-scenes-grid">
+	                {PROFILE_VISUAL_SCENE_PRESETS.map((scene) => {
+	                  const heroThemeLabel = (PROFILE_HERO_THEMES.find((item) => item.value === scene.heroTheme) || { label: scene.heroTheme }).label
+	                  const isActive = activeProfileVisualSceneId === scene.id
+	                  return (
+	                    <button
+	                      key={scene.id}
+	                      type="button"
+	                      className={isActive ? 'profile-visual-scene-card active' : 'profile-visual-scene-card'}
+	                      onClick={() => applyProfileVisualScenePreset(scene.id)}
+	                    >
+	                      <span className="profile-visual-scene-swatches">
+	                        <span style={{ background: scene.themeColor }} />
+	                        <span style={{ background: 'linear-gradient(135deg, ' + scene.themeColor + ', rgba(255, 255, 255, 0.24))' }} />
+	                      </span>
+	                      <span className="profile-visual-scene-title">
+	                        <strong>{scene.label}</strong>
+	                        <small>{heroThemeLabel}</small>
+	                      </span>
+	                      <small className="profile-visual-scene-hint">{scene.hint}</small>
+	                    </button>
+	                  )
+	                })}
+	              </div>
+	            </section>
+	            <label>
               Отображаемое имя
               <input
                 type="text"
