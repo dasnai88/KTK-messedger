@@ -8976,6 +8976,26 @@ export default function App() {
     twoFactorStatus.enabled,
     uiPreferences.style
   ])
+  const settingsCurrentItem = useMemo(() => (
+    settingsNavItems.find((item) => item.id === settingsSection) || settingsNavItems[0] || null
+  ), [settingsNavItems, settingsSection])
+  const settingsSectionHint = useMemo(() => {
+    const hints = {
+      general: 'Базовые параметры аккаунта и быстрые действия.',
+      notifications: 'Управление push-уведомлениями и сигналами активности.',
+      appearance: 'Тема, плотность и визуальный стиль интерфейса.',
+      privacy: 'Персональные ограничения: mute, block, hide profile, deny DM.',
+      security: '2FA, резервные коды и защита входа в аккаунт.',
+      password: 'Смена пароля с ревокацией остальных сессий.',
+      sessions: 'Список устройств и завершение любых входов.',
+      storage: 'Локальные данные и черновики в браузере.',
+      stickers: 'Наборы стикеров и GIF для чатов.',
+      language: 'Текущий язык интерфейса приложения.',
+      support: 'Справка, FAQ и полезные ссылки.'
+    }
+    return hints[settingsSection] || 'Управление настройками аккаунта.'
+  }, [settingsSection])
+  const settingsSecurityBadge = twoFactorStatus.enabled ? '2FA ON' : '2FA OFF'
 
   return (
     <div className="page">
@@ -12444,22 +12464,52 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-                <nav className="settings-nav">
-                  {settingsNavItems.map((item) => (
-                    <button
-                      key={`settings-nav-${item.id}`}
-                      type="button"
-                      className={settingsSection === item.id ? 'active' : ''}
-                      onClick={() => setSettingsSection(item.id)}
-                    >
-                      <span className="settings-nav-icon" aria-hidden="true">{item.icon}</span>
-                      <span className="settings-nav-label">{item.label}</span>
-                      {item.badge ? <span className="settings-nav-badge">{item.badge}</span> : null}
-                    </button>
-                  ))}
-                </nav>
+                <div className="settings-nav-wrap">
+                  <span className="settings-nav-caption">Разделы</span>
+                  <nav className="settings-nav">
+                    {settingsNavItems.map((item) => (
+                      <button
+                        key={`settings-nav-${item.id}`}
+                        type="button"
+                        className={settingsSection === item.id ? 'active' : ''}
+                        onClick={() => setSettingsSection(item.id)}
+                      >
+                        <span className="settings-nav-icon" aria-hidden="true">{item.icon}</span>
+                        <span className="settings-nav-label">{item.label}</span>
+                        {item.badge ? <span className="settings-nav-badge">{item.badge}</span> : null}
+                      </button>
+                    ))}
+                  </nav>
+                </div>
               </aside>
               <div className="settings-content">
+                <section className="settings-hero">
+                  <div className="settings-hero-main">
+                    <span className="settings-hero-overline">Control Center</span>
+                    <h2>Настройки аккаунта</h2>
+                    <p>{settingsSectionHint}</p>
+                    {settingsCurrentItem ? (
+                      <span className="settings-hero-chip">
+                        <span aria-hidden="true">{settingsCurrentItem.icon}</span>
+                        {settingsCurrentItem.label}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="settings-kpi-grid">
+                    <article className="settings-kpi">
+                      <span>Безопасность</span>
+                      <strong>{settingsSecurityBadge}</strong>
+                    </article>
+                    <article className="settings-kpi">
+                      <span>Сеансы</span>
+                      <strong>{settingsActiveSessionCount}</strong>
+                    </article>
+                    <article className="settings-kpi">
+                      <span>Privacy rules</span>
+                      <strong>{privacyControls.length}</strong>
+                    </article>
+                  </div>
+                </section>
                 {settingsSection === 'general' && (
                   <section className="settings-pane">
                     <h2>Общие настройки</h2>
