@@ -1762,6 +1762,16 @@ export default function App() {
   const [privacyByUsername, setPrivacyByUsername] = useState({})
   const [privacyControls, setPrivacyControls] = useState([])
   const [privacyControlsLoading, setPrivacyControlsLoading] = useState(false)
+  const [privacyQuickUsername, setPrivacyQuickUsername] = useState('')
+  const [privacyQuickUsers, setPrivacyQuickUsers] = useState([])
+  const [privacyQuickLoading, setPrivacyQuickLoading] = useState(false)
+  const [privacyQuickSearchLoading, setPrivacyQuickSearchLoading] = useState(false)
+  const [privacyQuickFlags, setPrivacyQuickFlags] = useState({
+    isMuted: false,
+    isBlocked: false,
+    hideProfileContent: false,
+    denyDm: true
+  })
   const [blockedUsers, setBlockedUsers] = useState([])
   const [sessions, setSessions] = useState([])
   const [sessionsLoading, setSessionsLoading] = useState(false)
@@ -1838,6 +1848,7 @@ export default function App() {
   const composerInputRef = useRef(null)
   const globalPaletteInputRef = useRef(null)
   const globalPaletteSearchSeqRef = useRef(0)
+  const privacyQuickSearchSeqRef = useRef(0)
   const contextMenuRef = useRef(null)
   const postMenuRef = useRef(null)
   const chatMenuRef = useRef(null)
@@ -4617,6 +4628,49 @@ export default function App() {
   }, [globalPaletteOpen, globalPaletteQuery])
 
   useEffect(() => {
+    if (!user || settingsSection !== 'privacy') {
+      privacyQuickSearchSeqRef.current += 1
+      setPrivacyQuickSearchLoading(false)
+      setPrivacyQuickUsers([])
+      return
+    }
+
+    const query = String(privacyQuickUsername || '').trim().replace(/^@+/, '')
+    if (query.length < 2) {
+      privacyQuickSearchSeqRef.current += 1
+      setPrivacyQuickSearchLoading(false)
+      setPrivacyQuickUsers([])
+      return
+    }
+
+    const seq = privacyQuickSearchSeqRef.current + 1
+    privacyQuickSearchSeqRef.current = seq
+    setPrivacyQuickSearchLoading(true)
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await searchUsers(query)
+        if (privacyQuickSearchSeqRef.current !== seq) return
+        const rows = Array.isArray(data && data.users) ? data.users : []
+        const selfUsername = String(user.username || '').trim().toLowerCase()
+        const filtered = rows.filter((item) => {
+          const username = String(item && item.username ? item.username : '').trim().toLowerCase()
+          return username && username !== selfUsername
+        })
+        setPrivacyQuickUsers(filtered.slice(0, 6))
+      } catch (err) {
+        if (privacyQuickSearchSeqRef.current !== seq) return
+        setPrivacyQuickUsers([])
+      } finally {
+        if (privacyQuickSearchSeqRef.current === seq) {
+          setPrivacyQuickSearchLoading(false)
+        }
+      }
+    }, 170)
+
+    return () => window.clearTimeout(timer)
+  }, [user, settingsSection, privacyQuickUsername])
+
+  useEffect(() => {
     socketConnectionRef.current = socketConnection
   }, [socketConnection])
 
@@ -5970,6 +6024,109 @@ export default function App() {
     }
   }
 
+  const togglePrivacyQuickFlag = (key) => {
+    if (!key) return
+    setPrivacyQuickFlags((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  const applyPrivacyQuickRule = async () => {
+    if (!user) return
+    const username = String(privacyQuickUsername || '').trim().replace(/^@+/, '').toLowerCase()
+    if (!username) {
+      setStatus({ type: 'error', message: 'Enter @username.' })
+      return
+    }
+    const selfUsername = String(user.username || '').trim().toLowerCase()
+    if (username === selfUsername) {
+      setStatus({ type: 'error', message: 'Cannot configure privacy rules for yourself.' })
+      return
+    }
+    const patch = {
+      isMuted: privacyQuickFlags.isMuted === true,
+      isBlocked: privacyQuickFlags.isBlocked === true,
+      hideProfileContent: privacyQuickFlags.hideProfileContent === true,
+      denyDm: privacyQuickFlags.denyDm === true
+    }
+    if (!Object.values(patch).some(Boolean)) {
+      setStatus({ type: 'error', message: 'Enable at least one privacy flag.' })
+      return
+    }
+
+    setPrivacyQuickLoading(true)
+    try {
+      const relation = await updateUserPrivacyRelation(username, patch, { silent: true })
+      if (profileView && String(profileView.username || '').trim().toLowerCase() === username) {
+        setProfilePrivacy(relation)
+      }
+      setStatus({ type: 'success', message: `Privacy rule saved for @${username}.` })
+      setPrivacyQuickUsers([])
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setPrivacyQuickLoading(false)
+    }
+  }
+
+  const applyPrivacyBatchPreset = async (preset) => {
+    if (!user || privacyQuickLoading) return
+    const usernames = Array.from(new Set(
+      (privacyControls || [])
+        .map((item) => String(item && item.targetUsername ? item.targetUsername : '').trim().toLowerCase())
+        .filter(Boolean)
+    ))
+    if (usernames.length === 0) {
+      setStatus({ type: 'info', message: 'No privacy rules to apply preset.' })
+      return
+    }
+
+    let patch = null
+    let title = ''
+    if (preset === 'shield-all') {
+      patch = { denyDm: true, hideProfileContent: true }
+      title = 'Shield mode'
+    } else if (preset === 'mute-all') {
+      patch = { isMuted: true }
+      title = 'Mute mode'
+    } else if (preset === 'clear-all') {
+      patch = {
+        isMuted: false,
+        isBlocked: false,
+        hideProfileContent: false,
+        denyDm: false
+      }
+      title = 'Clear mode'
+    } else {
+      return
+    }
+
+    setPrivacyQuickLoading(true)
+    let successCount = 0
+    let failedCount = 0
+    try {
+      for (const username of usernames) {
+        try {
+          const data = await setUserPrivacy(username, patch)
+          const relation = normalizePrivacyRelation(data && data.privacy)
+          setPrivacyByUsername((prev) => ({ ...prev, [username]: relation }))
+          if (profileView && String(profileView.username || '').trim().toLowerCase() === username) {
+            setProfilePrivacy(relation)
+          }
+          successCount += 1
+        } catch (err) {
+          failedCount += 1
+        }
+      }
+      await loadMyPrivacy({ silent: true })
+      if (failedCount > 0) {
+        setStatus({ type: 'info', message: `${title}: updated ${successCount}, failed ${failedCount}.` })
+      } else {
+        setStatus({ type: 'success', message: `${title}: updated ${successCount}.` })
+      }
+    } finally {
+      setPrivacyQuickLoading(false)
+    }
+  }
+
   const loadAdminUsers = async (query) => {
     try {
       const data = await adminListUsers(query || '')
@@ -6316,6 +6473,17 @@ export default function App() {
     setPrivacyByUsername({})
     setPrivacyControls([])
     setPrivacyControlsLoading(false)
+    setPrivacyQuickUsername('')
+    setPrivacyQuickUsers([])
+    setPrivacyQuickLoading(false)
+    setPrivacyQuickSearchLoading(false)
+    setPrivacyQuickFlags({
+      isMuted: false,
+      isBlocked: false,
+      hideProfileContent: false,
+      denyDm: true
+    })
+    privacyQuickSearchSeqRef.current += 1
     setBlockedUsers([])
     setSessions([])
     setSessionsLoading(false)
@@ -12485,6 +12653,95 @@ export default function App() {
                   <section className="settings-pane">
                     <h2>Конфиденциальность</h2>
                     <p className="subtitle">Mute, block, hide profile content и запрет лички.</p>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-head">
+                        <h3>Quick rule by @username</h3>
+                        <span className={`verification-status-badge ${privacyQuickLoading ? 'pending' : 'none'}`.trim()}>
+                          {privacyQuickLoading ? 'Updating...' : 'Manual'}
+                        </span>
+                      </div>
+                      <p className="profile-verification-text">Find a user and apply privacy flags in one click.</p>
+                      <div className="profile-verification-form">
+                        <input
+                          type="text"
+                          value={privacyQuickUsername}
+                          onChange={(event) => setPrivacyQuickUsername(event.target.value)}
+                          placeholder="@username"
+                          maxLength={40}
+                          autoComplete="off"
+                        />
+                        {privacyQuickSearchLoading ? (
+                          <div className="empty small">Searching users...</div>
+                        ) : privacyQuickUsers.length > 0 ? (
+                          <div className="privacy-quick-user-list">
+                            {privacyQuickUsers.map((item) => (
+                              <button
+                                key={`privacy-quick-user-${item.id}`}
+                                type="button"
+                                className="privacy-quick-user"
+                                onClick={() => setPrivacyQuickUsername(`@${item.username}`)}
+                              >
+                                <span>{item.displayName || item.username}</span>
+                                <small>@{item.username}</small>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="privacy-quick-flag-row">
+                          <button
+                            type="button"
+                            className={privacyQuickFlags.isMuted ? 'active' : ''}
+                            onClick={() => togglePrivacyQuickFlag('isMuted')}
+                          >
+                            Mute
+                          </button>
+                          <button
+                            type="button"
+                            className={privacyQuickFlags.denyDm ? 'active' : ''}
+                            onClick={() => togglePrivacyQuickFlag('denyDm')}
+                          >
+                            Deny DM
+                          </button>
+                          <button
+                            type="button"
+                            className={privacyQuickFlags.hideProfileContent ? 'active' : ''}
+                            onClick={() => togglePrivacyQuickFlag('hideProfileContent')}
+                          >
+                            Hide profile
+                          </button>
+                          <button
+                            type="button"
+                            className={privacyQuickFlags.isBlocked ? 'active danger' : 'danger'}
+                            onClick={() => togglePrivacyQuickFlag('isBlocked')}
+                          >
+                            Block
+                          </button>
+                        </div>
+                        <div className="profile-verification-actions">
+                          <button type="button" className="primary" onClick={applyPrivacyQuickRule} disabled={privacyQuickLoading}>
+                            Apply rule
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-head">
+                        <h3>Batch actions</h3>
+                        <span className="verification-status-badge none">{privacyControls.length}</span>
+                      </div>
+                      <p className="profile-verification-text">Apply preset actions to all users from your privacy list.</p>
+                      <div className="privacy-batch-actions">
+                        <button type="button" onClick={() => applyPrivacyBatchPreset('shield-all')} disabled={privacyQuickLoading || privacyControlsLoading}>
+                          Shield all (deny DM + hide profile)
+                        </button>
+                        <button type="button" onClick={() => applyPrivacyBatchPreset('mute-all')} disabled={privacyQuickLoading || privacyControlsLoading}>
+                          Mute all
+                        </button>
+                        <button type="button" className="danger" onClick={() => applyPrivacyBatchPreset('clear-all')} disabled={privacyQuickLoading || privacyControlsLoading}>
+                          Clear all rules
+                        </button>
+                      </div>
+                    </section>
                     <section className="profile-verification-card">
                       <div className="profile-verification-head">
                         <h3>Privacy Controls</h3>
