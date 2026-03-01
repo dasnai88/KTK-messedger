@@ -9393,6 +9393,114 @@ body {
   background: rgba(var(--accent-rgb), 0.2);
 }
 
+.appearance-custom-presets {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.appearance-custom-presets-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.appearance-custom-presets-head strong {
+  font-size: 13px;
+}
+
+.appearance-custom-presets-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.appearance-custom-presets-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.appearance-custom-presets-form input {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.appearance-custom-presets-list {
+  display: grid;
+  gap: 8px;
+}
+
+.appearance-custom-preset {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.appearance-custom-preset.active {
+  border-color: rgba(var(--accent-rgb), 0.56);
+  background: rgba(var(--accent-rgb), 0.14);
+}
+
+.appearance-custom-preset-main {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.appearance-custom-preset-text {
+  display: grid;
+  gap: 2px;
+}
+
+.appearance-custom-preset-text strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.appearance-custom-preset-text small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.appearance-custom-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.appearance-custom-preset-actions button {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.appearance-custom-preset-actions button.danger {
+  border-color: rgba(244, 63, 94, 0.36);
+}
+
 .appearance-preset-dot {
   width: 14px;
   height: 14px;
@@ -9981,6 +10089,14 @@ body {
   .appearance-preset-row button {
     flex: 1 1 calc(50% - 8px);
     justify-content: center;
+  }
+
+  .appearance-custom-presets-form {
+    grid-template-columns: 1fr;
+  }
+
+  .appearance-custom-presets-form .ghost {
+    width: 100%;
   }
 
   .brand-inline {

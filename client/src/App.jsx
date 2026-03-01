@@ -392,6 +392,8 @@ const RECENT_STICKERS_STORAGE_KEY = 'ktk_recent_stickers'
 const RECENT_GIFS_STORAGE_KEY = 'ktk_recent_gifs'
 const RECENT_EMOJIS_STORAGE_KEY = 'ktk_recent_emojis'
 const UI_PREFERENCES_STORAGE_KEY = 'ktk_ui_preferences_v1'
+const UI_CUSTOM_THEME_PRESETS_STORAGE_KEY = 'ktk_ui_custom_theme_presets_v1'
+const UI_CUSTOM_THEME_PRESET_LIMIT = 24
 const PROFILE_SHOWCASE_STORAGE_KEY = 'ktk_profile_showcase_v1'
 const MEDIA_PANEL_TABS = {
   emoji: 'emoji',
@@ -961,6 +963,62 @@ function normalizeUiPreferences(value) {
     accentColor,
     accent2Color
   }
+}
+
+function normalizeUiThemePresetName(value, fallback = 'My theme') {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 32)
+  return normalized || fallback
+}
+
+function normalizeUiCustomThemePresets(value) {
+  if (!Array.isArray(value)) return []
+  const usedIds = new Set()
+  const normalized = []
+  for (let index = 0; index < value.length; index += 1) {
+    const item = value[index]
+    if (!item || typeof item !== 'object') continue
+    const rawId = String(item.id || '').trim()
+    const id = rawId || `ui-preset-${index + 1}`
+    if (usedIds.has(id)) continue
+    usedIds.add(id)
+    const name = normalizeUiThemePresetName(item.name, `Theme ${normalized.length + 1}`)
+    const preferences = normalizeUiPreferences(item.preferences)
+    const createdAt = String(item.createdAt || item.created_at || '').trim() || new Date().toISOString()
+    const updatedAt = String(item.updatedAt || item.updated_at || '').trim() || createdAt
+    normalized.push({ id, name, preferences, createdAt, updatedAt })
+    if (normalized.length >= UI_CUSTOM_THEME_PRESET_LIMIT) break
+  }
+  return normalized
+}
+
+function areUiPreferencesEqual(left, right) {
+  const a = normalizeUiPreferences(left)
+  const b = normalizeUiPreferences(right)
+  return (
+    a.style === b.style &&
+    a.density === b.density &&
+    a.ambient === b.ambient &&
+    a.radius === b.radius &&
+    a.lineStrength === b.lineStrength &&
+    a.syncAccent === b.syncAccent &&
+    a.outlineMode === b.outlineMode &&
+    a.customPalette === b.customPalette &&
+    a.bgColor === b.bgColor &&
+    a.panelColor === b.panelColor &&
+    a.panel2Color === b.panel2Color &&
+    a.cardColor === b.cardColor &&
+    a.textColor === b.textColor &&
+    a.mutedColor === b.mutedColor &&
+    a.outlineColor === b.outlineColor &&
+    a.stripeColor === b.stripeColor &&
+    a.chatAccentColor === b.chatAccentColor &&
+    a.feedAccentColor === b.feedAccentColor &&
+    a.accentColor === b.accentColor &&
+    a.accent2Color === b.accent2Color
+  )
 }
 
 function normalizeProfileShowcase(value) {
@@ -1600,6 +1658,16 @@ export default function App() {
       return { ...DEFAULT_UI_PREFERENCES }
     }
   })
+  const [uiCustomThemePresets, setUiCustomThemePresets] = useState(() => {
+    if (typeof window === 'undefined') return []
+    try {
+      const parsed = JSON.parse(localStorage.getItem(UI_CUSTOM_THEME_PRESETS_STORAGE_KEY) || '[]')
+      return normalizeUiCustomThemePresets(parsed)
+    } catch (err) {
+      return []
+    }
+  })
+  const [uiCustomPresetName, setUiCustomPresetName] = useState('')
   const [profileShowcaseByUserId, setProfileShowcaseByUserId] = useState(() => {
     if (typeof window === 'undefined') return {}
     try {
@@ -3406,6 +3474,14 @@ export default function App() {
       // ignore storage errors
     }
   }, [uiPreferences, profileForm.themeColor, user ? user.themeColor : null, theme])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(UI_CUSTOM_THEME_PRESETS_STORAGE_KEY, JSON.stringify(uiCustomThemePresets))
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [uiCustomThemePresets])
 
   useEffect(() => {
     try {
@@ -8190,6 +8266,73 @@ export default function App() {
     }))
   }
 
+  const createUiCustomPresetId = () => `ui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+
+  const saveCurrentUiThemePreset = () => {
+    const name = normalizeUiThemePresetName(uiCustomPresetName, '')
+    if (!name) {
+      setStatus({ type: 'error', message: 'Preset name is required.' })
+      return
+    }
+    const snapshot = normalizeUiPreferences(uiPreferences)
+    const now = new Date().toISOString()
+    setUiCustomThemePresets((prev) => {
+      const existingIndex = prev.findIndex((item) => item.name.toLowerCase() === name.toLowerCase())
+      if (existingIndex >= 0) {
+        const next = [...prev]
+        next[existingIndex] = {
+          ...next[existingIndex],
+          preferences: snapshot,
+          updatedAt: now
+        }
+        return next
+      }
+      const next = [
+        {
+          id: createUiCustomPresetId(),
+          name,
+          preferences: snapshot,
+          createdAt: now,
+          updatedAt: now
+        },
+        ...prev
+      ]
+      return next.slice(0, UI_CUSTOM_THEME_PRESET_LIMIT)
+    })
+    setUiCustomPresetName('')
+    setStatus({ type: 'success', message: 'Theme preset saved.' })
+  }
+
+  const applyUiCustomThemePreset = (preset) => {
+    if (!preset || typeof preset !== 'object') return
+    setUiPreferences(normalizeUiPreferences(preset.preferences))
+    setStatus({ type: 'success', message: `Preset "${preset.name}" applied.` })
+  }
+
+  const deleteUiCustomThemePreset = (presetId) => {
+    setUiCustomThemePresets((prev) => prev.filter((item) => item.id !== presetId))
+    setStatus({ type: 'info', message: 'Theme preset deleted.' })
+  }
+
+  const renameUiCustomThemePreset = (presetId) => {
+    const target = uiCustomThemePresets.find((item) => item.id === presetId)
+    if (!target) return
+    if (typeof window === 'undefined' || typeof window.prompt !== 'function') return
+    const prompted = window.prompt('Preset name', target.name)
+    if (prompted === null) return
+    const name = normalizeUiThemePresetName(prompted, '')
+    if (!name) {
+      setStatus({ type: 'error', message: 'Preset name cannot be empty.' })
+      return
+    }
+    setUiCustomThemePresets((prev) => prev.map((item) => (
+      item.id === presetId
+        ? { ...item, name, updatedAt: new Date().toISOString() }
+        : item
+    )))
+    setStatus({ type: 'success', message: 'Preset renamed.' })
+  }
+
   const applyUiThemePreset = (preset) => {
     if (!preset) return
     setUiPreferences((prev) => normalizeUiPreferences({
@@ -9151,6 +9294,11 @@ export default function App() {
     ))
     return match ? match.id : ''
   }, [uiPreferences])
+  const appearanceActiveCustomPresetId = useMemo(() => {
+    const normalized = normalizeUiPreferences(uiPreferences)
+    const match = uiCustomThemePresets.find((item) => areUiPreferencesEqual(item.preferences, normalized))
+    return match ? match.id : ''
+  }, [uiCustomThemePresets, uiPreferences])
   const settingsNavItems = useMemo(() => ([
     { id: 'general', icon: '⚙️', label: 'Общие настройки', badge: '' },
     { id: 'notifications', icon: '🔔', label: 'Уведомления', badge: pushState.enabled ? 'ON' : 'OFF' },
@@ -13060,6 +13208,58 @@ export default function App() {
                           </button>
                         ))}
                       </div>
+
+                      <section className="appearance-custom-presets">
+                        <div className="appearance-custom-presets-head">
+                          <strong>My presets</strong>
+                          <span>{uiCustomThemePresets.length}/{UI_CUSTOM_THEME_PRESET_LIMIT}</span>
+                        </div>
+                        <div className="appearance-custom-presets-form">
+                          <input
+                            type="text"
+                            value={uiCustomPresetName}
+                            onChange={(event) => setUiCustomPresetName(event.target.value.slice(0, 32))}
+                            placeholder="Preset name"
+                            maxLength={32}
+                          />
+                          <button type="button" className="ghost" onClick={saveCurrentUiThemePreset}>
+                            Save current
+                          </button>
+                        </div>
+                        {uiCustomThemePresets.length === 0 ? (
+                          <div className="empty small">No saved presets yet.</div>
+                        ) : (
+                          <div className="appearance-custom-presets-list">
+                            {uiCustomThemePresets.map((preset) => (
+                              <article
+                                key={preset.id}
+                                className={appearanceActiveCustomPresetId === preset.id ? 'appearance-custom-preset active' : 'appearance-custom-preset'}
+                              >
+                                <button
+                                  type="button"
+                                  className="appearance-custom-preset-main"
+                                  onClick={() => applyUiCustomThemePreset(preset)}
+                                >
+                                  <span
+                                    className="appearance-preset-dot"
+                                    style={{
+                                      background: 'linear-gradient(135deg, ' + preset.preferences.accentColor + ' 0%, ' + preset.preferences.accent2Color + ' 100%)'
+                                    }}
+                                  />
+                                  <span className="appearance-custom-preset-text">
+                                    <strong>{preset.name}</strong>
+                                    <small>{preset.preferences.style} / {preset.preferences.density}</small>
+                                  </span>
+                                </button>
+                                <div className="appearance-custom-preset-actions">
+                                  <button type="button" onClick={() => renameUiCustomThemePreset(preset.id)}>Rename</button>
+                                  <button type="button" className="danger" onClick={() => deleteUiCustomThemePreset(preset.id)}>Delete</button>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        )}
+                      </section>
 
                       <div
                         className="appearance-preview-card"
