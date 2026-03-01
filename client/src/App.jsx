@@ -723,6 +723,120 @@ const UI_THEME_COLOR_PRESETS = [
   { id: 'violet', label: 'Violet', accent: '#5b2d91', accent2: '#8553c6' },
   { id: 'graphite', label: 'Graphite', accent: '#3f4857', accent2: '#69778f' }
 ]
+const UI_THEME_SCENE_PRESETS = [
+  {
+    id: 'aurora-deck',
+    label: 'Aurora Deck',
+    hint: 'Cool accents for chat and control panels.',
+    theme: 'dark',
+    preferences: {
+      style: 'glass',
+      density: 'comfortable',
+      ambient: 64,
+      radius: 20,
+      lineStrength: 120,
+      syncAccent: false,
+      outlineMode: 'custom',
+      customPalette: true,
+      bgColor: '#090f14',
+      panelColor: '#111922',
+      panel2Color: '#152130',
+      cardColor: '#182636',
+      textColor: '#eaf4ff',
+      mutedColor: '#9eb4c9',
+      outlineColor: '#33a9ff',
+      stripeColor: '#57c6ff',
+      chatAccentColor: '#33a9ff',
+      feedAccentColor: '#6e79ff',
+      accentColor: '#2f9dff',
+      accent2Color: '#78d2ff'
+    }
+  },
+  {
+    id: 'ember-studio',
+    label: 'Ember Studio',
+    hint: 'Warm high-contrast look for feed-heavy sessions.',
+    theme: 'dark',
+    preferences: {
+      style: 'neo',
+      density: 'compact',
+      ambient: 56,
+      radius: 18,
+      lineStrength: 132,
+      syncAccent: false,
+      outlineMode: 'custom',
+      customPalette: true,
+      bgColor: '#130c0b',
+      panelColor: '#1d1312',
+      panel2Color: '#271916',
+      cardColor: '#2e1d1a',
+      textColor: '#fff2ea',
+      mutedColor: '#cab0a4',
+      outlineColor: '#ff8c55',
+      stripeColor: '#f4a36f',
+      chatAccentColor: '#f06f3c',
+      feedAccentColor: '#ad5aff',
+      accentColor: '#f06f3c',
+      accent2Color: '#f7b068'
+    }
+  },
+  {
+    id: 'mint-canvas',
+    label: 'Mint Canvas',
+    hint: 'Minimal dark palette with clean green highlights.',
+    theme: 'dark',
+    preferences: {
+      style: 'classic',
+      density: 'comfortable',
+      ambient: 48,
+      radius: 16,
+      lineStrength: 96,
+      syncAccent: false,
+      outlineMode: 'custom',
+      customPalette: true,
+      bgColor: '#0a1110',
+      panelColor: '#111a18',
+      panel2Color: '#14211f',
+      cardColor: '#172825',
+      textColor: '#e8fff8',
+      mutedColor: '#9dbab1',
+      outlineColor: '#2fc090',
+      stripeColor: '#30d5a8',
+      chatAccentColor: '#2fc090',
+      feedAccentColor: '#6a8cff',
+      accentColor: '#2fc090',
+      accent2Color: '#72e0b8'
+    }
+  },
+  {
+    id: 'clean-light',
+    label: 'Clean Light',
+    hint: 'Light mode with calm cards and clear borders.',
+    theme: 'light',
+    preferences: {
+      style: 'glass',
+      density: 'spacious',
+      ambient: 36,
+      radius: 20,
+      lineStrength: 86,
+      syncAccent: false,
+      outlineMode: 'custom',
+      customPalette: true,
+      bgColor: '#f3f6fc',
+      panelColor: '#ffffff',
+      panel2Color: '#edf2fa',
+      cardColor: '#ffffff',
+      textColor: '#1a2635',
+      mutedColor: '#617186',
+      outlineColor: '#2f5dff',
+      stripeColor: '#5d8dff',
+      chatAccentColor: '#2f5dff',
+      feedAccentColor: '#ff6e6b',
+      accentColor: '#2f5dff',
+      accent2Color: '#5d8dff'
+    }
+  }
+]
 const DEFAULT_UI_PREFERENCES = {
   style: 'glass',
   density: 'comfortable',
@@ -8347,6 +8461,29 @@ export default function App() {
     }))
   }
 
+  const applyUiScenePreset = (scene) => {
+    if (!scene || !scene.preferences) return
+    setUiPreferences(normalizeUiPreferences(scene.preferences))
+    if (scene.theme === 'light' || scene.theme === 'dark') {
+      setTheme(scene.theme)
+    }
+    setStatus({ type: 'success', message: `Scene "${scene.label}" applied.` })
+  }
+
+  const applyRandomUiScenePreset = () => {
+    if (UI_THEME_SCENE_PRESETS.length === 0) return
+    const normalized = normalizeUiPreferences(uiPreferences)
+    const currentScene = UI_THEME_SCENE_PRESETS.find((scene) => (
+      areUiPreferencesEqual(scene.preferences, normalized) &&
+      (!scene.theme || scene.theme === theme)
+    ))
+    const pool = currentScene
+      ? UI_THEME_SCENE_PRESETS.filter((scene) => scene.id !== currentScene.id)
+      : UI_THEME_SCENE_PRESETS
+    const selected = pool[Math.floor(Math.random() * pool.length)] || UI_THEME_SCENE_PRESETS[0]
+    applyUiScenePreset(selected)
+  }
+
   const resetUiPreferences = () => {
     setUiPreferences({ ...DEFAULT_UI_PREFERENCES })
   }
@@ -9289,6 +9426,14 @@ export default function App() {
   const appearanceOutlinePreviewRgb = useMemo(() => (
     hexToRgb(appearanceOutlinePreview)
   ), [appearanceOutlinePreview])
+  const appearanceActiveSceneId = useMemo(() => {
+    const normalized = normalizeUiPreferences(uiPreferences)
+    const match = UI_THEME_SCENE_PRESETS.find((scene) => (
+      areUiPreferencesEqual(scene.preferences, normalized) &&
+      (!scene.theme || scene.theme === theme)
+    ))
+    return match ? match.id : ''
+  }, [theme, uiPreferences])
   const appearanceActivePresetId = useMemo(() => {
     const normalized = normalizeUiPreferences(uiPreferences)
     if (normalized.syncAccent) return ''
@@ -13077,6 +13222,43 @@ export default function App() {
                           Enable full customization
                         </button>
                       </div>
+
+                      <section className="appearance-scene-block">
+                        <div className="appearance-scene-head">
+                          <strong>Style scenes</strong>
+                          <button type="button" className="ghost appearance-scene-random" onClick={applyRandomUiScenePreset}>
+                            Surprise me
+                          </button>
+                        </div>
+                        <div className="appearance-scene-grid">
+                          {UI_THEME_SCENE_PRESETS.map((scene) => {
+                            const scenePrefs = normalizeUiPreferences(scene.preferences)
+                            const isActive = appearanceActiveSceneId === scene.id
+                            return (
+                              <button
+                                key={scene.id}
+                                type="button"
+                                className={isActive ? 'appearance-scene-card active' : 'appearance-scene-card'}
+                                onClick={() => applyUiScenePreset(scene)}
+                              >
+                                <span className="appearance-scene-swatches">
+                                  <span style={{ background: scenePrefs.bgColor }} />
+                                  <span style={{ background: scenePrefs.panelColor }} />
+                                  <span style={{ background: scenePrefs.cardColor }} />
+                                  <span style={{ background: scenePrefs.accentColor }} />
+                                  <span style={{ background: scenePrefs.accent2Color }} />
+                                </span>
+                                <span className="appearance-scene-title">
+                                  <strong>{scene.label}</strong>
+                                  <small>{scene.theme === 'light' ? 'Light' : 'Dark'}</small>
+                                </span>
+                                <small className="appearance-scene-hint">{scene.hint}</small>
+                                <span className="appearance-scene-meta">{scenePrefs.style} / {scenePrefs.density}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </section>
 
                       <div className="appearance-accent-grid">
                         <label>
