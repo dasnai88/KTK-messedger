@@ -1910,6 +1910,33 @@ body {
   color: var(--text);
 }
 
+.admin-role-manager {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-role-manager strong {
+  font-size: 13px;
+}
+
+.admin-role-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+}
+
+.admin-role-grid input {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--text);
+}
+
 .admin-list {
   display: grid;
   gap: 12px;
@@ -1956,6 +1983,12 @@ body {
   color: var(--accent-soft);
   border-color: rgba(var(--accent-2-rgb), 0.45);
 }
+
+.badge.role {
+  background: rgba(56, 189, 248, 0.15);
+  color: #bfe9ff;
+  border-color: rgba(56, 189, 248, 0.4);
+}
 .admin-meta {
   display: grid;
   gap: 4px;
@@ -1968,6 +2001,14 @@ body {
 }
 
 .admin-actions input {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 8px;
+  color: var(--text);
+}
+
+.admin-actions select {
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -6380,6 +6421,10 @@ body {
   .admin-item {
     grid-template-columns: 1fr;
     align-items: flex-start;
+  }
+
+  .admin-role-grid {
+    grid-template-columns: 1fr;
   }
 
   .admin-actions {

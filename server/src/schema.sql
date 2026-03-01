@@ -7,28 +7,40 @@ create table if not exists uploads (
   created_at timestamptz default now()
 );
 
+create table if not exists roles (
+  value text primary key,
+  label text not null,
+  created_at timestamptz default now()
+);
+
+insert into roles (value, label)
+values
+  ('programmist', 'Программист'),
+  ('tehnik', 'Техник'),
+  ('polimer', 'Полимер'),
+  ('pirotehnik', 'Пиротехник'),
+  ('tehmash', 'Техмаш'),
+  ('holodilchik', 'Холодильчик'),
+  ('student', 'Студент'),
+  ('teacher', 'Учитель'),
+  ('frontend_dev', 'Фронтенд разработчик'),
+  ('backend_dev', 'Бэкенд разработчик'),
+  ('fullstack_dev', 'Фуллстек разработчик'),
+  ('mobile_dev', 'Мобильный разработчик'),
+  ('devops_engineer', 'DevOps инженер'),
+  ('qa_engineer', 'QA инженер'),
+  ('uiux_designer', 'UI/UX дизайнер'),
+  ('data_engineer', 'Инженер данных'),
+  ('security_engineer', 'Инженер ИБ')
+on conflict (value) do update
+set label = excluded.label;
+
 create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   login text unique not null,
   username text unique not null,
   password_hash text not null,
-  role text not null check (role in (
-    'programmist',
-    'tehnik',
-    'polimer',
-    'pirotehnik',
-    'tehmash',
-    'holodilchik',
-    'frontend_dev',
-    'backend_dev',
-    'fullstack_dev',
-    'mobile_dev',
-    'devops_engineer',
-    'qa_engineer',
-    'uiux_designer',
-    'data_engineer',
-    'security_engineer'
-  )),
+  role text not null references roles(value) on update cascade,
   display_name text,
   bio text,
   status_text text,
@@ -550,6 +562,34 @@ DO $$
 DECLARE
   constraint_name text;
 BEGIN
+  INSERT INTO roles (value, label)
+  VALUES
+    ('programmist', 'Программист'),
+    ('tehnik', 'Техник'),
+    ('polimer', 'Полимер'),
+    ('pirotehnik', 'Пиротехник'),
+    ('tehmash', 'Техмаш'),
+    ('holodilchik', 'Холодильчик'),
+    ('student', 'Студент'),
+    ('teacher', 'Учитель'),
+    ('frontend_dev', 'Фронтенд разработчик'),
+    ('backend_dev', 'Бэкенд разработчик'),
+    ('fullstack_dev', 'Фуллстек разработчик'),
+    ('mobile_dev', 'Мобильный разработчик'),
+    ('devops_engineer', 'DevOps инженер'),
+    ('qa_engineer', 'QA инженер'),
+    ('uiux_designer', 'UI/UX дизайнер'),
+    ('data_engineer', 'Инженер данных'),
+    ('security_engineer', 'Инженер ИБ')
+  ON CONFLICT (value) DO UPDATE
+  SET label = EXCLUDED.label;
+
+  INSERT INTO roles (value, label)
+  SELECT DISTINCT role, initcap(replace(role, '_', ' '))
+  FROM users
+  WHERE role IS NOT NULL
+  ON CONFLICT (value) DO NOTHING;
+
   FOR constraint_name IN
     SELECT conname
     FROM pg_constraint
@@ -560,25 +600,12 @@ BEGIN
     EXECUTE format('ALTER TABLE users DROP CONSTRAINT IF EXISTS %I', constraint_name);
   END LOOP;
 
+  ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_fkey;
   ALTER TABLE users
-    ADD CONSTRAINT chk_users_role_allowed
-    CHECK (role in (
-      'programmist',
-      'tehnik',
-      'polimer',
-      'pirotehnik',
-      'tehmash',
-      'holodilchik',
-      'frontend_dev',
-      'backend_dev',
-      'fullstack_dev',
-      'mobile_dev',
-      'devops_engineer',
-      'qa_engineer',
-      'uiux_designer',
-      'data_engineer',
-      'security_engineer'
-    ));
+    ADD CONSTRAINT users_role_fkey
+    FOREIGN KEY (role)
+    REFERENCES roles(value)
+    ON UPDATE CASCADE;
 EXCEPTION WHEN undefined_table THEN NULL;
 WHEN duplicate_object THEN NULL;
 END $$;

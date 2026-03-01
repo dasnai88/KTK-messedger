@@ -17,13 +17,15 @@ const { pool } = require('./db')
 const app = express()
 const server = http.createServer(app)
 
-const roles = [
+const defaultRoles = [
   { value: 'programmist', label: 'Программист' },
   { value: 'tehnik', label: 'Техник' },
   { value: 'polimer', label: 'Полимер' },
   { value: 'pirotehnik', label: 'Пиротехник' },
   { value: 'tehmash', label: 'Техмаш' },
   { value: 'holodilchik', label: 'Холодильчик' },
+  { value: 'student', label: 'Студент' },
+  { value: 'teacher', label: 'Учитель' },
   { value: 'frontend_dev', label: 'Фронтенд разработчик' },
   { value: 'backend_dev', label: 'Бэкенд разработчик' },
   { value: 'fullstack_dev', label: 'Фуллстек разработчик' },
@@ -423,6 +425,59 @@ async function adminOnly(req, res, next) {
   } catch (err) {
     return res.status(500).json({ error: 'Unexpected error' })
   }
+}
+
+function normalizeRoleValue(rawValue) {
+  return String(rawValue || '').trim().toLowerCase()
+}
+
+function normalizeRoleLabel(rawLabel) {
+  return String(rawLabel || '').trim()
+}
+
+function isValidRoleValue(roleValue) {
+  return /^[a-z][a-z0-9_]{2,31}$/.test(roleValue)
+}
+
+function isValidRoleLabel(roleLabel) {
+  return roleLabel.length >= 2 && roleLabel.length <= 48
+}
+
+async function getAvailableRoles() {
+  try {
+    const result = await pool.query(
+      `select value, label
+       from roles
+       order by label asc, value asc`
+    )
+    if (result.rowCount > 0) {
+      return result.rows.map((row) => ({
+        value: row.value,
+        label: row.label
+      }))
+    }
+  } catch (err) {
+    if (!(err && err.code === '42P01')) {
+      throw err
+    }
+  }
+  return defaultRoles
+}
+
+async function hasAllowedRole(roleValue) {
+  if (!roleValue) return false
+  try {
+    const result = await pool.query(
+      'select 1 from roles where value = $1 limit 1',
+      [roleValue]
+    )
+    if (result.rowCount > 0) return true
+  } catch (err) {
+    if (!(err && err.code === '42P01')) {
+      throw err
+    }
+  }
+  return defaultRoles.some((item) => item.value === roleValue)
 }
 
 app.param('id', (req, res, next, id) => {
@@ -1542,8 +1597,14 @@ app.get('/api/health', async (req, res) => {
   res.json({ ok: true, db, time: new Date().toISOString() })
 })
 
-app.get('/api/roles', (req, res) => {
-  res.json({ roles })
+app.get('/api/roles', async (req, res) => {
+  try {
+    const roles = await getAvailableRoles()
+    res.json({ roles })
+  } catch (err) {
+    console.error('Roles list error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
 })
 
 app.post('/api/auth/register', async (req, res) => {
@@ -1551,7 +1612,7 @@ app.post('/api/auth/register', async (req, res) => {
     const login = normalizeLogin(req.body.login)
     const username = normalizeUsername(req.body.username)
     const password = req.body.password
-    const role = req.body.role
+    const role = normalizeRoleValue(req.body.role)
 
     if (login.length < 3) {
       return res.status(400).json({ error: 'Login must be at least 3 characters' })
@@ -1562,7 +1623,7 @@ app.post('/api/auth/register', async (req, res) => {
     if (!isValidPassword(password)) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' })
     }
-    if (!roles.some((item) => item.value === role)) {
+    if (!(await hasAllowedRole(role))) {
       return res.status(400).json({ error: 'Invalid role' })
     }
 
@@ -1642,7 +1703,7 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
   try {
     const displayName = typeof req.body.displayName === 'string' ? req.body.displayName.trim() : null
     const bio = typeof req.body.bio === 'string' ? req.body.bio.trim() : null
-    const role = req.body.role
+    const role = req.body.role ? normalizeRoleValue(req.body.role) : null
     const username = req.body.username ? normalizeUsername(req.body.username) : null
     const themeColor = typeof req.body.themeColor === 'string' ? req.body.themeColor.trim() : null
     const statusText = typeof req.body.statusText === 'string'
@@ -1655,7 +1716,7 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
     if (username && !isValidUsername(username)) {
       return res.status(400).json({ error: 'Username must be 3+ chars and contain only a-z, 0-9, _' })
     }
-    if (role && !roles.some((item) => item.value === role)) {
+    if (role && !(await hasAllowedRole(role))) {
       return res.status(400).json({ error: 'Invalid role' })
     }
     if (themeColor && !/^#([0-9a-fA-F]{6})$/.test(themeColor)) {
@@ -4253,7 +4314,7 @@ app.get('/api/admin/users', auth, adminOnly, async (req, res) => {
   try {
     const q = String(req.query.q || '').trim().toLowerCase()
     const result = await pool.query(
-      `select id, username, display_name, is_banned, warnings_count, is_admin, is_moderator
+      `select id, username, display_name, role, is_banned, warnings_count, is_admin, is_moderator
        from users
        where ($1 = '' or username ilike $2)
        order by username
@@ -4263,6 +4324,68 @@ app.get('/api/admin/users', auth, adminOnly, async (req, res) => {
     res.json({ users: result.rows })
   } catch (err) {
     console.error('Admin users error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/admin/roles', auth, adminOnly, async (req, res) => {
+  try {
+    const value = normalizeRoleValue(req.body.value)
+    const label = normalizeRoleLabel(req.body.label)
+
+    if (!isValidRoleValue(value)) {
+      return res.status(400).json({ error: 'Role value must be 3-32 chars: a-z, 0-9, _ and start with a letter' })
+    }
+    if (!isValidRoleLabel(label)) {
+      return res.status(400).json({ error: 'Role label must be 2-48 characters' })
+    }
+
+    const result = await pool.query(
+      `insert into roles (value, label)
+       values ($1, $2)
+       returning value, label`,
+      [value, label]
+    )
+
+    res.json({ ok: true, role: result.rows[0] })
+  } catch (err) {
+    if (err && err.code === '23505') {
+      return res.status(409).json({ error: 'Role already exists' })
+    }
+    if (err && err.code === '42P01') {
+      return res.status(503).json({ error: 'Roles table missing: schema migration required' })
+    }
+    console.error('Admin create role error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/admin/set-role', auth, adminOnly, async (req, res) => {
+  try {
+    const userId = req.body.userId
+    const role = normalizeRoleValue(req.body.role)
+    if (!isValidUuid(userId)) {
+      return res.status(400).json({ error: 'Invalid user id' })
+    }
+    if (!(await hasAllowedRole(role))) {
+      return res.status(400).json({ error: 'Invalid role' })
+    }
+
+    const result = await pool.query(
+      `update users
+       set role = $2
+       where id = $1
+       returning id, username, role`,
+      [userId, role]
+    )
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    res.json({ ok: true, user: result.rows[0] })
+  } catch (err) {
+    console.error('Admin set role error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })

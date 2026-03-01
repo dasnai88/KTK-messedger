@@ -44,6 +44,8 @@ import {
   adminWarnUser,
   adminSetModerator,
   adminClearWarnings,
+  adminCreateRole,
+  adminSetUserRole,
   toggleSubscription,
   deleteProfileTrack,
   savePushSubscription,
@@ -100,6 +102,8 @@ const fallbackRoles = [
   { value: 'pirotehnik', label: 'Пиротехник' },
   { value: 'tehmash', label: 'Техмаш' },
   { value: 'holodilchik', label: 'Холодильчик' },
+  { value: 'student', label: 'Студент' },
+  { value: 'teacher', label: 'Учитель' },
   { value: 'frontend_dev', label: 'Фронтенд разработчик' },
   { value: 'backend_dev', label: 'Бэкенд разработчик' },
   { value: 'fullstack_dev', label: 'Фуллстек разработчик' },
@@ -1642,6 +1646,8 @@ export default function App() {
   const [adminQuery, setAdminQuery] = useState('')
   const [adminUsers, setAdminUsers] = useState([])
   const [adminWarnReason, setAdminWarnReason] = useState({})
+  const [adminRoleDraft, setAdminRoleDraft] = useState({ value: '', label: '' })
+  const [adminRoleByUser, setAdminRoleByUser] = useState({})
   const [lightboxImage, setLightboxImage] = useState('')
   const [miniProfileCard, setMiniProfileCard] = useState(INITIAL_MINI_PROFILE_CARD_STATE)
   const [pushState, setPushState] = useState({
@@ -3823,9 +3829,7 @@ export default function App() {
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth({ ok: false }))
-    getRoles().then((data) => {
-      setRoles(data.roles || [])
-    }).catch(() => setRoles([]))
+    loadRolesCatalog().catch(() => setRoles([]))
   }, [])
 
   useEffect(() => {
@@ -5416,10 +5420,59 @@ export default function App() {
     }
   }
 
+  async function loadRolesCatalog() {
+    const data = await getRoles()
+    setRoles(data.roles || [])
+    return data.roles || []
+  }
+
   const loadAdminUsers = async (query) => {
     try {
       const data = await adminListUsers(query || '')
-      setAdminUsers(data.users || [])
+      const users = data.users || []
+      setAdminUsers(users)
+      setAdminRoleByUser((prev) => {
+        const next = { ...prev }
+        users.forEach((item) => {
+          next[item.id] = item.role || ''
+        })
+        return next
+      })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
+  }
+
+  const handleAdminCreateRole = async () => {
+    const value = String(adminRoleDraft.value || '').trim().toLowerCase()
+    const label = String(adminRoleDraft.label || '').trim()
+    if (!value || !label) {
+      setStatus({ type: 'error', message: 'Заполни code роли и название.' })
+      return
+    }
+    try {
+      await adminCreateRole(value, label)
+      await loadRolesCatalog()
+      setAdminRoleDraft({ value: '', label: '' })
+      setStatus({ type: 'success', message: `Роль ${label} добавлена.` })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
+  }
+
+  const handleAdminSetRoleForUser = async (targetUser) => {
+    const nextRole = String(adminRoleByUser[targetUser.id] || targetUser.role || '').trim()
+    if (!nextRole) {
+      setStatus({ type: 'error', message: 'Выбери роль для пользователя.' })
+      return
+    }
+    try {
+      await adminSetUserRole(targetUser.id, nextRole)
+      await loadAdminUsers(adminQuery)
+      if (user && targetUser.id === user.id) {
+        setUser((prev) => (prev ? { ...prev, role: nextRole } : prev))
+      }
+      setStatus({ type: 'success', message: `Роль @${targetUser.username} обновлена.` })
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
     }
@@ -10494,6 +10547,26 @@ export default function App() {
                 Найти
               </button>
             </div>
+            <div className="admin-role-manager">
+              <strong>Управление ролями</strong>
+              <div className="admin-role-grid">
+                <input
+                  type="text"
+                  placeholder="code роли (пример: student)"
+                  value={adminRoleDraft.value}
+                  onChange={(event) => setAdminRoleDraft((prev) => ({ ...prev, value: event.target.value }))}
+                />
+                <input
+                  type="text"
+                  placeholder="Название роли (пример: Студент)"
+                  value={adminRoleDraft.label}
+                  onChange={(event) => setAdminRoleDraft((prev) => ({ ...prev, label: event.target.value }))}
+                />
+                <button type="button" className="primary" onClick={handleAdminCreateRole}>
+                  Добавить роль
+                </button>
+              </div>
+            </div>
             <div className="admin-list">
               {adminUsers.length === 0 && <div className="empty">Пользователи не найдены.</div>}
               {adminUsers.map((u) => (
@@ -10504,13 +10577,33 @@ export default function App() {
                     <div className="admin-badges">
                       {u.is_admin && <span className="badge admin">ADMIN</span>}
                       {u.is_moderator && <span className="badge moder">MODER</span>}
+                      {u.role && (
+                        <span className="badge role">
+                          {roleLabelByValue.get(u.role) || u.role}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="admin-meta">
                     <span>Предупр.: {u.warnings_count}</span>
+                    <span>Роль: {roleLabelByValue.get(u.role) || u.role || 'не задана'}</span>
                     <span>{u.is_banned ? 'БАН' : 'активен'}</span>
                   </div>
                   <div className="admin-actions">
+                    <select
+                      value={adminRoleByUser[u.id] || u.role || ''}
+                      onChange={(event) =>
+                        setAdminRoleByUser((prev) => ({ ...prev, [u.id]: event.target.value }))
+                      }
+                    >
+                      <option value="" disabled>Выбери роль</option>
+                      {roleOptions.map((role) => (
+                        <option key={role.value} value={role.value}>{role.label}</option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={() => handleAdminSetRoleForUser(u)}>
+                      Сменить роль
+                    </button>
                     {u.is_banned ? (
                       <button type="button" onClick={() => adminUnbanUser(u.id).then(() => loadAdminUsers(adminQuery))}>
                         Разбан

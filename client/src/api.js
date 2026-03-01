@@ -478,3 +478,11 @@ export async function adminClearWarnings(userId) {
   return request('/admin/clear-warnings', { method: 'POST', body: { userId } })
 }
 
+export async function adminCreateRole(value, label) {
+  return request('/admin/roles', { method: 'POST', body: { value, label } })
+}
+
+export async function adminSetUserRole(userId, role) {
+  return request('/admin/set-role', { method: 'POST', body: { userId, role } })
+}
+
