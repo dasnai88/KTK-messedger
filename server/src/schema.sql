@@ -70,6 +70,47 @@ create table if not exists user_subscriptions (
   constraint chk_no_self_subscription check (subscriber_id <> target_user_id)
 );
 
+create table if not exists user_privacy_controls (
+  owner_id uuid not null references users(id) on delete cascade,
+  target_user_id uuid not null references users(id) on delete cascade,
+  is_muted boolean default false,
+  is_blocked boolean default false,
+  hide_profile_content boolean default false,
+  deny_dm boolean default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  primary key (owner_id, target_user_id),
+  constraint chk_no_self_privacy_control check (owner_id <> target_user_id)
+);
+
+create table if not exists user_security_settings (
+  user_id uuid primary key references users(id) on delete cascade,
+  two_factor_enabled boolean default false,
+  two_factor_secret text,
+  two_factor_backup_codes jsonb not null default '[]'::jsonb,
+  updated_at timestamptz default now()
+);
+
+create table if not exists user_two_factor_pending (
+  user_id uuid primary key references users(id) on delete cascade,
+  secret text not null,
+  created_at timestamptz default now(),
+  expires_at timestamptz not null
+);
+
+create table if not exists user_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  token_hash text not null,
+  user_agent text,
+  ip_address text,
+  created_at timestamptz default now(),
+  last_seen_at timestamptz default now(),
+  expires_at timestamptz not null,
+  revoked_at timestamptz,
+  revoke_reason text
+);
+
 create table if not exists profile_tracks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references users(id) on delete cascade,
@@ -252,6 +293,10 @@ create table if not exists post_reposts (
 create index if not exists idx_users_username on users (username);
 create index if not exists idx_subscriptions_target on user_subscriptions (target_user_id);
 create index if not exists idx_subscriptions_subscriber on user_subscriptions (subscriber_id);
+create index if not exists idx_privacy_controls_owner on user_privacy_controls (owner_id, updated_at desc);
+create index if not exists idx_privacy_controls_target on user_privacy_controls (target_user_id, updated_at desc);
+create index if not exists idx_sessions_user_active on user_sessions (user_id, revoked_at, expires_at desc);
+create index if not exists idx_sessions_hash on user_sessions (token_hash);
 create index if not exists idx_profile_tracks_user on profile_tracks (user_id, created_at desc);
 create index if not exists idx_user_stickers_user on user_stickers (user_id, created_at desc);
 create index if not exists idx_user_gifs_user on user_gifs (user_id, created_at desc);

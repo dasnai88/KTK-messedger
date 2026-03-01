@@ -22,6 +22,7 @@ import {
   getTokenValue,
   getComments,
   login,
+  verifyTwoFactorLogin,
   likePost,
   createPost,
   register,
@@ -68,6 +69,17 @@ import {
   saveMyProfileShowcase,
   createPoll,
   votePoll,
+  getMySessions,
+  revokeSession,
+  revokeOtherSessions,
+  getTwoFactorStatus,
+  setupTwoFactor,
+  enableTwoFactor,
+  disableTwoFactor,
+  regenerateTwoFactorBackupCodes,
+  getMyPrivacyControls,
+  getUserPrivacy,
+  setUserPrivacy,
   forwardMessage as forwardMessageApi,
   getConversationBookmarks,
   toggleMessageBookmark
@@ -131,6 +143,30 @@ const initialRegister = {
 const initialLogin = {
   login: '',
   password: ''
+}
+
+const INITIAL_TWO_FACTOR_LOGIN_STATE = {
+  pending: false,
+  token: '',
+  code: '',
+  backupCode: ''
+}
+
+const DEFAULT_PRIVACY_RELATION = {
+  isMuted: false,
+  isBlocked: false,
+  hideProfileContent: false,
+  denyDm: false,
+  blockedByTarget: false,
+  dmBlocked: false,
+  profileHidden: false
+}
+
+const DEFAULT_TWO_FACTOR_STATUS = {
+  eligible: false,
+  enabled: false,
+  pendingSetup: false,
+  backupCodesCount: 0
 }
 
 const verificationStatusOptions = [
@@ -201,6 +237,19 @@ function normalizeVerificationRequest(value) {
     updatedAt: value.updatedAt || value.updated_at || '',
     reviewedAt: value.reviewedAt || value.reviewed_at || '',
     user: value.user && typeof value.user === 'object' ? value.user : null
+  }
+}
+
+function normalizePrivacyRelation(value) {
+  if (!value || typeof value !== 'object') return { ...DEFAULT_PRIVACY_RELATION }
+  return {
+    isMuted: value.isMuted === true || value.is_muted === true,
+    isBlocked: value.isBlocked === true || value.is_blocked === true,
+    hideProfileContent: value.hideProfileContent === true || value.hide_profile_content === true,
+    denyDm: value.denyDm === true || value.deny_dm === true,
+    blockedByTarget: value.blockedByTarget === true || value.blocked_by_target === true,
+    dmBlocked: value.dmBlocked === true || value.dm_blocked === true,
+    profileHidden: value.profileHidden === true || value.profile_hidden === true
   }
 }
 
@@ -1452,6 +1501,7 @@ export default function App() {
   const [user, setUser] = useState(null)
   const [registerForm, setRegisterForm] = useState(initialRegister)
   const [loginForm, setLoginForm] = useState(initialLogin)
+  const [twoFactorLogin, setTwoFactorLogin] = useState({ ...INITIAL_TWO_FACTOR_LOGIN_STATE })
   const [profileForm, setProfileForm] = useState({
     username: '',
     displayName: '',
@@ -1654,6 +1704,7 @@ export default function App() {
   const [bannerDragStart, setBannerDragStart] = useState(null)
   const [profileView, setProfileView] = useState(null)
   const [profileBackView, setProfileBackView] = useState('feed')
+  const [profilePrivacy, setProfilePrivacy] = useState({ ...DEFAULT_PRIVACY_RELATION })
   const [profilePosts, setProfilePosts] = useState([])
   const [profileTracks, setProfileTracks] = useState([])
   const [profilePostFilter, setProfilePostFilter] = useState('all')
@@ -1695,13 +1746,17 @@ export default function App() {
   const [chatExplorerQuery, setChatExplorerQuery] = useState('')
   const [chatMobilePane, setChatMobilePane] = useState('list')
   const [pinnedByConversation, setPinnedByConversation] = useState({})
-  const [blockedUsers, setBlockedUsers] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('ktk_blocked_users') || '[]')
-    } catch (err) {
-      return []
-    }
-  })
+  const [privacyByUsername, setPrivacyByUsername] = useState({})
+  const [privacyControls, setPrivacyControls] = useState([])
+  const [privacyControlsLoading, setPrivacyControlsLoading] = useState(false)
+  const [blockedUsers, setBlockedUsers] = useState([])
+  const [sessions, setSessions] = useState([])
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [twoFactorStatus, setTwoFactorStatus] = useState({ ...DEFAULT_TWO_FACTOR_STATUS })
+  const [twoFactorSetup, setTwoFactorSetup] = useState(null)
+  const [twoFactorCode, setTwoFactorCode] = useState('')
+  const [twoFactorBackupCode, setTwoFactorBackupCode] = useState('')
+  const [freshBackupCodes, setFreshBackupCodes] = useState([])
   const [callState, setCallState] = useState({ status: 'idle', withUserId: null, direction: null, startedAt: null })
   const [callDuration, setCallDuration] = useState(0)
   const [remoteStream, setRemoteStream] = useState(null)
@@ -1747,6 +1802,7 @@ export default function App() {
   const dashboardRefreshLoadingRef = useRef(false)
   const callStateRef = useRef(callState)
   const blockedUsersRef = useRef(blockedUsers)
+  const privacyByUsernameRef = useRef(privacyByUsername)
   const conversationsRef = useRef(conversations)
   const activeConversationRef = useRef(activeConversation)
   const viewRef = useRef(view)
@@ -1804,10 +1860,19 @@ export default function App() {
     if (!activeConversation) return null
     return pinnedByConversation[activeConversation.id] || null
   }, [activeConversation, pinnedByConversation])
+  const activeConversationPrivacy = useMemo(() => {
+    if (!activeConversation || activeConversation.isGroup || !activeConversation.other) {
+      return { ...DEFAULT_PRIVACY_RELATION }
+    }
+    const username = String(activeConversation.other.username || '').trim().toLowerCase()
+    if (!username) return { ...DEFAULT_PRIVACY_RELATION }
+    const cached = privacyByUsername[username]
+    return normalizePrivacyRelation(cached)
+  }, [activeConversation, privacyByUsername])
   const isChatBlocked = useMemo(() => {
     if (!activeConversation || activeConversation.isGroup) return false
-    return blockedUsers.includes(activeConversation.other.id)
-  }, [activeConversation, blockedUsers])
+    return activeConversationPrivacy.isBlocked || activeConversationPrivacy.blockedByTarget || activeConversationPrivacy.dmBlocked
+  }, [activeConversation, activeConversationPrivacy])
   const filteredMessages = useMemo(() => {
     const query = chatSearchQuery.trim().toLowerCase()
     if (!query) return messages
@@ -4041,6 +4106,24 @@ export default function App() {
   }, [user ? user.id : null, user ? user.displayName : '', user ? user.username : ''])
 
   useEffect(() => {
+    if (!user || !user.id) {
+      setPrivacyByUsername({})
+      setPrivacyControls([])
+      setBlockedUsers([])
+      setSessions([])
+      setTwoFactorStatus({ ...DEFAULT_TWO_FACTOR_STATUS })
+      setTwoFactorSetup(null)
+      setTwoFactorCode('')
+      setTwoFactorBackupCode('')
+      setFreshBackupCodes([])
+      return
+    }
+    loadMyPrivacy({ silent: true })
+    loadSecurityStatus({ silent: true })
+    loadUserSessions({ silent: true })
+  }, [user ? user.id : null])
+
+  useEffect(() => {
     if (!user) return
     const allowed = ['dashboard', 'feed', 'chats', 'profile']
     if (user.isAdmin) allowed.push('admin')
@@ -4212,6 +4295,11 @@ export default function App() {
     loadConversationBookmarks(activeConversation.id, { silent: true })
     loadMessages()
   }, [activeConversation])
+
+  useEffect(() => {
+    if (!user || !activeConversation || activeConversation.isGroup || !activeConversation.other || !activeConversation.other.username) return
+    loadUserPrivacyRelation(activeConversation.other.username, { silent: true })
+  }, [user ? user.id : null, activeConversation ? activeConversation.id : null, activeConversation && activeConversation.other ? activeConversation.other.username : ''])
 
   useEffect(() => {
     const previousView = previousViewRef.current
@@ -4576,16 +4664,12 @@ export default function App() {
   }, [messageText, activeConversation ? activeConversation.id : null])
 
   useEffect(() => {
-    try {
-      localStorage.setItem('ktk_blocked_users', JSON.stringify(blockedUsers))
-    } catch (err) {
-      // ignore storage errors
-    }
+    blockedUsersRef.current = blockedUsers
   }, [blockedUsers])
 
   useEffect(() => {
-    blockedUsersRef.current = blockedUsers
-  }, [blockedUsers])
+    privacyByUsernameRef.current = privacyByUsername
+  }, [privacyByUsername])
 
   useEffect(() => {
     conversationsRef.current = conversations
@@ -5084,6 +5168,7 @@ export default function App() {
       const data = await register(registerForm)
       setToken(data.token)
       setUser(data.user)
+      setTwoFactorLogin({ ...INITIAL_TWO_FACTOR_LOGIN_STATE })
       setProfileForm({
         username: data.user.username || '',
         displayName: data.user.displayName || '',
@@ -5109,8 +5194,19 @@ export default function App() {
     setStatus({ type: 'info', message: '' })
     try {
       const data = await login(loginForm)
+      if (data && data.requiresTwoFactor === true && data.twoFactorToken) {
+        setTwoFactorLogin({
+          pending: true,
+          token: String(data.twoFactorToken || ''),
+          code: '',
+          backupCode: ''
+        })
+        setStatus({ type: 'info', message: 'Enter 2FA code to complete login.' })
+        return
+      }
       setToken(data.token)
       setUser(data.user)
+      setTwoFactorLogin({ ...INITIAL_TWO_FACTOR_LOGIN_STATE })
       setProfileForm({
         username: data.user.username || '',
         displayName: data.user.displayName || '',
@@ -5121,7 +5217,51 @@ export default function App() {
         themeColor: data.user.themeColor || '#7a1f1d'
       })
       setView('feed')
-      setStatus({ type: 'success', message: 'С возвращением.' })
+      setStatus({
+        type: 'success',
+        message: data && data.twoFactorSetupRecommended
+          ? 'Welcome back. We recommend enabling 2FA in profile security.'
+          : 'Login successful.'
+      })
+      setLoginForm(initialLogin)
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleVerifyTwoFactorLogin = async (event) => {
+    event.preventDefault()
+    if (!twoFactorLogin.pending || !twoFactorLogin.token) return
+    const code = String(twoFactorLogin.code || '').trim()
+    const backupCode = String(twoFactorLogin.backupCode || '').trim()
+    if (!code && !backupCode) {
+      setStatus({ type: 'error', message: 'Enter TOTP code or backup code.' })
+      return
+    }
+    setLoading(true)
+    setStatus({ type: 'info', message: '' })
+    try {
+      const data = await verifyTwoFactorLogin({
+        twoFactorToken: twoFactorLogin.token,
+        code,
+        backupCode
+      })
+      setToken(data.token)
+      setUser(data.user)
+      setTwoFactorLogin({ ...INITIAL_TWO_FACTOR_LOGIN_STATE })
+      setProfileForm({
+        username: data.user.username || '',
+        displayName: data.user.displayName || '',
+        bio: data.user.bio || '',
+        statusText: data.user.statusText || '',
+        statusEmoji: data.user.statusEmoji || '',
+        role: data.user.role || 'student',
+        themeColor: data.user.themeColor || '#7a1f1d'
+      })
+      setView('feed')
+      setStatus({ type: 'success', message: 'Signed in with 2FA.' })
       setLoginForm(initialLogin)
     } catch (err) {
       setStatus({ type: 'error', message: err.message })
@@ -5431,6 +5571,7 @@ export default function App() {
         getProfileShowcase(username).catch(() => ({ showcase: null }))
       ])
       setProfileView(data.user)
+      setProfilePrivacy(normalizePrivacyRelation(data && data.user ? data.user.viewerPrivacy : null))
       setProfilePosts(postsData.posts || [])
       setProfileTracks(tracksData.tracks || [])
       if (data.user && data.user.id) {
@@ -5441,7 +5582,11 @@ export default function App() {
         }))
       }
       setActiveTrackId(null)
+      if (data && data.user && user && data.user.id !== user.id && data.user.username) {
+        loadUserPrivacyRelation(data.user.username, { silent: true })
+      }
     } catch (err) {
+      setProfilePrivacy({ ...DEFAULT_PRIVACY_RELATION })
       setStatus({ type: 'error', message: err.message })
     } finally {
       setProfileLoading(false)
@@ -5645,6 +5790,128 @@ export default function App() {
     return single ? [single] : []
   }
 
+  const loadMyPrivacy = async ({ silent = false } = {}) => {
+    if (!user) return []
+    if (!silent) setPrivacyControlsLoading(true)
+    try {
+      const data = await getMyPrivacyControls()
+      const controls = Array.isArray(data && data.controls) ? data.controls : []
+      setPrivacyControls(controls)
+      setBlockedUsers(
+        controls
+          .filter((item) => item && item.isBlocked === true && item.targetUserId)
+          .map((item) => String(item.targetUserId))
+      )
+      setPrivacyByUsername((prev) => {
+        const next = { ...prev }
+        controls.forEach((item) => {
+          const username = String(item && item.targetUsername ? item.targetUsername : '').trim().toLowerCase()
+          if (!username) return
+          next[username] = normalizePrivacyRelation({
+            ...(prev[username] || {}),
+            isMuted: item.isMuted === true,
+            isBlocked: item.isBlocked === true,
+            hideProfileContent: item.hideProfileContent === true,
+            denyDm: item.denyDm === true
+          })
+        })
+        return next
+      })
+      return controls
+    } catch (err) {
+      if (!silent) {
+        setStatus({ type: 'error', message: err.message })
+      }
+      return []
+    } finally {
+      if (!silent) setPrivacyControlsLoading(false)
+    }
+  }
+
+  const loadUserPrivacyRelation = async (username, { silent = false } = {}) => {
+    const normalizedUsername = String(username || '').trim().toLowerCase()
+    if (!user || !normalizedUsername) return { ...DEFAULT_PRIVACY_RELATION }
+    try {
+      const data = await getUserPrivacy(normalizedUsername)
+      const relation = normalizePrivacyRelation(data && data.privacy)
+      setPrivacyByUsername((prev) => ({ ...prev, [normalizedUsername]: relation }))
+      return relation
+    } catch (err) {
+      if (!silent) {
+        setStatus({ type: 'error', message: err.message })
+      }
+      return { ...DEFAULT_PRIVACY_RELATION }
+    }
+  }
+
+  const updateUserPrivacyRelation = async (username, patch, { silent = false } = {}) => {
+    const normalizedUsername = String(username || '').trim().toLowerCase()
+    if (!normalizedUsername) return { ...DEFAULT_PRIVACY_RELATION }
+    try {
+      const data = await setUserPrivacy(normalizedUsername, patch)
+      const relation = normalizePrivacyRelation(data && data.privacy)
+      setPrivacyByUsername((prev) => ({ ...prev, [normalizedUsername]: relation }))
+      await loadMyPrivacy({ silent: true })
+      return relation
+    } catch (err) {
+      if (!silent) {
+        setStatus({ type: 'error', message: err.message })
+      }
+      throw err
+    }
+  }
+
+  const loadSecurityStatus = async ({ silent = false } = {}) => {
+    if (!user) return { ...DEFAULT_TWO_FACTOR_STATUS }
+    try {
+      const data = await getTwoFactorStatus()
+      const next = data && data.twoFactor ? {
+        eligible: data.twoFactor.eligible === true,
+        enabled: data.twoFactor.enabled === true,
+        pendingSetup: data.twoFactor.pendingSetup === true,
+        backupCodesCount: Math.max(0, Number(data.twoFactor.backupCodesCount || 0))
+      } : { ...DEFAULT_TWO_FACTOR_STATUS }
+      setTwoFactorStatus(next)
+      return next
+    } catch (err) {
+      if (!silent) {
+        setStatus({ type: 'error', message: err.message })
+      }
+      return { ...DEFAULT_TWO_FACTOR_STATUS }
+    }
+  }
+
+  const loadUserSessions = async ({ silent = false } = {}) => {
+    if (!user) return []
+    if (!silent) setSessionsLoading(true)
+    try {
+      const data = await getMySessions()
+      const nextSessions = Array.isArray(data && data.sessions) ? data.sessions : []
+      setSessions(nextSessions)
+      return nextSessions
+    } catch (err) {
+      if (!silent) {
+        setStatus({ type: 'error', message: err.message })
+      }
+      return []
+    } finally {
+      if (!silent) setSessionsLoading(false)
+    }
+  }
+
+  const applyPrivacyPatchForUser = async (username, patch, successMessage = 'Privacy updated.') => {
+    if (!username) return
+    try {
+      const relation = await updateUserPrivacyRelation(username, patch, { silent: true })
+      if (profileView && profileView.username === username) {
+        setProfilePrivacy(relation)
+      }
+      setStatus({ type: 'info', message: successMessage })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
+  }
+
   const loadAdminUsers = async (query) => {
     try {
       const data = await adminListUsers(query || '')
@@ -5796,6 +6063,111 @@ export default function App() {
     })
   }
 
+  const handleStartTwoFactorSetup = async () => {
+    setLoading(true)
+    try {
+      const data = await setupTwoFactor()
+      setTwoFactorSetup(data && data.setup ? data.setup : null)
+      setTwoFactorCode('')
+      setTwoFactorBackupCode('')
+      setFreshBackupCodes([])
+      await loadSecurityStatus({ silent: true })
+      setStatus({ type: 'info', message: '2FA setup started. Add secret to your authenticator and confirm code.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleEnableTwoFactor = async () => {
+    const code = String(twoFactorCode || '').trim()
+    if (!/^\d{6}$/.test(code)) {
+      setStatus({ type: 'error', message: 'Enter a valid 6-digit code.' })
+      return
+    }
+    setLoading(true)
+    try {
+      const data = await enableTwoFactor({ code })
+      setFreshBackupCodes(Array.isArray(data && data.backupCodes) ? data.backupCodes : [])
+      setTwoFactorSetup(null)
+      setTwoFactorCode('')
+      setTwoFactorBackupCode('')
+      await loadSecurityStatus({ silent: true })
+      await loadUserSessions({ silent: true })
+      setStatus({ type: 'success', message: '2FA enabled. Save backup codes in a safe place.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDisableTwoFactor = async () => {
+    const code = String(twoFactorCode || '').trim()
+    const backupCode = String(twoFactorBackupCode || '').trim()
+    if (!code && !backupCode) {
+      setStatus({ type: 'error', message: 'Enter TOTP code or backup code.' })
+      return
+    }
+    setLoading(true)
+    try {
+      await disableTwoFactor({ code, backupCode })
+      setTwoFactorSetup(null)
+      setTwoFactorCode('')
+      setTwoFactorBackupCode('')
+      setFreshBackupCodes([])
+      await loadSecurityStatus({ silent: true })
+      setStatus({ type: 'info', message: '2FA disabled.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRegenerateBackupCodes = async () => {
+    const code = String(twoFactorCode || '').trim()
+    if (!/^\d{6}$/.test(code)) {
+      setStatus({ type: 'error', message: 'Enter current 6-digit TOTP code.' })
+      return
+    }
+    setLoading(true)
+    try {
+      const data = await regenerateTwoFactorBackupCodes({ code })
+      setFreshBackupCodes(Array.isArray(data && data.backupCodes) ? data.backupCodes : [])
+      setTwoFactorCode('')
+      await loadSecurityStatus({ silent: true })
+      setStatus({ type: 'success', message: 'Backup codes regenerated.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRevokeSession = async (sessionId) => {
+    if (!sessionId) return
+    try {
+      await revokeSession(sessionId, 'manual')
+      await loadUserSessions({ silent: true })
+      setStatus({ type: 'info', message: 'Session revoked.' })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
+  }
+
+  const handleRevokeOtherSessions = async () => {
+    try {
+      const data = await revokeOtherSessions()
+      await loadUserSessions({ silent: true })
+      const count = Math.max(0, Number(data && data.revokedCount ? data.revokedCount : 0))
+      setStatus({ type: 'info', message: `Other sessions revoked: ${count}.` })
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+    }
+  }
+
   const handleLogout = async () => {
     stopTyping()
     clearMessageAttachment()
@@ -5809,6 +6181,7 @@ export default function App() {
     }
     setToken(null)
     setUser(null)
+    setTwoFactorLogin({ ...INITIAL_TWO_FACTOR_LOGIN_STATE })
     setView('login')
     setActiveConversation(null)
     setChatMobilePane('list')
@@ -5835,6 +6208,7 @@ export default function App() {
     setPollVoteLoadingByMessage({})
     setConversations([])
     setProfileView(null)
+    setProfilePrivacy({ ...DEFAULT_PRIVACY_RELATION })
     setProfilePosts([])
     setProfileTracks([])
     setProfilePostFilter('all')
@@ -5851,6 +6225,17 @@ export default function App() {
     setAdminVerificationFilter('pending')
     setAdminVerificationLoading(false)
     setAdminVerificationNoteByRequest({})
+    setPrivacyByUsername({})
+    setPrivacyControls([])
+    setPrivacyControlsLoading(false)
+    setBlockedUsers([])
+    setSessions([])
+    setSessionsLoading(false)
+    setTwoFactorStatus({ ...DEFAULT_TWO_FACTOR_STATUS })
+    setTwoFactorSetup(null)
+    setTwoFactorCode('')
+    setTwoFactorBackupCode('')
+    setFreshBackupCodes([])
     setDashboardFeedQuery('')
     dashboardRefreshLoadingRef.current = false
     setDashboardRefreshLoading(false)
@@ -6010,6 +6395,10 @@ export default function App() {
       setView('chats')
       return
     }
+    if (profileMessagingBlocked) {
+      setStatus({ type: 'error', message: 'Direct messages are blocked by privacy settings.' })
+      return
+    }
     setLoading(true)
     try {
       const data = await createConversation(profileView.username)
@@ -6029,6 +6418,10 @@ export default function App() {
 
   const handleSendProfileWave = async () => {
     if (!profileView || !profileView.username || !user || profileView.id === user.id) return
+    if (profileMessagingBlocked) {
+      setStatus({ type: 'error', message: 'Direct messages are blocked by privacy settings.' })
+      return
+    }
     setLoading(true)
     try {
       const data = await createConversation(profileView.username)
@@ -6935,6 +7328,12 @@ export default function App() {
     const cacheKey = getMiniProfileCacheKey(normalized)
     const cached = cacheKey ? miniProfileCacheRef.current.get(cacheKey) : null
     const preparedUser = mergeMiniProfileUser(normalized, cached)
+    if (user && preparedUser && preparedUser.username && preparedUser.username !== user.username) {
+      const privacyKey = String(preparedUser.username || '').trim().toLowerCase()
+      if (privacyKey && !privacyByUsernameRef.current[privacyKey]) {
+        loadUserPrivacyRelation(preparedUser.username, { silent: true })
+      }
+    }
     clearMiniProfileTimers()
     const openAtX = Number(event.clientX || 0)
     const openAtY = Number(event.clientY || 0)
@@ -6983,6 +7382,10 @@ export default function App() {
   const handleMiniProfileMessage = () => {
     const target = miniProfileCard.user
     if (!target || !target.username) return
+    if (miniProfileDmBlocked) {
+      setStatus({ type: 'error', message: 'Direct messages are blocked by privacy settings.' })
+      return
+    }
     if (user && target.username === user.username) {
       hideMiniProfileCard({ immediate: true })
       setView('chats')
@@ -7029,6 +7432,10 @@ export default function App() {
     const target = miniProfileCard.user
     if (!target || !target.username || !user) return
     if (target.username === user.username) return
+    if (miniProfileDmBlocked) {
+      setStatus({ type: 'error', message: 'Direct messages are blocked by privacy settings.' })
+      return
+    }
     try {
       const data = await createConversation(target.username)
       const targetConversationId = data && data.conversation ? data.conversation.id : ''
@@ -7929,20 +8336,65 @@ export default function App() {
     })
   }
 
-  const toggleChatBlock = () => {
-    if (!activeConversation || activeConversation.isGroup) return
-    const targetId = activeConversation.other.id
-    setBlockedUsers((prev) => {
-      const exists = prev.includes(targetId)
-      const next = exists ? prev.filter((id) => id !== targetId) : [...prev, targetId]
-      return next
-    })
-    setStatus({
-      type: 'info',
-      message: isChatBlocked ? 'Пользователь разблокирован.' : 'Пользователь заблокирован.'
-    })
-    setChatMenu(INITIAL_CHAT_MENU_STATE)
+  const updateActiveConversationPrivacy = async (patch, labels = {}) => {
+    if (!activeConversation || activeConversation.isGroup || !activeConversation.other || !activeConversation.other.username) return null
+    const username = activeConversation.other.username
+    try {
+      const relation = await updateUserPrivacyRelation(username, patch)
+      if (profileView && profileView.username === username) {
+        setProfilePrivacy(relation)
+      }
+      if (labels && labels.key && (labels.enabled || labels.disabled)) {
+        const enabled = relation[labels.key] === true
+        setStatus({
+          type: 'info',
+          message: enabled ? (labels.enabled || 'Updated.') : (labels.disabled || 'Updated.')
+        })
+      }
+      return relation
+    } catch (err) {
+      setStatus({ type: 'error', message: err.message })
+      return null
+    } finally {
+      setChatMenu(INITIAL_CHAT_MENU_STATE)
+    }
   }
+
+  const toggleChatBlock = () => updateActiveConversationPrivacy(
+    { isBlocked: !activeConversationPrivacy.isBlocked },
+    {
+      key: 'isBlocked',
+      enabled: 'User blocked.',
+      disabled: 'User unblocked.'
+    }
+  )
+
+  const toggleChatMute = () => updateActiveConversationPrivacy(
+    { isMuted: !activeConversationPrivacy.isMuted },
+    {
+      key: 'isMuted',
+      enabled: 'Chat muted.',
+      disabled: 'Chat unmuted.'
+    }
+  )
+
+  const toggleChatHideProfile = () => updateActiveConversationPrivacy(
+    { hideProfileContent: !activeConversationPrivacy.hideProfileContent },
+    {
+      key: 'hideProfileContent',
+      enabled: 'Profile content hidden for you.',
+      disabled: 'Profile content is visible again.'
+    }
+  )
+
+  const toggleChatDenyDm = () => updateActiveConversationPrivacy(
+    { denyDm: !activeConversationPrivacy.denyDm },
+    {
+      key: 'denyDm',
+      enabled: 'Direct messages denied for this user.',
+      disabled: 'Direct messages allowed for this user.'
+    }
+  )
 
   const toggleConversationFavorite = async (conversationId = null, { closeMenu = false } = {}) => {
     const targetConversationId = conversationId || (activeConversation ? activeConversation.id : null)
@@ -8175,6 +8627,16 @@ export default function App() {
   const pushButtonClass = `push-toggle ${pushState.enabled ? 'enabled' : ''}`.trim()
   const pushButtonDisabled = !user || !pushState.supported || pushState.loading
   const canSubscribeProfile = Boolean(user && profileView && user.id !== profileView.id)
+  const profileMessagingBlocked = Boolean(
+    user &&
+    profileView &&
+    user.id !== profileView.id &&
+    (
+      profilePrivacy.isBlocked ||
+      profilePrivacy.blockedByTarget ||
+      profilePrivacy.dmBlocked
+    )
+  )
   const profileFollowers = Number(profileView && profileView.subscribersCount ? profileView.subscribersCount : 0)
   const profileFollowing = Number(profileView && profileView.subscriptionsCount ? profileView.subscriptionsCount : 0)
   const profileTracksCount = Number(profileView && profileView.tracksCount ? profileView.tracksCount : profileTracks.length)
@@ -8183,6 +8645,14 @@ export default function App() {
     ? `profile-theme-${profileShowcase.heroTheme}`
     : 'profile-theme-default'
   const profileHeroHasBanner = Boolean(profileView && profileView.bannerUrl)
+  const miniProfilePrivacy = useMemo(() => {
+    if (!miniProfileCard || !miniProfileCard.user || !miniProfileCard.user.username) {
+      return { ...DEFAULT_PRIVACY_RELATION }
+    }
+    const username = String(miniProfileCard.user.username || '').trim().toLowerCase()
+    return normalizePrivacyRelation(privacyByUsername[username])
+  }, [miniProfileCard, privacyByUsername])
+  const miniProfileDmBlocked = miniProfilePrivacy.isBlocked || miniProfilePrivacy.blockedByTarget || miniProfilePrivacy.dmBlocked
   const profileViewRoleLabels = useMemo(() => (
     getUserRoleList(profileView).map((value) => roleLabelByValue.get(value) || value)
   ), [profileView, roleLabelByValue])
@@ -8486,7 +8956,7 @@ export default function App() {
           </div>
         )}
 
-        {view === 'login' && !user && (
+        {view === 'login' && !user && !twoFactorLogin.pending && (
           <form className="panel" onSubmit={handleLogin}>
             <h2>Вход</h2>
             <p className="subtitle">Можно логин или username.</p>
@@ -8513,6 +8983,47 @@ export default function App() {
               />
             </label>
             <button className="primary" type="submit" disabled={loading}>Войти</button>
+          </form>
+        )}
+
+        {view === 'login' && !user && twoFactorLogin.pending && (
+          <form className="panel" onSubmit={handleVerifyTwoFactorLogin}>
+            <h2>2FA confirmation</h2>
+            <p className="subtitle">Enter authenticator code or backup code.</p>
+            <label>
+              TOTP code
+              <input
+                type="text"
+                inputMode="numeric"
+                value={twoFactorLogin.code}
+                onChange={(event) => setTwoFactorLogin((prev) => ({ ...prev, code: event.target.value.replace(/\D+/g, '').slice(0, 6) }))}
+                placeholder="123456"
+                maxLength={6}
+              />
+            </label>
+            <label>
+              Backup code
+              <input
+                type="text"
+                value={twoFactorLogin.backupCode}
+                onChange={(event) => setTwoFactorLogin((prev) => ({ ...prev, backupCode: event.target.value.trim().toUpperCase().slice(0, 20) }))}
+                placeholder="AB12CD34EF"
+                maxLength={20}
+              />
+            </label>
+            <div className="profile-verification-actions">
+              <button
+                className="ghost"
+                type="button"
+                onClick={() => setTwoFactorLogin({ ...INITIAL_TWO_FACTOR_LOGIN_STATE })}
+                disabled={loading}
+              >
+                Back
+              </button>
+              <button className="primary" type="submit" disabled={loading}>
+                Verify
+              </button>
+            </div>
           </form>
         )}
 
@@ -9216,8 +9727,16 @@ export default function App() {
                     )}
                     {isChatBlocked && (
                       <div className="chat-blocked">
-                        <span>Вы заблокировали пользователя.</span>
-                        <button type="button" onClick={toggleChatBlock}>Разблокировать</button>
+                        <span>
+                          {activeConversationPrivacy.isBlocked
+                            ? 'You blocked this user.'
+                            : (activeConversationPrivacy.blockedByTarget
+                              ? 'This user blocked you.'
+                              : 'Direct messages are blocked by privacy settings.')}
+                        </span>
+                        {activeConversationPrivacy.isBlocked && (
+                          <button type="button" onClick={toggleChatBlock}>Unblock</button>
+                        )}
                       </div>
                     )}
                     {typingLabel && (
@@ -10995,10 +11514,22 @@ export default function App() {
                         >
                           {profileView.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
                         </button>
-                        <button type="button" className="ghost" onClick={handleMessageFromProfile} disabled={loading}>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={handleMessageFromProfile}
+                          disabled={loading || profileMessagingBlocked}
+                          title={profileMessagingBlocked ? 'Direct messages are blocked by privacy settings' : 'Open chat'}
+                        >
                           Написать
                         </button>
-                        <button type="button" className="ghost" onClick={handleSendProfileWave} disabled={loading}>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={handleSendProfileWave}
+                          disabled={loading || profileMessagingBlocked}
+                          title={profileMessagingBlocked ? 'Direct messages are blocked by privacy settings' : 'Send wave'}
+                        >
                           Wave 👋
                         </button>
                       </>
@@ -11826,6 +12357,193 @@ export default function App() {
                 </>
               )}
             </section>
+            <section className="profile-verification-card">
+              <div className="profile-verification-head">
+                <h3>Security</h3>
+                <span className={`verification-status-badge ${twoFactorStatus.enabled ? 'approved' : 'none'}`.trim()}>
+                  {twoFactorStatus.enabled ? '2FA ON' : '2FA OFF'}
+                </span>
+              </div>
+              <p className="profile-verification-text">
+                Device protection with TOTP and backup codes. Available for admins and teachers.
+              </p>
+              {!twoFactorStatus.eligible && (
+                <p className="profile-verification-text">2FA setup is available for teacher/admin roles.</p>
+              )}
+              {twoFactorStatus.eligible && !twoFactorStatus.enabled && (
+                <div className="profile-verification-actions">
+                  <button type="button" className="primary" onClick={handleStartTwoFactorSetup} disabled={loading}>
+                    {twoFactorSetup ? 'Restart setup' : 'Start 2FA setup'}
+                  </button>
+                </div>
+              )}
+              {twoFactorSetup && (
+                <div className="profile-verification-form">
+                  <input type="text" readOnly value={twoFactorSetup.secret || ''} />
+                  <textarea rows={2} readOnly value={twoFactorSetup.otpAuthUrl || ''}></textarea>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={twoFactorCode}
+                    onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, '').slice(0, 6))}
+                    placeholder="Enter 6-digit code"
+                    maxLength={6}
+                  />
+                  <div className="profile-verification-actions">
+                    <button type="button" className="primary" onClick={handleEnableTwoFactor} disabled={loading}>
+                      Enable 2FA
+                    </button>
+                  </div>
+                </div>
+              )}
+              {twoFactorStatus.enabled && (
+                <div className="profile-verification-form">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={twoFactorCode}
+                    onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, '').slice(0, 6))}
+                    placeholder="Current 6-digit code"
+                    maxLength={6}
+                  />
+                  <input
+                    type="text"
+                    value={twoFactorBackupCode}
+                    onChange={(event) => setTwoFactorBackupCode(event.target.value.trim().toUpperCase().slice(0, 20))}
+                    placeholder="Backup code (for disable)"
+                    maxLength={20}
+                  />
+                  <div className="profile-verification-actions">
+                    <button type="button" className="ghost" onClick={handleRegenerateBackupCodes} disabled={loading}>
+                      Regenerate backup codes
+                    </button>
+                    <button type="button" className="danger" onClick={handleDisableTwoFactor} disabled={loading}>
+                      Disable 2FA
+                    </button>
+                  </div>
+                </div>
+              )}
+              {freshBackupCodes.length > 0 && (
+                <div className="profile-verification-meta">
+                  <span>Backup codes (save now): {freshBackupCodes.join(', ')}</span>
+                </div>
+              )}
+            </section>
+            <section className="profile-verification-card">
+              <div className="profile-verification-head">
+                <h3>Device Sessions</h3>
+                <span className="verification-status-badge none">{sessions.length}</span>
+              </div>
+              <div className="profile-verification-actions">
+                <button type="button" className="ghost" onClick={() => loadUserSessions()} disabled={sessionsLoading}>
+                  Refresh
+                </button>
+                <button type="button" className="danger" onClick={handleRevokeOtherSessions} disabled={sessionsLoading}>
+                  Revoke other sessions
+                </button>
+              </div>
+              {sessionsLoading ? (
+                <div className="empty small">Loading sessions...</div>
+              ) : sessions.length === 0 ? (
+                <div className="empty small">No active sessions.</div>
+              ) : (
+                <div className="admin-list">
+                  {sessions.map((sessionItem) => (
+                    <div key={sessionItem.id} className="admin-item">
+                      <div>
+                        <strong>{sessionItem.isCurrent ? 'Current device' : 'Device session'}</strong>
+                        <span>{sessionItem.userAgent || 'Unknown user agent'}</span>
+                        <div className="admin-meta">
+                          <span>IP: {sessionItem.ipAddress || 'n/a'}</span>
+                          <span>Last: {formatDateTime(sessionItem.lastSeenAt || sessionItem.createdAt) || 'n/a'}</span>
+                          <span>Expires: {formatDateTime(sessionItem.expiresAt) || 'n/a'}</span>
+                        </div>
+                      </div>
+                      {!sessionItem.isCurrent && !sessionItem.revokedAt && (
+                        <div className="admin-actions">
+                          <button type="button" className="danger" onClick={() => handleRevokeSession(sessionItem.id)}>
+                            Revoke
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section className="profile-verification-card">
+              <div className="profile-verification-head">
+                <h3>Privacy Controls</h3>
+                <span className="verification-status-badge none">{privacyControls.length}</span>
+              </div>
+              <p className="profile-verification-text">Server-side controls for mute, block, hide profile content and deny DM.</p>
+              <div className="profile-verification-actions">
+                <button type="button" className="ghost" onClick={() => loadMyPrivacy()} disabled={privacyControlsLoading}>
+                  Refresh
+                </button>
+              </div>
+              {privacyControlsLoading ? (
+                <div className="empty small">Loading privacy controls...</div>
+              ) : privacyControls.length === 0 ? (
+                <div className="empty small">No custom privacy rules.</div>
+              ) : (
+                <div className="admin-list">
+                  {privacyControls.map((item) => (
+                    <div key={`privacy-${item.targetUserId}`} className="admin-item">
+                      <div>
+                        <strong>{item.targetDisplayName || item.targetUsername || 'User'}</strong>
+                        <span>@{item.targetUsername || 'unknown'}</span>
+                        <div className="admin-badges">
+                          {item.isMuted && <span className="badge role">MUTE</span>}
+                          {item.isBlocked && <span className="badge role">BLOCK</span>}
+                          {item.hideProfileContent && <span className="badge role">HIDE PROFILE</span>}
+                          {item.denyDm && <span className="badge role">DENY DM</span>}
+                        </div>
+                      </div>
+                      <div className="admin-actions">
+                        <button
+                          type="button"
+                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { isMuted: !item.isMuted }, item.isMuted ? 'Mute removed.' : 'User muted.')}
+                        >
+                          {item.isMuted ? 'Unmute' : 'Mute'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { denyDm: !item.denyDm }, item.denyDm ? 'DM allowed.' : 'DM denied.')}
+                        >
+                          {item.denyDm ? 'Allow DM' : 'Deny DM'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { hideProfileContent: !item.hideProfileContent }, item.hideProfileContent ? 'Profile content visible.' : 'Profile content hidden.')}
+                        >
+                          {item.hideProfileContent ? 'Show profile' : 'Hide profile'}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { isBlocked: !item.isBlocked }, item.isBlocked ? 'User unblocked.' : 'User blocked.')}
+                        >
+                          {item.isBlocked ? 'Unblock' : 'Block'}
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, {
+                            isMuted: false,
+                            isBlocked: false,
+                            hideProfileContent: false,
+                            denyDm: false
+                          }, 'Privacy rules cleared.')}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
             <label>
               О себе
               <textarea
@@ -12248,8 +12966,17 @@ export default function App() {
                 Сбросить локальный ник
               </button>
             )}
+            <button type="button" onClick={toggleChatMute}>
+              {activeConversationPrivacy.isMuted ? 'Unmute chat' : 'Mute chat'}
+            </button>
+            <button type="button" onClick={toggleChatDenyDm}>
+              {activeConversationPrivacy.denyDm ? 'Allow DM' : 'Deny DM'}
+            </button>
+            <button type="button" onClick={toggleChatHideProfile}>
+              {activeConversationPrivacy.hideProfileContent ? 'Show profile content' : 'Hide profile content'}
+            </button>
             <button type="button" className="danger" onClick={toggleChatBlock}>
-              {isChatBlocked ? 'Разблокировать' : 'Заблокировать'}
+              {activeConversationPrivacy.isBlocked ? 'Разблокировать' : 'Заблокировать'}
             </button>
           </div>,
           document.body
@@ -12310,7 +13037,13 @@ export default function App() {
                 </button>
               )}
               {miniProfileCard.user.username && user && miniProfileCard.user.username !== user.username && (
-                <button type="button" className="ghost mini-profile-wave" onClick={handleMiniProfileWave}>
+                <button
+                  type="button"
+                  className="ghost mini-profile-wave"
+                  onClick={handleMiniProfileWave}
+                  disabled={miniProfileDmBlocked}
+                  title={miniProfileDmBlocked ? 'Direct messages are blocked by privacy settings' : 'Send wave'}
+                >
                   Вейв
                 </button>
               )}
@@ -12320,7 +13053,15 @@ export default function App() {
                 </button>
               )}
               {miniProfileCard.user.username && (
-                <button type="button" className="primary" onClick={handleMiniProfileMessage}>Написать</button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleMiniProfileMessage}
+                  disabled={miniProfileDmBlocked}
+                  title={miniProfileDmBlocked ? 'Direct messages are blocked by privacy settings' : 'Open chat'}
+                >
+                  Message
+                </button>
               )}
             </div>
           </div>,

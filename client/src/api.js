@@ -92,8 +92,59 @@ export async function login(payload) {
   return request('/auth/login', { method: 'POST', body: payload })
 }
 
+export async function verifyTwoFactorLogin(payload) {
+  return request('/auth/2fa/verify', { method: 'POST', body: payload })
+}
+
 export async function getMe() {
   return request('/me')
+}
+
+export async function getMySessions() {
+  return request('/me/sessions')
+}
+
+export async function revokeSession(sessionId, reason = 'manual') {
+  return request(`/me/sessions/${sessionId}/revoke`, {
+    method: 'POST',
+    body: { reason }
+  })
+}
+
+export async function revokeOtherSessions() {
+  return request('/me/sessions/revoke-others', { method: 'POST' })
+}
+
+export async function getTwoFactorStatus() {
+  return request('/me/2fa/status')
+}
+
+export async function setupTwoFactor() {
+  return request('/me/2fa/setup', { method: 'POST' })
+}
+
+export async function enableTwoFactor(payload) {
+  return request('/me/2fa/enable', { method: 'POST', body: payload })
+}
+
+export async function disableTwoFactor(payload) {
+  return request('/me/2fa/disable', { method: 'POST', body: payload })
+}
+
+export async function regenerateTwoFactorBackupCodes(payload) {
+  return request('/me/2fa/regenerate-backup-codes', { method: 'POST', body: payload })
+}
+
+export async function getMyPrivacyControls() {
+  return request('/me/privacy-controls')
+}
+
+export async function getUserPrivacy(username) {
+  return request(`/users/${username}/privacy`)
+}
+
+export async function setUserPrivacy(username, payload) {
+  return request(`/users/${username}/privacy`, { method: 'POST', body: payload })
 }
 
 export async function getMyVerificationRequest() {

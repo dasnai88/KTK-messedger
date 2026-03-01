@@ -3,6 +3,7 @@ require('dotenv').config()
 const path = require('path')
 const fs = require('fs')
 const http = require('http')
+const crypto = require('crypto')
 const express = require('express')
 const cors = require('cors')
 const helmet = require('helmet')
@@ -120,6 +121,15 @@ const safeDiskUploadExtensions = new Set([
   '.3gp',
   '.3g2'
 ])
+const authTokenTtlSeconds = 7 * 24 * 60 * 60
+const twoFactorChallengeTtlSeconds = 10 * 60
+const twoFactorPendingTtlMinutes = 15
+const twoFactorOtpStepSeconds = 30
+const twoFactorOtpDigits = 6
+const twoFactorBackupCodesCount = 10
+const twoFactorBackupCodeLength = 10
+const sessionListLimit = 30
+const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
 const PERSONAL_FAVORITES_TITLE = 'РР·Р±СЂР°РЅРЅРѕРµ'
 
 if (webPushEnabled) {
@@ -385,6 +395,196 @@ function isValidUuid(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 }
 
+function normalizeBooleanFlag(value, fallback = null) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true' || normalized === '1') return true
+    if (normalized === 'false' || normalized === '0') return false
+  }
+  return fallback
+}
+
+function hashTokenValue(value) {
+  return crypto.createHash('sha256').update(String(value || '')).digest('hex')
+}
+
+function normalizeTotpCode(value) {
+  return String(value || '').replace(/\s+/g, '').trim()
+}
+
+function decodeBase32Secret(secret) {
+  const clean = String(secret || '').replace(/[\s-]+/g, '').toUpperCase()
+  if (!clean) return Buffer.alloc(0)
+  let bits = ''
+  for (const char of clean) {
+    const index = base32Alphabet.indexOf(char)
+    if (index < 0) return Buffer.alloc(0)
+    bits += index.toString(2).padStart(5, '0')
+  }
+  const bytes = []
+  for (let i = 0; i + 8 <= bits.length; i += 8) {
+    bytes.push(Number.parseInt(bits.slice(i, i + 8), 2))
+  }
+  return Buffer.from(bytes)
+}
+
+function generateTotpSecret(size = 20) {
+  const bytes = crypto.randomBytes(Math.max(16, size))
+  let bits = ''
+  for (const byte of bytes) {
+    bits += byte.toString(2).padStart(8, '0')
+  }
+  let output = ''
+  for (let i = 0; i < bits.length; i += 5) {
+    const chunk = bits.slice(i, i + 5)
+    if (chunk.length < 5) break
+    output += base32Alphabet[Number.parseInt(chunk, 2)]
+  }
+  return output.slice(0, 32)
+}
+
+function generateTotpCode(secret, timestampMs = Date.now()) {
+  const key = decodeBase32Secret(secret)
+  if (!key.length) return ''
+  const counter = Math.floor(Math.max(0, Number(timestampMs || 0)) / 1000 / twoFactorOtpStepSeconds)
+  const counterBuffer = Buffer.alloc(8)
+  const high = Math.floor(counter / 0x100000000)
+  const low = counter >>> 0
+  counterBuffer.writeUInt32BE(high >>> 0, 0)
+  counterBuffer.writeUInt32BE(low, 4)
+  const hmac = crypto.createHmac('sha1', key).update(counterBuffer).digest()
+  const offset = hmac[hmac.length - 1] & 0x0f
+  const binary = (
+    ((hmac[offset] & 0x7f) << 24) |
+    ((hmac[offset + 1] & 0xff) << 16) |
+    ((hmac[offset + 2] & 0xff) << 8) |
+    (hmac[offset + 3] & 0xff)
+  )
+  const otp = binary % (10 ** twoFactorOtpDigits)
+  return String(otp).padStart(twoFactorOtpDigits, '0')
+}
+
+function verifyTotpCode(secret, code, windowSize = 1) {
+  const normalized = normalizeTotpCode(code)
+  if (!/^\d{6}$/.test(normalized)) return false
+  const now = Date.now()
+  for (let offset = -Math.abs(windowSize); offset <= Math.abs(windowSize); offset += 1) {
+    const candidate = generateTotpCode(secret, now + (offset * twoFactorOtpStepSeconds * 1000))
+    if (candidate && candidate === normalized) {
+      return true
+    }
+  }
+  return false
+}
+
+function generateBackupCodes() {
+  const codes = []
+  for (let i = 0; i < twoFactorBackupCodesCount; i += 1) {
+    const raw = crypto.randomBytes(6).toString('base64url').slice(0, twoFactorBackupCodeLength).toUpperCase()
+    const code = raw.replace(/[^A-Z0-9]/g, '').padEnd(twoFactorBackupCodeLength, 'X').slice(0, twoFactorBackupCodeLength)
+    codes.push(code)
+  }
+  return codes
+}
+
+async function hashBackupCodes(codes) {
+  const uniqueCodes = Array.from(new Set((Array.isArray(codes) ? codes : []).map((item) => String(item || '').trim()).filter(Boolean)))
+  const hashes = []
+  for (const code of uniqueCodes) {
+    hashes.push(await bcrypt.hash(code, 10))
+  }
+  return hashes
+}
+
+function getRequestIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+  if (forwarded) return forwarded.slice(0, 120)
+  const remote = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || ''
+  return String(remote || '').slice(0, 120)
+}
+
+function getSocketIp(socket) {
+  const forwarded = socket && socket.handshake && socket.handshake.headers
+    ? String(socket.handshake.headers['x-forwarded-for'] || '').split(',')[0].trim()
+    : ''
+  if (forwarded) return forwarded.slice(0, 120)
+  const remote = socket && socket.handshake && socket.handshake.address ? socket.handshake.address : ''
+  return String(remote || '').slice(0, 120)
+}
+
+function createTwoFactorChallengeToken(userId) {
+  return jwt.sign(
+    { sub: userId, purpose: '2fa_login' },
+    jwtSecret,
+    { expiresIn: twoFactorChallengeTtlSeconds, algorithm: 'HS256' }
+  )
+}
+
+function verifyTwoFactorChallengeToken(rawToken) {
+  const token = extractJwtToken(rawToken)
+  if (!token) return null
+  try {
+    const payload = jwt.verify(token, jwtSecret, jwtVerifyOptions)
+    if (!payload || payload.purpose !== '2fa_login' || !payload.sub) return null
+    return payload
+  } catch (_err) {
+    return null
+  }
+}
+
+async function createAuthSessionToken(userId, meta = {}) {
+  const sessionId = crypto.randomUUID()
+  const token = jwt.sign(
+    { sub: userId, sid: sessionId },
+    jwtSecret,
+    { expiresIn: authTokenTtlSeconds, algorithm: 'HS256' }
+  )
+  const tokenHash = hashTokenValue(token)
+  const expiresAt = new Date(Date.now() + authTokenTtlSeconds * 1000)
+  await pool.query(
+    `insert into user_sessions (id, user_id, token_hash, user_agent, ip_address, expires_at, created_at, last_seen_at)
+     values ($1, $2, $3, $4, $5, $6, now(), now())`,
+    [
+      sessionId,
+      userId,
+      tokenHash,
+      meta.userAgent ? String(meta.userAgent).slice(0, 400) : null,
+      meta.ipAddress ? String(meta.ipAddress).slice(0, 120) : null,
+      expiresAt.toISOString()
+    ]
+  )
+  return token
+}
+
+async function validateSessionByTokenPayload({ userId, sessionId, token, touch = true }) {
+  if (!isValidUuid(sessionId)) return { ok: false, reason: 'invalid_session' }
+  const tokenHash = hashTokenValue(token)
+  const result = await pool.query(
+    `select id, user_id, expires_at, revoked_at
+     from user_sessions
+     where id = $1 and user_id = $2 and token_hash = $3
+     limit 1`,
+    [sessionId, userId, tokenHash]
+  )
+  if (result.rowCount === 0) return { ok: false, reason: 'not_found' }
+  const session = result.rows[0]
+  if (session.revoked_at) return { ok: false, reason: 'revoked' }
+  const expiresAtMs = Date.parse(session.expires_at || '')
+  if (!expiresAtMs || expiresAtMs <= Date.now()) {
+    return { ok: false, reason: 'expired' }
+  }
+  if (touch) {
+    await pool.query(
+      `update user_sessions
+       set last_seen_at = now()
+       where id = $1`,
+      [sessionId]
+    ).catch(() => {})
+  }
+  return { ok: true, session }
+}
+
 function getMessagePreviewText(body, attachmentUrl, attachmentKind) {
   const text = typeof body === 'string' ? body.trim() : ''
   if (text) {
@@ -460,10 +660,6 @@ if (useDbStorage) {
   })
 }
 
-function signToken(userId) {
-  return jwt.sign({ sub: userId }, jwtSecret, { expiresIn: '7d', algorithm: 'HS256' })
-}
-
 function extractJwtToken(rawValue) {
   const value = String(rawValue || '').trim()
   if (!value) return ''
@@ -474,14 +670,31 @@ function extractJwtToken(rawValue) {
   return token
 }
 
-function auth(req, res, next) {
+async function auth(req, res, next) {
   const token = extractJwtToken(req.headers.authorization)
   if (!token) return res.status(401).json({ error: 'No token' })
   try {
     const payload = jwt.verify(token, jwtSecret, jwtVerifyOptions)
+    if (!payload || !payload.sub || !payload.sid) {
+      return res.status(401).json({ error: 'Session expired' })
+    }
+    const validation = await validateSessionByTokenPayload({
+      userId: payload.sub,
+      sessionId: payload.sid,
+      token,
+      touch: true
+    })
+    if (!validation.ok) {
+      return res.status(401).json({ error: 'Session expired' })
+    }
     req.userId = payload.sub
+    req.sessionId = payload.sid
+    req.authToken = token
     return next()
   } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Security feature is unavailable: database migration required' })
+    }
     return res.status(401).json({ error: 'Invalid token' })
   }
 }
@@ -693,6 +906,7 @@ function mapUser(row) {
     isAdmin: row.is_admin,
     isModerator: row.is_moderator,
     isBanned: row.is_banned,
+    twoFactorEnabled: row.two_factor_enabled === true,
     warningsCount: row.warnings_count,
     subscribersCount: Number(row.subscribers_count || 0),
     subscriptionsCount: Number(row.subscriptions_count || 0),
@@ -845,6 +1059,246 @@ function isVerificationSchemaError(err) {
   return message.includes('verification_requests') || message.includes('is_verified')
 }
 
+function isSecuritySchemaError(err) {
+  if (!err || typeof err !== 'object') return false
+  if (err.code !== '42P01' && err.code !== '42703') return false
+  const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  return (
+    message.includes('user_sessions') ||
+    message.includes('user_security_settings') ||
+    message.includes('user_two_factor_pending') ||
+    message.includes('user_privacy_controls')
+  )
+}
+
+function mapPrivacyControlRow(row) {
+  if (!row || typeof row !== 'object') {
+    return {
+      isMuted: false,
+      isBlocked: false,
+      hideProfileContent: false,
+      denyDm: false
+    }
+  }
+  return {
+    isMuted: row.is_muted === true,
+    isBlocked: row.is_blocked === true,
+    hideProfileContent: row.hide_profile_content === true,
+    denyDm: row.deny_dm === true
+  }
+}
+
+async function getPrivacyControl(ownerId, targetUserId, dbClient = null) {
+  const db = dbClient || pool
+  const result = await db.query(
+    `select is_muted, is_blocked, hide_profile_content, deny_dm
+     from user_privacy_controls
+     where owner_id = $1 and target_user_id = $2
+     limit 1`,
+    [ownerId, targetUserId]
+  )
+  if (result.rowCount === 0) return mapPrivacyControlRow(null)
+  return mapPrivacyControlRow(result.rows[0])
+}
+
+async function upsertPrivacyControl(ownerId, targetUserId, patch, dbClient = null) {
+  const db = dbClient || pool
+  const current = await getPrivacyControl(ownerId, targetUserId, db)
+  let next = {
+    isMuted: normalizeBooleanFlag(patch.isMuted, current.isMuted),
+    isBlocked: normalizeBooleanFlag(patch.isBlocked, current.isBlocked),
+    hideProfileContent: normalizeBooleanFlag(patch.hideProfileContent, current.hideProfileContent),
+    denyDm: normalizeBooleanFlag(patch.denyDm, current.denyDm)
+  }
+  if (next.isBlocked) {
+    next = {
+      ...next,
+      denyDm: true,
+      hideProfileContent: true
+    }
+  }
+  const hasAnyRule = next.isMuted || next.isBlocked || next.hideProfileContent || next.denyDm
+  if (!hasAnyRule) {
+    await db.query(
+      'delete from user_privacy_controls where owner_id = $1 and target_user_id = $2',
+      [ownerId, targetUserId]
+    )
+    return next
+  }
+  await db.query(
+    `insert into user_privacy_controls (
+       owner_id,
+       target_user_id,
+       is_muted,
+       is_blocked,
+       hide_profile_content,
+       deny_dm,
+       created_at,
+       updated_at
+     )
+     values ($1, $2, $3, $4, $5, $6, now(), now())
+     on conflict (owner_id, target_user_id)
+     do update set
+       is_muted = excluded.is_muted,
+       is_blocked = excluded.is_blocked,
+       hide_profile_content = excluded.hide_profile_content,
+       deny_dm = excluded.deny_dm,
+       updated_at = now()`,
+    [ownerId, targetUserId, next.isMuted, next.isBlocked, next.hideProfileContent, next.denyDm]
+  )
+  return next
+}
+
+async function getPrivacyRelationship(viewerId, targetUserId, dbClient = null) {
+  const db = dbClient || pool
+  const [viewerControl, targetControl] = await Promise.all([
+    getPrivacyControl(viewerId, targetUserId, db),
+    getPrivacyControl(targetUserId, viewerId, db)
+  ])
+  const dmBlocked = (
+    viewerControl.isBlocked ||
+    viewerControl.denyDm ||
+    targetControl.isBlocked ||
+    targetControl.denyDm
+  )
+  const profileHidden = (
+    viewerControl.hideProfileContent ||
+    viewerControl.isBlocked ||
+    targetControl.isBlocked
+  )
+  return {
+    viewerControl,
+    targetControl,
+    dmBlocked,
+    profileHidden,
+    blockedByTarget: targetControl.isBlocked === true
+  }
+}
+
+async function isDirectMessagingBlocked(userId, targetUserId, dbClient = null) {
+  const relation = await getPrivacyRelationship(userId, targetUserId, dbClient)
+  return relation.dmBlocked === true
+}
+
+async function isProfileHiddenForViewer(viewerId, targetUserId, dbClient = null) {
+  const relation = await getPrivacyRelationship(viewerId, targetUserId, dbClient)
+  return relation.profileHidden === true
+}
+
+async function getUserSecuritySettings(userId, dbClient = null) {
+  const db = dbClient || pool
+  let result
+  try {
+    result = await db.query(
+      `select user_id, two_factor_enabled, two_factor_secret, two_factor_backup_codes, updated_at
+       from user_security_settings
+       where user_id = $1
+       limit 1`,
+      [userId]
+    )
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return {
+        userId,
+        twoFactorEnabled: false,
+        twoFactorSecret: '',
+        backupCodeHashes: [],
+        updatedAt: null
+      }
+    }
+    throw err
+  }
+  if (result.rowCount === 0) {
+    return {
+      userId,
+      twoFactorEnabled: false,
+      twoFactorSecret: '',
+      backupCodeHashes: [],
+      updatedAt: null
+    }
+  }
+  const row = result.rows[0]
+  const backupCodeHashes = Array.isArray(row.two_factor_backup_codes)
+    ? row.two_factor_backup_codes.map((item) => String(item || '').trim()).filter(Boolean)
+    : []
+  return {
+    userId: row.user_id,
+    twoFactorEnabled: row.two_factor_enabled === true,
+    twoFactorSecret: String(row.two_factor_secret || ''),
+    backupCodeHashes,
+    updatedAt: row.updated_at || null
+  }
+}
+
+async function isTeacherAccount(userId, dbClient = null) {
+  const db = dbClient || pool
+  try {
+    const result = await db.query(
+      `select exists(
+          select 1
+          from user_roles
+          where user_id = $1 and role_value = 'teacher'
+        ) as is_teacher`,
+      [userId]
+    )
+    if (result.rowCount > 0) return result.rows[0].is_teacher === true
+  } catch (err) {
+    if (!(err && err.code === '42P01')) {
+      throw err
+    }
+  }
+  const fallback = await db.query('select role from users where id = $1 limit 1', [userId])
+  if (fallback.rowCount === 0) return false
+  return String(fallback.rows[0].role || '').trim().toLowerCase() === 'teacher'
+}
+
+async function isTwoFactorEligibleForUser(userId, dbClient = null) {
+  const db = dbClient || pool
+  const userResult = await db.query(
+    'select id, is_admin, role from users where id = $1 limit 1',
+    [userId]
+  )
+  if (userResult.rowCount === 0) return false
+  const row = userResult.rows[0]
+  if (row.is_admin === true) return true
+  if (String(row.role || '').trim().toLowerCase() === 'teacher') return true
+  return isTeacherAccount(userId, db)
+}
+
+async function consumeBackupCodeHash(userId, backupCode) {
+  const normalizedCode = normalizeTotpCode(backupCode).toUpperCase()
+  if (!normalizedCode) return false
+  const settings = await getUserSecuritySettings(userId)
+  if (!settings.twoFactorEnabled || settings.backupCodeHashes.length === 0) return false
+  let matchedIndex = -1
+  for (let index = 0; index < settings.backupCodeHashes.length; index += 1) {
+    const hashValue = settings.backupCodeHashes[index]
+    try {
+      const matched = await bcrypt.compare(normalizedCode, hashValue)
+      if (matched) {
+        matchedIndex = index
+        break
+      }
+    } catch (_err) {
+      // ignore invalid hash rows
+    }
+  }
+  if (matchedIndex < 0) return false
+  const remaining = settings.backupCodeHashes.filter((_item, idx) => idx !== matchedIndex)
+  await pool.query(
+    `insert into user_security_settings (user_id, two_factor_enabled, two_factor_secret, two_factor_backup_codes, updated_at)
+     values ($1, true, $2, $3::jsonb, now())
+     on conflict (user_id)
+     do update set
+       two_factor_enabled = excluded.two_factor_enabled,
+       two_factor_secret = excluded.two_factor_secret,
+       two_factor_backup_codes = excluded.two_factor_backup_codes,
+       updated_at = now()`,
+    [userId, settings.twoFactorSecret, JSON.stringify(remaining)]
+  )
+  return true
+}
+
 async function getLatestVerificationRequestForUser(userId, dbClient = null) {
   const db = dbClient || pool
   const result = await db.query(
@@ -873,7 +1327,12 @@ function isProfileFeaturesSchemaError(err) {
   if (!err || typeof err !== 'object') return false
   if (err.code !== '42P01' && err.code !== '42703') return false
   const message = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-  return message.includes('user_subscriptions') || message.includes('profile_tracks') || message.includes('user_roles')
+  return (
+    message.includes('user_subscriptions') ||
+    message.includes('profile_tracks') ||
+    message.includes('user_roles') ||
+    message.includes('user_security_settings')
+  )
 }
 
 function isProfileShowcaseSchemaError(err) {
@@ -908,6 +1367,7 @@ async function getUserByIdWithStats(userId, viewerId) {
   try {
     const result = await pool.query(
       `select u.*,
+              coalesce(ss.two_factor_enabled, false) as two_factor_enabled,
               coalesce(
                 (select array_agg(ur.role_value order by ur.role_value asc)
                  from user_roles ur
@@ -919,10 +1379,11 @@ async function getUserByIdWithStats(userId, viewerId) {
               (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
               exists(
                 select 1
-                from user_subscriptions s
-                where s.subscriber_id = $2 and s.target_user_id = u.id
+               from user_subscriptions s
+               where s.subscriber_id = $2 and s.target_user_id = u.id
               ) as is_subscribed
        from users u
+       left join user_security_settings ss on ss.user_id = u.id
        where u.id = $1`,
       [userId, viewerId || null]
     )
@@ -932,6 +1393,7 @@ async function getUserByIdWithStats(userId, viewerId) {
     if (!isProfileFeaturesSchemaError(err)) throw err
     const fallback = await pool.query(
       `select u.*,
+              false as two_factor_enabled,
               0::int as subscribers_count,
               0::int as subscriptions_count,
               0::int as tracks_count,
@@ -949,6 +1411,7 @@ async function getUserByUsernameWithStats(username, viewerId) {
   try {
     const result = await pool.query(
       `select u.*,
+              coalesce(ss.two_factor_enabled, false) as two_factor_enabled,
               coalesce(
                 (select array_agg(ur.role_value order by ur.role_value asc)
                  from user_roles ur
@@ -960,10 +1423,11 @@ async function getUserByUsernameWithStats(username, viewerId) {
               (select count(*) from profile_tracks t where t.user_id = u.id) as tracks_count,
               exists(
                 select 1
-                from user_subscriptions s
-                where s.subscriber_id = $2 and s.target_user_id = u.id
+               from user_subscriptions s
+               where s.subscriber_id = $2 and s.target_user_id = u.id
               ) as is_subscribed
        from users u
+       left join user_security_settings ss on ss.user_id = u.id
        where u.username = $1`,
       [username, viewerId || null]
     )
@@ -973,6 +1437,7 @@ async function getUserByUsernameWithStats(username, viewerId) {
     if (!isProfileFeaturesSchemaError(err)) throw err
     const fallback = await pool.query(
       `select u.*,
+              false as two_factor_enabled,
               0::int as subscribers_count,
               0::int as subscriptions_count,
               0::int as tracks_count,
@@ -1729,12 +2194,26 @@ async function sendPushToUsers(userIds, payload) {
   }))
 }
 
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const token = extractJwtToken(socket.handshake.auth && socket.handshake.auth.token)
   if (!token) return next(new Error('No token'))
   try {
     const payload = jwt.verify(token, jwtSecret, jwtVerifyOptions)
+    if (!payload || !payload.sub || !payload.sid) {
+      return next(new Error('Session expired'))
+    }
+    const validation = await validateSessionByTokenPayload({
+      userId: payload.sub,
+      sessionId: payload.sid,
+      token,
+      touch: false
+    })
+    if (!validation.ok) {
+      return next(new Error('Session expired'))
+    }
     socket.userId = payload.sub
+    socket.sessionId = payload.sid
+    socket.userIp = getSocketIp(socket)
     return next()
   } catch (err) {
     return next(new Error('Invalid token'))
@@ -1748,6 +2227,15 @@ io.on('connection', (socket) => {
     focused: false,
     activeConversationId: null
   })
+  if (socket.sessionId && isValidUuid(socket.sessionId)) {
+    void pool.query(
+      `update user_sessions
+       set last_seen_at = now(),
+           ip_address = coalesce($2, ip_address)
+       where id = $1 and user_id = $3`,
+      [socket.sessionId, socket.userIp || null, socket.userId]
+    ).catch(() => {})
+  }
 
   if (becameOnline) {
     io.emit('presence', { userId: socket.userId, online: true })
@@ -1902,7 +2390,10 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     const user = await getUserByIdWithStats(result.rows[0].id, result.rows[0].id) || mapUser(result.rows[0])
-    const token = signToken(user.id)
+    const token = await createAuthSessionToken(user.id, {
+      userAgent: req.headers['user-agent'] || '',
+      ipAddress: getRequestIp(req)
+    })
 
     res.json({ token, user })
   } catch (err) {
@@ -1945,12 +2436,75 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid login or password' })
     }
 
-    const user = await getUserByIdWithStats(userRow.id, userRow.id) || mapUser(userRow)
-    const token = signToken(user.id)
+    const securitySettings = await getUserSecuritySettings(userRow.id)
+    const twoFactorEligible = await isTwoFactorEligibleForUser(userRow.id)
+    if (twoFactorEligible && securitySettings.twoFactorEnabled) {
+      const twoFactorToken = createTwoFactorChallengeToken(userRow.id)
+      return res.json({
+        requiresTwoFactor: true,
+        twoFactorToken
+      })
+    }
 
-    res.json({ token, user })
+    const user = await getUserByIdWithStats(userRow.id, userRow.id) || mapUser(userRow)
+    const token = await createAuthSessionToken(user.id, {
+      userAgent: req.headers['user-agent'] || '',
+      ipAddress: getRequestIp(req)
+    })
+
+    res.json({
+      token,
+      user,
+      twoFactorSetupRecommended: twoFactorEligible && !securitySettings.twoFactorEnabled
+    })
   } catch (err) {
     console.error('Login error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/auth/2fa/verify', async (req, res) => {
+  try {
+    const challenge = verifyTwoFactorChallengeToken(req.body.twoFactorToken)
+    if (!challenge || !isValidUuid(String(challenge.sub || ''))) {
+      return res.status(401).json({ error: 'Invalid 2FA challenge' })
+    }
+    const userId = String(challenge.sub)
+    const code = normalizeTotpCode(req.body.code)
+    const backupCode = normalizeTotpCode(req.body.backupCode).toUpperCase()
+    if (!code && !backupCode) {
+      return res.status(400).json({ error: '2FA code or backup code is required' })
+    }
+
+    const securitySettings = await getUserSecuritySettings(userId)
+    if (!securitySettings.twoFactorEnabled || !securitySettings.twoFactorSecret) {
+      return res.status(403).json({ error: '2FA is not enabled for this account' })
+    }
+
+    let passed = false
+    if (code) {
+      passed = verifyTotpCode(securitySettings.twoFactorSecret, code, 1)
+    } else if (backupCode) {
+      passed = await consumeBackupCodeHash(userId, backupCode)
+    }
+    if (!passed) {
+      return res.status(401).json({ error: 'Invalid 2FA code' })
+    }
+
+    const user = await getUserByIdWithStats(userId, userId)
+    if (!user) return res.status(404).json({ error: 'User not found' })
+    if (user.isBanned) return res.status(403).json({ error: 'User is banned' })
+
+    const token = await createAuthSessionToken(user.id, {
+      userAgent: req.headers['user-agent'] || '',
+      ipAddress: getRequestIp(req)
+    })
+    res.json({ token, user })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Security feature is unavailable: database migration required' })
+    }
+    console.error('2FA verify login error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
@@ -1962,6 +2516,302 @@ app.get('/api/me', auth, ensureNotBanned, async (req, res) => {
     res.json({ user })
   } catch (err) {
     console.error('Me error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.get('/api/me/sessions', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `select id,
+              user_agent,
+              ip_address,
+              created_at,
+              last_seen_at,
+              expires_at,
+              revoked_at
+       from user_sessions
+       where user_id = $1
+       order by created_at desc
+       limit $2`,
+      [req.userId, sessionListLimit]
+    )
+    const sessions = result.rows.map((row) => ({
+      id: row.id,
+      userAgent: row.user_agent || '',
+      ipAddress: row.ip_address || '',
+      createdAt: row.created_at || null,
+      lastSeenAt: row.last_seen_at || null,
+      expiresAt: row.expires_at || null,
+      revokedAt: row.revoked_at || null,
+      isCurrent: req.sessionId && row.id === req.sessionId
+    }))
+    res.json({ sessions })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Sessions feature is unavailable: database migration required' })
+    }
+    console.error('Get sessions error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/sessions/:id/revoke', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const sessionId = req.params.id
+    if (!isValidUuid(sessionId)) {
+      return res.status(400).json({ error: 'Invalid session id' })
+    }
+    const revokeReason = String(req.body.reason || 'manual').trim().slice(0, 120) || 'manual'
+    const result = await pool.query(
+      `update user_sessions
+       set revoked_at = now(),
+           revoke_reason = $3
+       where id = $1
+         and user_id = $2
+         and revoked_at is null
+       returning id`,
+      [sessionId, req.userId, revokeReason]
+    )
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Session not found' })
+    }
+    res.json({ ok: true, sessionId })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Sessions feature is unavailable: database migration required' })
+    }
+    console.error('Revoke session error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/sessions/revoke-others', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `update user_sessions
+       set revoked_at = now(),
+           revoke_reason = 'revoke_others'
+       where user_id = $1
+         and revoked_at is null
+         and id <> $2`,
+      [req.userId, req.sessionId || null]
+    )
+    res.json({ ok: true, revokedCount: Number(result.rowCount || 0) })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Sessions feature is unavailable: database migration required' })
+    }
+    console.error('Revoke other sessions error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.get('/api/me/2fa/status', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const eligible = await isTwoFactorEligibleForUser(req.userId)
+    const settings = await getUserSecuritySettings(req.userId)
+    const pending = await pool.query(
+      `select expires_at
+       from user_two_factor_pending
+       where user_id = $1
+       limit 1`,
+      [req.userId]
+    )
+    const pendingRow = pending.rowCount > 0 ? pending.rows[0] : null
+    const pendingActive = Boolean(pendingRow && Date.parse(pendingRow.expires_at || '') > Date.now())
+    res.json({
+      twoFactor: {
+        eligible,
+        enabled: settings.twoFactorEnabled === true,
+        pendingSetup: pendingActive,
+        backupCodesCount: settings.backupCodeHashes.length
+      }
+    })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: '2FA feature is unavailable: database migration required' })
+    }
+    console.error('Get 2FA status error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/2fa/setup', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const eligible = await isTwoFactorEligibleForUser(req.userId)
+    if (!eligible) {
+      return res.status(403).json({ error: '2FA setup is available only for admins and teachers' })
+    }
+
+    const userResult = await pool.query(
+      'select username from users where id = $1 limit 1',
+      [req.userId]
+    )
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' })
+    }
+
+    const secret = generateTotpSecret()
+    const expiresAt = new Date(Date.now() + (twoFactorPendingTtlMinutes * 60 * 1000))
+    await pool.query(
+      `insert into user_two_factor_pending (user_id, secret, created_at, expires_at)
+       values ($1, $2, now(), $3)
+       on conflict (user_id)
+       do update set
+         secret = excluded.secret,
+         created_at = now(),
+         expires_at = excluded.expires_at`,
+      [req.userId, secret, expiresAt.toISOString()]
+    )
+
+    const username = userResult.rows[0].username
+    const issuer = 'KTK Messenger'
+    const otpAuthUrl = `otpauth://totp/${encodeURIComponent(`${issuer}:${username}`)}?secret=${encodeURIComponent(secret)}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=${twoFactorOtpDigits}&period=${twoFactorOtpStepSeconds}`
+    res.json({
+      setup: {
+        secret,
+        otpAuthUrl,
+        expiresAt: expiresAt.toISOString()
+      }
+    })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: '2FA feature is unavailable: database migration required' })
+    }
+    console.error('2FA setup error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/2fa/enable', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const code = normalizeTotpCode(req.body.code)
+    if (!/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: 'Invalid 2FA code format' })
+    }
+    const eligible = await isTwoFactorEligibleForUser(req.userId)
+    if (!eligible) {
+      return res.status(403).json({ error: '2FA setup is available only for admins and teachers' })
+    }
+    const pending = await pool.query(
+      `select secret, expires_at
+       from user_two_factor_pending
+       where user_id = $1
+       limit 1`,
+      [req.userId]
+    )
+    if (pending.rowCount === 0) {
+      return res.status(404).json({ error: '2FA setup session not found' })
+    }
+    const pendingRow = pending.rows[0]
+    const expiresAtMs = Date.parse(pendingRow.expires_at || '')
+    if (!expiresAtMs || expiresAtMs <= Date.now()) {
+      await pool.query('delete from user_two_factor_pending where user_id = $1', [req.userId]).catch(() => {})
+      return res.status(410).json({ error: '2FA setup session expired. Start setup again.' })
+    }
+    if (!verifyTotpCode(pendingRow.secret, code, 1)) {
+      return res.status(401).json({ error: 'Invalid 2FA code' })
+    }
+
+    const backupCodes = generateBackupCodes()
+    const backupCodeHashes = await hashBackupCodes(backupCodes)
+    await pool.query(
+      `insert into user_security_settings (user_id, two_factor_enabled, two_factor_secret, two_factor_backup_codes, updated_at)
+       values ($1, true, $2, $3::jsonb, now())
+       on conflict (user_id)
+       do update set
+         two_factor_enabled = true,
+         two_factor_secret = excluded.two_factor_secret,
+         two_factor_backup_codes = excluded.two_factor_backup_codes,
+         updated_at = now()`,
+      [req.userId, pendingRow.secret, JSON.stringify(backupCodeHashes)]
+    )
+    await pool.query('delete from user_two_factor_pending where user_id = $1', [req.userId]).catch(() => {})
+    res.json({
+      ok: true,
+      backupCodes
+    })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: '2FA feature is unavailable: database migration required' })
+    }
+    console.error('2FA enable error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/2fa/disable', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const code = normalizeTotpCode(req.body.code)
+    const backupCode = normalizeTotpCode(req.body.backupCode).toUpperCase()
+    if (!code && !backupCode) {
+      return res.status(400).json({ error: '2FA code or backup code is required' })
+    }
+    const settings = await getUserSecuritySettings(req.userId)
+    if (!settings.twoFactorEnabled || !settings.twoFactorSecret) {
+      return res.status(400).json({ error: '2FA is not enabled' })
+    }
+    let passed = false
+    if (code) {
+      passed = verifyTotpCode(settings.twoFactorSecret, code, 1)
+    } else if (backupCode) {
+      passed = await consumeBackupCodeHash(req.userId, backupCode)
+    }
+    if (!passed) {
+      return res.status(401).json({ error: 'Invalid 2FA code' })
+    }
+    await pool.query(
+      `insert into user_security_settings (user_id, two_factor_enabled, two_factor_secret, two_factor_backup_codes, updated_at)
+       values ($1, false, null, '[]'::jsonb, now())
+       on conflict (user_id)
+       do update set
+         two_factor_enabled = false,
+         two_factor_secret = null,
+         two_factor_backup_codes = '[]'::jsonb,
+         updated_at = now()`,
+      [req.userId]
+    )
+    await pool.query('delete from user_two_factor_pending where user_id = $1', [req.userId]).catch(() => {})
+    res.json({ ok: true })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: '2FA feature is unavailable: database migration required' })
+    }
+    console.error('2FA disable error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/me/2fa/regenerate-backup-codes', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const code = normalizeTotpCode(req.body.code)
+    const settings = await getUserSecuritySettings(req.userId)
+    if (!settings.twoFactorEnabled || !settings.twoFactorSecret) {
+      return res.status(400).json({ error: '2FA is not enabled' })
+    }
+    if (!verifyTotpCode(settings.twoFactorSecret, code, 1)) {
+      return res.status(401).json({ error: 'Invalid 2FA code' })
+    }
+    const backupCodes = generateBackupCodes()
+    const backupCodeHashes = await hashBackupCodes(backupCodes)
+    await pool.query(
+      `insert into user_security_settings (user_id, two_factor_enabled, two_factor_secret, two_factor_backup_codes, updated_at)
+       values ($1, true, $2, $3::jsonb, now())
+       on conflict (user_id)
+       do update set
+         two_factor_enabled = true,
+         two_factor_secret = excluded.two_factor_secret,
+         two_factor_backup_codes = excluded.two_factor_backup_codes,
+         updated_at = now()`,
+      [req.userId, settings.twoFactorSecret, JSON.stringify(backupCodeHashes)]
+    )
+    res.json({ ok: true, backupCodes })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: '2FA feature is unavailable: database migration required' })
+    }
+    console.error('2FA regenerate backup codes error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
@@ -2473,6 +3323,126 @@ app.delete('/api/me/gifs/:id', auth, ensureNotBanned, async (req, res) => {
   }
 })
 
+app.get('/api/me/privacy-controls', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `select pc.owner_id,
+              pc.target_user_id,
+              pc.is_muted,
+              pc.is_blocked,
+              pc.hide_profile_content,
+              pc.deny_dm,
+              pc.updated_at,
+              u.username as target_username,
+              u.display_name as target_display_name,
+              u.avatar_url as target_avatar_url
+       from user_privacy_controls pc
+       join users u on u.id = pc.target_user_id
+       where pc.owner_id = $1
+       order by pc.updated_at desc
+       limit 200`,
+      [req.userId]
+    )
+    const controls = result.rows.map((row) => ({
+      targetUserId: row.target_user_id,
+      targetUsername: row.target_username,
+      targetDisplayName: row.target_display_name || '',
+      targetAvatarUrl: row.target_avatar_url || '',
+      updatedAt: row.updated_at || null,
+      ...mapPrivacyControlRow(row)
+    }))
+    res.json({ controls })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
+    console.error('Get my privacy controls error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.get('/api/users/:username/privacy', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.params.username)
+    const targetResult = await pool.query('select id from users where username = $1 limit 1', [username])
+    if (targetResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+    const targetId = targetResult.rows[0].id
+    if (targetId === req.userId) {
+      return res.json({
+        privacy: {
+          isMuted: false,
+          isBlocked: false,
+          hideProfileContent: false,
+          denyDm: false,
+          blockedByTarget: false,
+          dmBlocked: false,
+          profileHidden: false
+        }
+      })
+    }
+    const relation = await getPrivacyRelationship(req.userId, targetId)
+    res.json({
+      privacy: {
+        ...relation.viewerControl,
+        blockedByTarget: relation.blockedByTarget,
+        dmBlocked: relation.dmBlocked,
+        profileHidden: relation.profileHidden
+      }
+    })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
+    console.error('Get user privacy relation error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/users/:username/privacy', auth, ensureNotBanned, async (req, res) => {
+  try {
+    const username = normalizeUsername(req.params.username)
+    const targetResult = await pool.query('select id from users where username = $1 limit 1', [username])
+    if (targetResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+    const targetId = targetResult.rows[0].id
+    if (targetId === req.userId) {
+      return res.status(400).json({ error: 'Cannot set privacy controls for yourself' })
+    }
+
+    const updates = {
+      isMuted: normalizeBooleanFlag(req.body.isMuted, null),
+      isBlocked: normalizeBooleanFlag(req.body.isBlocked, null),
+      hideProfileContent: normalizeBooleanFlag(req.body.hideProfileContent, null),
+      denyDm: normalizeBooleanFlag(req.body.denyDm, null)
+    }
+    if (
+      updates.isMuted === null &&
+      updates.isBlocked === null &&
+      updates.hideProfileContent === null &&
+      updates.denyDm === null
+    ) {
+      return res.status(400).json({ error: 'At least one privacy flag is required' })
+    }
+
+    const saved = await upsertPrivacyControl(req.userId, targetId, updates)
+    const relation = await getPrivacyRelationship(req.userId, targetId)
+    res.json({
+      ok: true,
+      privacy: {
+        ...saved,
+        blockedByTarget: relation.blockedByTarget,
+        dmBlocked: relation.dmBlocked,
+        profileHidden: relation.profileHidden
+      }
+    })
+  } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
+    console.error('Set user privacy relation error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
 app.get('/api/users/search', auth, ensureNotBanned, async (req, res) => {
   try {
     const username = normalizeUsername(req.query.username)
@@ -2482,7 +3452,22 @@ app.get('/api/users/search', auth, ensureNotBanned, async (req, res) => {
     const result = await pool.query(
       `select id, username, display_name, role
        from users
-       where username ilike $1 and id <> $2
+       where username ilike $1
+         and id <> $2
+         and not exists (
+           select 1
+           from user_privacy_controls pc
+           where pc.owner_id = $2
+             and pc.target_user_id = users.id
+             and (pc.is_blocked = true or pc.hide_profile_content = true)
+         )
+         and not exists (
+           select 1
+           from user_privacy_controls pc
+           where pc.owner_id = users.id
+             and pc.target_user_id = $2
+             and pc.is_blocked = true
+         )
        order by username
        limit 10`,
       [`${username}%`, req.userId]
@@ -2496,6 +3481,9 @@ app.get('/api/users/search', auth, ensureNotBanned, async (req, res) => {
     }))
     res.json({ users })
   } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
     console.error('Search error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
@@ -2506,10 +3494,25 @@ app.get('/api/users/:username', auth, ensureNotBanned, async (req, res) => {
     const username = normalizeUsername(req.params.username)
     const user = await getUserByUsernameWithStats(username, req.userId)
     if (!user) return res.status(404).json({ error: 'User not found' })
+    if (user.id !== req.userId) {
+      const relation = await getPrivacyRelationship(req.userId, user.id)
+      if (relation.profileHidden) {
+        return res.status(403).json({ error: 'Profile content is hidden by privacy settings' })
+      }
+      user.viewerPrivacy = {
+        ...relation.viewerControl,
+        blockedByTarget: relation.blockedByTarget,
+        dmBlocked: relation.dmBlocked,
+        profileHidden: relation.profileHidden
+      }
+    }
     res.json({
       user
     })
   } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
     console.error('Profile error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
@@ -2520,17 +3523,27 @@ app.get('/api/users/:username/showcase', auth, ensureNotBanned, async (req, res)
     const username = normalizeUsername(req.params.username)
     const userResult = await pool.query('select id from users where username = $1', [username])
     if (userResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+    const profileId = userResult.rows[0].id
+    if (profileId !== req.userId) {
+      const hidden = await isProfileHiddenForViewer(req.userId, profileId)
+      if (hidden) {
+        return res.status(403).json({ error: 'Profile content is hidden by privacy settings' })
+      }
+    }
 
     const showcaseResult = await pool.query(
       `select user_id, headline, hero_theme, skills, badges, links, updated_at
        from user_profile_showcases
        where user_id = $1
        limit 1`,
-      [userResult.rows[0].id]
+      [profileId]
     )
     const showcase = showcaseResult.rowCount > 0 ? mapProfileShowcaseRow(showcaseResult.rows[0]) : emptyProfileShowcase()
     res.json({ showcase })
   } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
     if (isProfileShowcaseSchemaError(err)) {
       return res.status(503).json({ error: 'Profile showcase feature is unavailable: database migration required' })
     }
@@ -2545,6 +3558,12 @@ app.get('/api/users/:username/posts', auth, ensureNotBanned, async (req, res) =>
     const userResult = await pool.query('select id from users where username = $1', [username])
     if (userResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
     const profileId = userResult.rows[0].id
+    if (profileId !== req.userId) {
+      const hidden = await isProfileHiddenForViewer(req.userId, profileId)
+      if (hidden) {
+        return res.status(403).json({ error: 'Profile content is hidden by privacy settings' })
+      }
+    }
     const result = await pool.query(
       `select p.id, p.body, p.image_url, p.repost_of, p.created_at,
               u.id as author_id, u.username as author_username,
@@ -2567,6 +3586,9 @@ app.get('/api/users/:username/posts', auth, ensureNotBanned, async (req, res) =>
     )
     res.json({ posts: result.rows.map(mapPost) })
   } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
     console.error('Profile posts error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
@@ -2577,6 +3599,13 @@ app.get('/api/users/:username/tracks', auth, ensureNotBanned, async (req, res) =
     const username = normalizeUsername(req.params.username)
     const userResult = await pool.query('select id from users where username = $1', [username])
     if (userResult.rowCount === 0) return res.status(404).json({ error: 'User not found' })
+    const profileId = userResult.rows[0].id
+    if (profileId !== req.userId) {
+      const hidden = await isProfileHiddenForViewer(req.userId, profileId)
+      if (hidden) {
+        return res.status(403).json({ error: 'Profile content is hidden by privacy settings' })
+      }
+    }
 
     const tracksResult = await pool.query(
       `select id, user_id, title, artist, audio_url, created_at
@@ -2584,10 +3613,13 @@ app.get('/api/users/:username/tracks', auth, ensureNotBanned, async (req, res) =
        where user_id = $1
        order by created_at desc
        limit 100`,
-      [userResult.rows[0].id]
+      [profileId]
     )
     res.json({ tracks: tracksResult.rows.map(mapProfileTrack) })
   } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
     if (isProfileFeaturesSchemaError(err)) {
       return res.status(503).json({ error: 'Profile music feature is unavailable: database migration required' })
     }
@@ -2605,6 +3637,9 @@ app.post('/api/users/:username/subscribe', auth, ensureNotBanned, async (req, re
     const targetId = targetResult.rows[0].id
     if (targetId === req.userId) {
       return res.status(400).json({ error: 'Cannot subscribe to yourself' })
+    }
+    if (await isProfileHiddenForViewer(req.userId, targetId)) {
+      return res.status(403).json({ error: 'Profile content is hidden by privacy settings' })
     }
 
     const existing = await pool.query(
@@ -2630,6 +3665,9 @@ app.post('/api/users/:username/subscribe', auth, ensureNotBanned, async (req, re
     const user = await getUserByIdWithStats(targetId, req.userId)
     res.json({ subscribed, user })
   } catch (err) {
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
     if (isProfileFeaturesSchemaError(err)) {
       return res.status(503).json({ error: 'Subscription feature is unavailable: database migration required' })
     }
@@ -2710,6 +3748,9 @@ app.post('/api/conversations', auth, ensureNotBanned, async (req, res) => {
     const otherId = userResult.rows[0].id
     if (otherId === req.userId) {
       return res.status(400).json({ error: 'Cannot start chat with yourself' })
+    }
+    if (await isDirectMessagingBlocked(req.userId, otherId, client)) {
+      return res.status(403).json({ error: 'Direct messages are blocked by privacy settings' })
     }
 
     await client.query('begin')
@@ -2810,6 +3851,9 @@ app.post('/api/conversations', auth, ensureNotBanned, async (req, res) => {
     res.json({ conversation: convo.rows[0] ? mapConversation(convo.rows[0]) : null })
   } catch (err) {
     await client.query('rollback')
+    if (isSecuritySchemaError(err)) {
+      return res.status(503).json({ error: 'Privacy controls feature is unavailable: database migration required' })
+    }
     console.error('Create conversation error', err)
     res.status(500).json({ error: 'Unexpected error' })
   } finally {
@@ -3284,6 +4328,12 @@ app.post('/api/conversations/:id/polls', messageLimiter, auth, ensureNotBanned, 
        where cm.conversation_id = $1`,
       [conversationId]
     )
+    if (conversationResult.rows[0].is_group !== true) {
+      const peerMember = membersResult.rows.find((member) => member.user_id !== req.userId)
+      if (peerMember && await isDirectMessagingBlocked(req.userId, peerMember.user_id, client)) {
+        return res.status(403).json({ error: 'Direct messages are blocked by privacy settings' })
+      }
+    }
 
     let insertedMessage
     await client.query('begin')
@@ -3408,6 +4458,12 @@ app.post('/api/conversations/:id/stickers', messageLimiter, auth, ensureNotBanne
        where cm.conversation_id = $1`,
       [conversationId]
     )
+    if (conversationResult.rows[0].is_group !== true) {
+      const peerMember = membersResult.rows.find((member) => member.user_id !== req.userId)
+      if (peerMember && await isDirectMessagingBlocked(req.userId, peerMember.user_id)) {
+        return res.status(403).json({ error: 'Direct messages are blocked by privacy settings' })
+      }
+    }
 
     const stickerResult = await pool.query(
       `select id, user_id, title, image_url, mime_type, created_at
@@ -3583,6 +4639,12 @@ app.post('/api/conversations/:id/gifs', messageLimiter, auth, ensureNotBanned, a
        where cm.conversation_id = $1`,
       [conversationId]
     )
+    if (conversationResult.rows[0].is_group !== true) {
+      const peerMember = membersResult.rows.find((member) => member.user_id !== req.userId)
+      if (peerMember && await isDirectMessagingBlocked(req.userId, peerMember.user_id)) {
+        return res.status(403).json({ error: 'Direct messages are blocked by privacy settings' })
+      }
+    }
 
     const gifResult = await pool.query(
       `select id, user_id, title, image_url, mime_type, created_at
@@ -3758,6 +4820,12 @@ app.post('/api/conversations/:id/messages', messageLimiter, auth, ensureNotBanne
        where cm.conversation_id = $1`,
       [conversationId]
     )
+    if (conversationResult.rows[0].is_group !== true) {
+      const peerMember = membersResult.rows.find((member) => member.user_id !== req.userId)
+      if (peerMember && await isDirectMessagingBlocked(req.userId, peerMember.user_id)) {
+        return res.status(403).json({ error: 'Direct messages are blocked by privacy settings' })
+      }
+    }
 
     const attachmentUrl = req.file ? await storeUpload(req.file) : null
     const attachmentMime = req.file ? (req.file.mimetype || null) : null
