@@ -169,6 +169,37 @@ body {
   border-color: rgba(var(--accent-rgb), 0.5);
 }
 
+.command-toggle {
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.command-toggle span {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(var(--accent-rgb), 0.42);
+  font-size: 11px;
+}
+
+.command-toggle:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.55);
+  background: rgba(var(--accent-rgb), 0.2);
+}
+
 .push-toggle {
   border: 1px solid var(--line);
   background: var(--panel-2);
@@ -3220,6 +3251,152 @@ body {
   gap: 16px;
   border: 1px solid var(--line);
   animation: scale-in var(--motion-base) var(--ease-out) both;
+}
+
+.global-palette-card {
+  width: min(780px, 94vw);
+  max-height: min(86vh, 760px);
+  display: grid;
+  gap: 14px;
+  overflow: auto;
+}
+
+.global-palette-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.global-palette-head strong {
+  display: block;
+  font-size: 18px;
+}
+
+.global-palette-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.global-palette-input-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.global-palette-input-row input {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 11px 12px;
+  color: var(--text);
+}
+
+.global-palette-sections {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 12px;
+}
+
+.global-palette-section {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.global-palette-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.global-palette-section-head strong {
+  font-size: 14px;
+}
+
+.global-palette-section-head span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.global-palette-action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.global-palette-action {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  padding: 10px 11px;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.global-palette-action:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.45);
+}
+
+.global-palette-action strong {
+  font-size: 13px;
+}
+
+.global-palette-action span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.global-palette-user-list {
+  display: grid;
+  gap: 8px;
+}
+
+.global-palette-user {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-2);
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 9px;
+  align-items: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.global-palette-user:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.45);
+}
+
+.global-palette-user strong {
+  display: block;
+  font-size: 13px;
+}
+
+.global-palette-user span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.global-palette-empty {
+  border: 1px dashed rgba(var(--accent-rgb), 0.3);
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .banner-modal-card {
@@ -7940,9 +8117,23 @@ body {
   }
 
   .theme-toggle,
+  .command-toggle,
   .push-toggle,
   .logout-btn {
     min-height: 40px;
+  }
+
+  .global-palette-card {
+    width: min(96vw, 620px);
+    padding: 14px;
+  }
+
+  .global-palette-input-row {
+    grid-template-columns: 1fr;
+  }
+
+  .global-palette-sections {
+    grid-template-columns: 1fr;
   }
 
   .panel input,

@@ -1526,6 +1526,10 @@ export default function App() {
   const [dashboardFeedQuery, setDashboardFeedQuery] = useState('')
   const [dashboardRefreshLoading, setDashboardRefreshLoading] = useState(false)
   const [dashboardCommandInput, setDashboardCommandInput] = useState('')
+  const [globalPaletteOpen, setGlobalPaletteOpen] = useState(false)
+  const [globalPaletteQuery, setGlobalPaletteQuery] = useState('')
+  const [globalPaletteUsers, setGlobalPaletteUsers] = useState([])
+  const [globalPaletteLoading, setGlobalPaletteLoading] = useState(false)
   const [dashboardCommandHistory, setDashboardCommandHistory] = useState(() => {
     if (typeof window === 'undefined') return []
     try {
@@ -1697,6 +1701,8 @@ export default function App() {
   const chatSearchInputRef = useRef(null)
   const feedQueryInputRef = useRef(null)
   const composerInputRef = useRef(null)
+  const globalPaletteInputRef = useRef(null)
+  const globalPaletteSearchSeqRef = useRef(0)
   const contextMenuRef = useRef(null)
   const postMenuRef = useRef(null)
   const chatMenuRef = useRef(null)
@@ -4293,15 +4299,30 @@ export default function App() {
       const isTextInput = tagName === 'input' || tagName === 'textarea' || (target && target.isContentEditable)
 
       if ((event.ctrlKey || event.metaKey) && key === 'k') {
-        if (isTextInput) return
+        if (isTextInput && !event.shiftKey && !globalPaletteOpen) return
         event.preventDefault()
-        setView('chats')
-        window.requestAnimationFrame(() => {
-          if (chatSearchInputRef.current) {
-            chatSearchInputRef.current.focus()
-            chatSearchInputRef.current.select()
-          }
-        })
+        if (event.shiftKey) {
+          if (isTextInput) return
+          setView('chats')
+          window.requestAnimationFrame(() => {
+            if (chatSearchInputRef.current) {
+              chatSearchInputRef.current.focus()
+              chatSearchInputRef.current.select()
+            }
+          })
+          return
+        }
+        setGlobalPaletteOpen(true)
+        return
+      }
+
+      if (key === 'escape' && globalPaletteOpen) {
+        event.preventDefault()
+        setGlobalPaletteOpen(false)
+        return
+      }
+
+      if (globalPaletteOpen) {
         return
       }
 
@@ -4339,7 +4360,56 @@ export default function App() {
     }
     window.addEventListener('keydown', handleHotkey)
     return () => window.removeEventListener('keydown', handleHotkey)
-  }, [user, view, activeConversation, mediaPanelOpen])
+  }, [user, view, activeConversation, mediaPanelOpen, globalPaletteOpen])
+
+  useEffect(() => {
+    if (!globalPaletteOpen) return
+    window.requestAnimationFrame(() => {
+      if (globalPaletteInputRef.current) {
+        globalPaletteInputRef.current.focus()
+        globalPaletteInputRef.current.select()
+      }
+    })
+  }, [globalPaletteOpen])
+
+  useEffect(() => {
+    if (!globalPaletteOpen) {
+      globalPaletteSearchSeqRef.current += 1
+      setGlobalPaletteLoading(false)
+      setGlobalPaletteUsers([])
+      return
+    }
+
+    const raw = String(globalPaletteQuery || '').trim()
+    const query = raw.startsWith('@') ? raw.slice(1).trim() : raw
+    if (query.length < 3 || raw.startsWith('#')) {
+      globalPaletteSearchSeqRef.current += 1
+      setGlobalPaletteLoading(false)
+      setGlobalPaletteUsers([])
+      return
+    }
+
+    const seq = globalPaletteSearchSeqRef.current + 1
+    globalPaletteSearchSeqRef.current = seq
+    setGlobalPaletteLoading(true)
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await searchUsers(query)
+        if (globalPaletteSearchSeqRef.current !== seq) return
+        const users = Array.isArray(data && data.users) ? data.users : []
+        setGlobalPaletteUsers(users.slice(0, 6))
+      } catch (err) {
+        if (globalPaletteSearchSeqRef.current !== seq) return
+        setGlobalPaletteUsers([])
+      } finally {
+        if (globalPaletteSearchSeqRef.current === seq) {
+          setGlobalPaletteLoading(false)
+        }
+      }
+    }, 160)
+
+    return () => window.clearTimeout(timer)
+  }, [globalPaletteOpen, globalPaletteQuery])
 
   useEffect(() => {
     socketConnectionRef.current = socketConnection
@@ -4350,6 +4420,10 @@ export default function App() {
     stopTyping()
     setSocketConnection('offline')
     setTypingByConversation({})
+    setGlobalPaletteOpen(false)
+    setGlobalPaletteQuery('')
+    setGlobalPaletteUsers([])
+    setGlobalPaletteLoading(false)
   }, [user])
 
   useEffect(() => {
@@ -6357,6 +6431,153 @@ export default function App() {
     setDashboardCommandInput('')
   }
 
+  const openGlobalPalette = () => {
+    if (!user) return
+    setGlobalPaletteOpen(true)
+    setGlobalPaletteQuery('')
+    setGlobalPaletteUsers([])
+    setGlobalPaletteLoading(false)
+  }
+
+  const closeGlobalPalette = () => {
+    globalPaletteSearchSeqRef.current += 1
+    setGlobalPaletteOpen(false)
+    setGlobalPaletteQuery('')
+    setGlobalPaletteUsers([])
+    setGlobalPaletteLoading(false)
+  }
+
+  const getGlobalPaletteActions = () => {
+    const actions = [
+      {
+        id: 'go-dashboard',
+        title: 'Открыть центр управления',
+        hint: 'Панель с быстрыми действиями',
+        keywords: 'dashboard панель центр',
+        run: () => setView('dashboard')
+      },
+      {
+        id: 'go-feed',
+        title: 'Открыть ленту',
+        hint: 'Посты и тренды',
+        keywords: 'feed лента посты',
+        run: () => setView('feed')
+      },
+      {
+        id: 'go-chats',
+        title: 'Открыть чаты',
+        hint: 'Диалоги и группы',
+        keywords: 'chat чаты диалоги',
+        run: () => setView('chats')
+      },
+      {
+        id: 'go-profile',
+        title: 'Открыть мой профиль',
+        hint: 'Редактирование профиля',
+        keywords: 'profile профиль',
+        run: () => setView('profile')
+      },
+      {
+        id: 'focus-unread',
+        title: 'Непрочитанные чаты',
+        hint: `${unreadConversationCount} в списке`,
+        keywords: 'unread непрочитанные',
+        run: () => runDashboardFocusAction('unread')
+      },
+      {
+        id: 'focus-hot',
+        title: 'Горячая лента',
+        hint: `${hotFeedPosts.length} постов`,
+        keywords: 'hot хайп горячее',
+        run: () => runDashboardFocusAction('feed-hot')
+      },
+      {
+        id: 'focus-bookmarks',
+        title: 'Закладки',
+        hint: 'Сохраненные посты',
+        keywords: 'bookmarks закладки сохраненное',
+        run: () => openFeedFocus({ filter: FEED_FILTERS.bookmarks })
+      },
+      {
+        id: 'refresh-workspace',
+        title: 'Обновить данные',
+        hint: 'Перезагрузка рабочей зоны',
+        keywords: 'refresh обновить sync',
+        run: () => refreshWorkspaceSnapshot()
+      },
+      {
+        id: 'toggle-focus',
+        title: dashboardFocusMode ? 'Отключить фокус-режим' : 'Включить фокус-режим',
+        hint: dashboardFocusMode ? 'Сейчас включен' : 'Сейчас выключен',
+        keywords: 'focus режим',
+        run: () => toggleDashboardFocusMode()
+      },
+      {
+        id: 'toggle-autorefresh',
+        title: dashboardAutoRefresh ? 'Выключить автообновление' : 'Включить автообновление',
+        hint: dashboardAutoRefresh ? 'Сейчас включено' : 'Сейчас выключено',
+        keywords: 'auto refresh автообновление',
+        run: () => toggleDashboardAutoRefresh()
+      },
+      {
+        id: 'toggle-theme',
+        title: theme === 'dark' ? 'Светлая тема' : 'Темная тема',
+        hint: 'Сменить цветовой режим',
+        keywords: 'theme тема dark light',
+        run: () => toggleTheme()
+      }
+    ]
+    if (pushState.supported) {
+      actions.push({
+        id: 'toggle-push',
+        title: pushState.enabled ? 'Отключить push' : 'Включить push',
+        hint: pushState.permission === 'denied' ? 'Разрешите уведомления в браузере' : 'Управление уведомлениями',
+        keywords: 'push notifications уведомления',
+        run: () => handlePushToggle()
+      })
+    }
+    if (user && user.isAdmin) {
+      actions.push({
+        id: 'go-admin',
+        title: 'Открыть админ-панель',
+        hint: 'Управление пользователями и ролями',
+        keywords: 'admin модерация роли',
+        run: () => setView('admin')
+      })
+    }
+    return actions
+  }
+
+  const runGlobalPaletteAction = (action) => {
+    if (!action || typeof action.run !== 'function') return
+    closeGlobalPalette()
+    action.run()
+  }
+
+  const runGlobalPaletteSubmit = () => {
+    const query = String(globalPaletteQuery || '').trim()
+    const normalized = query.toLowerCase()
+    const actions = getGlobalPaletteActions()
+    const filtered = normalized
+      ? actions.filter((item) => `${item.title} ${item.hint} ${item.keywords}`.toLowerCase().includes(normalized))
+      : actions
+
+    if (filtered.length > 0) {
+      runGlobalPaletteAction(filtered[0])
+      return
+    }
+    if (globalPaletteUsers.length > 0) {
+      const firstUser = globalPaletteUsers[0]
+      closeGlobalPalette()
+      openProfile(firstUser.username)
+      return
+    }
+    if (query) {
+      closeGlobalPalette()
+      runDashboardCommand(query)
+    }
+  }
+
   const clearMiniProfileTimers = () => {
     if (miniProfileOpenTimerRef.current) {
       window.clearTimeout(miniProfileOpenTimerRef.current)
@@ -7616,6 +7837,12 @@ export default function App() {
     ? `profile-theme-${profileShowcase.heroTheme}`
     : 'profile-theme-default'
   const profileHeroHasBanner = Boolean(profileView && profileView.bannerUrl)
+  const globalPaletteQueryNormalized = String(globalPaletteQuery || '').trim().toLowerCase()
+  const globalPaletteActions = getGlobalPaletteActions()
+  const globalPaletteVisibleActions = (globalPaletteQueryNormalized
+    ? globalPaletteActions.filter((item) => `${item.title} ${item.hint} ${item.keywords}`.toLowerCase().includes(globalPaletteQueryNormalized))
+    : globalPaletteActions
+  ).slice(0, 8)
 
   return (
     <div className="page">
@@ -7647,6 +7874,17 @@ export default function App() {
             >
               {pushButtonLabel}
             </button>
+            {user ? (
+              <button
+                type="button"
+                className="command-toggle"
+                onClick={openGlobalPalette}
+                title="Командная палитра (Ctrl+K)"
+              >
+                <span>⌘</span>
+                Команды
+              </button>
+            ) : null}
             {user ? (
               <>
               <button
@@ -7686,6 +7924,101 @@ export default function App() {
             ) : null}
           </div>
         </div>
+
+        {globalPaletteOpen && (
+          <div className="modal-overlay" onClick={closeGlobalPalette}>
+            <div className="modal-card global-palette-card" onClick={(event) => event.stopPropagation()}>
+              <div className="global-palette-head">
+                <div>
+                  <strong>Глобальная палитра</strong>
+                  <span>Команды, быстрые переходы, поиск пользователей</span>
+                </div>
+                <button type="button" className="ghost" onClick={closeGlobalPalette}>Esc</button>
+              </div>
+              <div className="global-palette-input-row">
+                <input
+                  ref={globalPaletteInputRef}
+                  type="text"
+                  value={globalPaletteQuery}
+                  onChange={(event) => setGlobalPaletteQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      runGlobalPaletteSubmit()
+                    }
+                  }}
+                  placeholder="Введи команду, #тег, @пользователь или имя"
+                />
+                <button type="button" className="primary" onClick={runGlobalPaletteSubmit}>
+                  Выполнить
+                </button>
+              </div>
+              <div className="global-palette-sections">
+                <section className="global-palette-section">
+                  <div className="global-palette-section-head">
+                    <strong>Быстрые действия</strong>
+                    <span>Ctrl+Shift+K: быстрый поиск чатов</span>
+                  </div>
+                  {globalPaletteVisibleActions.length === 0 ? (
+                    <div className="global-palette-empty">Ничего не найдено по запросу.</div>
+                  ) : (
+                    <div className="global-palette-action-list">
+                      {globalPaletteVisibleActions.map((action) => (
+                        <button
+                          key={action.id}
+                          type="button"
+                          className="global-palette-action"
+                          onClick={() => runGlobalPaletteAction(action)}
+                        >
+                          <strong>{action.title}</strong>
+                          <span>{action.hint}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+                <section className="global-palette-section">
+                  <div className="global-palette-section-head">
+                    <strong>Пользователи</strong>
+                    <span>{globalPaletteLoading ? 'Поиск...' : `${globalPaletteUsers.length} найдено`}</span>
+                  </div>
+                  {globalPaletteUsers.length === 0 ? (
+                    <div className="global-palette-empty">Начни вводить имя или @username (минимум 3 символа).</div>
+                  ) : (
+                    <div className="global-palette-user-list">
+                      {globalPaletteUsers.map((item) => {
+                        const roleLabel = item && item.role ? (roleLabelByValue.get(String(item.role)) || item.role) : 'Студент'
+                        return (
+                          <button
+                            key={`global-palette-user-${item.id || item.username}`}
+                            type="button"
+                            className="global-palette-user"
+                            onClick={() => {
+                              closeGlobalPalette()
+                              openProfile(item.username)
+                            }}
+                          >
+                            <div className="avatar tiny">
+                              {item.avatarUrl ? (
+                                <img src={resolveMediaUrl(item.avatarUrl)} alt="avatar" />
+                              ) : (
+                                (item.username || 'U')[0].toUpperCase()
+                              )}
+                            </div>
+                            <div>
+                              <strong>{item.displayName || item.username}</strong>
+                              <span>@{item.username} • {roleLabel}</span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </div>
+          </div>
+        )}
 
         {user && (
           <div className="icon-rail">
@@ -8183,7 +8516,7 @@ export default function App() {
                   type="text"
                   value={searchTerm}
                   onChange={(event) => handleSearch(event.target.value)}
-                  placeholder="Найти по username... (Ctrl+K)"
+                  placeholder="Найти по username... (Ctrl+Shift+K)"
                 />
                 {searchResults.length > 0 && (
                   <div className="search-results">
