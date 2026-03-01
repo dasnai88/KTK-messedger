@@ -108,6 +108,11 @@ const icons = {
       <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
     </svg>
   ),
+  settings: (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M19.43 12.98a7.8 7.8 0 0 0 .05-.98c0-.33-.02-.65-.05-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.49 1a7.2 7.2 0 0 0-1.69-.98l-.38-2.65A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42L9.13 5.07c-.61.24-1.17.57-1.69.98l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.03.33-.05.65-.05.98 0 .33.02.65.05.98L2.47 14.63a.5.5 0 0 0-.12.64l2 3.46c.13.22.39.31.6.22l2.49-1c.52.41 1.08.74 1.69.98l.38 2.65c.04.24.25.42.49.42h4c.24 0 .45-.18.49-.42l.38-2.65c.61-.24 1.17-.57 1.69-.98l2.49 1c.22.09.47 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
+    </svg>
+  ),
   admin: (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3Zm0 6a3 3 0 1 1-3 3 3 3 0 0 1 3-3Zm0 11.2a7.7 7.7 0 0 1-4.5-4 4.9 4.9 0 0 1 9 0 7.7 7.7 0 0 1-4.5 4Z" />
@@ -1518,6 +1523,7 @@ export default function App() {
     newPassword: '',
     confirmPassword: ''
   })
+  const [settingsSection, setSettingsSection] = useState('general')
   const [status, setStatus] = useState({ type: 'info', message: '' })
   const [theme, setTheme] = useState(() => {
     if (typeof window === 'undefined') return 'dark'
@@ -3995,7 +4001,7 @@ export default function App() {
   const readStoredView = (isAdmin) => {
     try {
       const stored = localStorage.getItem('ktk_view')
-      const allowed = ['dashboard', 'feed', 'chats', 'profile']
+      const allowed = ['dashboard', 'feed', 'chats', 'profile', 'settings']
       if (isAdmin) allowed.push('admin')
       return stored && allowed.includes(stored) ? stored : 'feed'
     } catch (err) {
@@ -4133,7 +4139,7 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return
-    const allowed = ['dashboard', 'feed', 'chats', 'profile']
+    const allowed = ['dashboard', 'feed', 'chats', 'profile', 'settings']
     if (user.isAdmin) allowed.push('admin')
     if (allowed.includes(view)) {
       try {
@@ -6259,6 +6265,7 @@ export default function App() {
       newPassword: '',
       confirmPassword: ''
     })
+    setSettingsSection('general')
     setView('login')
     setActiveConversation(null)
     setChatMobilePane('list')
@@ -7066,6 +7073,11 @@ export default function App() {
       setDashboardCommandInput('')
       return
     }
+    if (value === 'settings' || value === 'setting' || value === 'настройки' || value === 'настройка') {
+      setView('settings')
+      setDashboardCommandInput('')
+      return
+    }
     if (value === 'feed' || value === 'лента') {
       setView('feed')
       setDashboardCommandInput('')
@@ -7145,6 +7157,13 @@ export default function App() {
         hint: 'Редактирование профиля',
         keywords: 'profile профиль',
         run: () => setView('profile')
+      },
+      {
+        id: 'go-settings',
+        title: 'Открыть настройки',
+        hint: 'Безопасность, сессии, конфиденциальность',
+        keywords: 'settings настройки безопасность сессии',
+        run: () => setView('settings')
       },
       {
         id: 'focus-unread',
@@ -8763,6 +8782,32 @@ export default function App() {
     ? globalPaletteActions.filter((item) => `${item.title} ${item.hint} ${item.keywords}`.toLowerCase().includes(globalPaletteQueryNormalized))
     : globalPaletteActions
   ).slice(0, 8)
+  const settingsActiveSessionCount = useMemo(() => (
+    (sessions || []).filter((item) => item && !item.revokedAt).length
+  ), [sessions])
+  const settingsRoleLabels = useMemo(() => (
+    getUserRoleList(user).map((value) => roleLabelByValue.get(value) || value)
+  ), [user, roleLabelByValue])
+  const settingsNavItems = useMemo(() => ([
+    { id: 'general', icon: '⚙️', label: 'Общие настройки', badge: '' },
+    { id: 'notifications', icon: '🔔', label: 'Уведомления', badge: pushState.enabled ? 'ON' : 'OFF' },
+    { id: 'appearance', icon: '🎨', label: 'Оформление', badge: uiPreferences.style },
+    { id: 'privacy', icon: '🔒', label: 'Конфиденциальность', badge: privacyControls.length > 0 ? String(privacyControls.length) : '' },
+    { id: 'security', icon: '🛡️', label: '2FA и защита', badge: twoFactorStatus.enabled ? '2FA' : '' },
+    { id: 'password', icon: '🔑', label: 'Пароль', badge: '' },
+    { id: 'sessions', icon: '💻', label: 'Активные сеансы', badge: settingsActiveSessionCount > 0 ? String(settingsActiveSessionCount) : '' },
+    { id: 'storage', icon: '🗂️', label: 'Данные и память', badge: '' },
+    { id: 'stickers', icon: '😄', label: 'Стикеры и эмодзи', badge: myStickers.length > 0 ? String(myStickers.length) : '' },
+    { id: 'language', icon: '🌐', label: 'Язык', badge: 'Русский' },
+    { id: 'support', icon: '❓', label: 'Помощь', badge: '' }
+  ]), [
+    myStickers.length,
+    privacyControls.length,
+    pushState.enabled,
+    settingsActiveSessionCount,
+    twoFactorStatus.enabled,
+    uiPreferences.style
+  ])
 
   return (
     <div className="page">
@@ -8819,8 +8864,8 @@ export default function App() {
               <button
                 type="button"
                 className="user-pill"
-                onClick={() => setView('profile')}
-                title="Открыть профиль"
+                onClick={() => setView('settings')}
+                title="Открыть настройки"
               >
                 <div
                   className="avatar with-mini-profile"
@@ -8980,6 +9025,14 @@ export default function App() {
                 {icons.admin}
               </button>
             )}
+            <button
+              type="button"
+              className={view === 'settings' ? 'active' : ''}
+              onClick={() => setView('settings')}
+              title="Настройки"
+            >
+              {icons.settings}
+            </button>
             <button
               type="button"
               className={view === 'profile' ? 'active' : ''}
@@ -12197,6 +12250,372 @@ export default function App() {
           </div>
         )}
 
+        {view === 'settings' && user && (
+          <section className="panel settings-panel">
+            <div className="settings-shell">
+              <aside className="settings-sidebar">
+                <div className="settings-account-card">
+                  <div className="avatar large with-mini-profile">
+                    {user.avatarUrl ? (
+                      <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
+                    ) : (
+                      (user.username || 'U')[0].toUpperCase()
+                    )}
+                  </div>
+                  <div className="settings-account-meta">
+                    <strong>
+                      {user.displayName || user.username}
+                      {user.isVerified ? <span className="verified-mark" title="Verified">✓</span> : null}
+                    </strong>
+                    <span>@{user.username}</span>
+                    <small>{user.statusEmoji ? `${user.statusEmoji} ` : ''}{user.statusText || 'без статуса'}</small>
+                  </div>
+                  <div className="settings-role-line">
+                    {(settingsRoleLabels.length > 0 ? settingsRoleLabels : ['Студент']).map((label, idx) => (
+                      <span key={`settings-role-chip-${idx}`} className="mini-profile-role">{label}</span>
+                    ))}
+                  </div>
+                </div>
+                <nav className="settings-nav">
+                  {settingsNavItems.map((item) => (
+                    <button
+                      key={`settings-nav-${item.id}`}
+                      type="button"
+                      className={settingsSection === item.id ? 'active' : ''}
+                      onClick={() => setSettingsSection(item.id)}
+                    >
+                      <span className="settings-nav-icon" aria-hidden="true">{item.icon}</span>
+                      <span className="settings-nav-label">{item.label}</span>
+                      {item.badge ? <span className="settings-nav-badge">{item.badge}</span> : null}
+                    </button>
+                  ))}
+                </nav>
+              </aside>
+              <div className="settings-content">
+                {settingsSection === 'general' && (
+                  <section className="settings-pane">
+                    <h2>Общие настройки</h2>
+                    <p className="subtitle">Базовые параметры и быстрые действия.</p>
+                    <div className="settings-action-list">
+                      <button type="button" className="settings-action-row" onClick={() => setView('profile')}>
+                        <strong>Профиль</strong>
+                        <span>Изменить аватар, обложку и данные</span>
+                      </button>
+                      <button type="button" className="settings-action-row" onClick={toggleTheme}>
+                        <strong>Тема</strong>
+                        <span>{theme === 'dark' ? 'Тёмная' : 'Светлая'}</span>
+                      </button>
+                      <button type="button" className="settings-action-row" onClick={handlePushToggle} disabled={pushButtonDisabled}>
+                        <strong>Push-уведомления</strong>
+                        <span>{pushButtonLabel}</span>
+                      </button>
+                    </div>
+                  </section>
+                )}
+                {settingsSection === 'notifications' && (
+                  <section className="settings-pane">
+                    <h2>Уведомления</h2>
+                    <p className="subtitle">Управление push-уведомлениями браузера.</p>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-head">
+                        <h3>Push</h3>
+                        <span className={`verification-status-badge ${pushState.enabled ? 'approved' : 'none'}`.trim()}>
+                          {pushState.enabled ? 'Включено' : 'Выключено'}
+                        </span>
+                      </div>
+                      <div className="profile-verification-actions">
+                        <button type="button" className="primary" onClick={handlePushToggle} disabled={pushButtonDisabled}>
+                          {pushButtonLabel}
+                        </button>
+                      </div>
+                    </section>
+                  </section>
+                )}
+                {settingsSection === 'appearance' && (
+                  <section className="settings-pane">
+                    <h2>Оформление</h2>
+                    <p className="subtitle">Глобальный стиль интерфейса.</p>
+                    <section className="ui-studio">
+                      <div className="ui-studio-grid">
+                        <label>
+                          Стиль
+                          <select value={uiPreferences.style} onChange={(event) => updateUiPreference('style', event.target.value)}>
+                            {UI_STYLE_OPTIONS.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Плотность
+                          <select value={uiPreferences.density} onChange={(event) => updateUiPreference('density', event.target.value)}>
+                            {UI_DENSITY_OPTIONS.map((item) => (
+                              <option key={item.value} value={item.value}>{item.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="ui-studio-actions">
+                        <button type="button" className="ghost" onClick={resetUiPreferences}>Сбросить визуал</button>
+                      </div>
+                    </section>
+                  </section>
+                )}
+                {settingsSection === 'security' && (
+                  <section className="settings-pane">
+                    <h2>2FA и защита</h2>
+                    <p className="subtitle">Подключение TOTP и управление резервными кодами.</p>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-head">
+                        <h3>2FA</h3>
+                        <span className={`verification-status-badge ${twoFactorStatus.enabled ? 'approved' : 'none'}`.trim()}>
+                          {twoFactorStatus.enabled ? '2FA ON' : '2FA OFF'}
+                        </span>
+                      </div>
+                      {!twoFactorStatus.eligible && (
+                        <p className="profile-verification-text">2FA доступна для ролей teacher/admin.</p>
+                      )}
+                      {twoFactorStatus.eligible && !twoFactorStatus.enabled && (
+                        <div className="profile-verification-actions">
+                          <button type="button" className="primary" onClick={handleStartTwoFactorSetup} disabled={loading}>
+                            {twoFactorSetup ? 'Restart setup' : 'Start 2FA setup'}
+                          </button>
+                        </div>
+                      )}
+                      {twoFactorSetup && (
+                        <div className="profile-verification-form">
+                          <input type="text" readOnly value={twoFactorSetup.secret || ''} />
+                          <textarea rows={2} readOnly value={twoFactorSetup.otpAuthUrl || ''}></textarea>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={twoFactorCode}
+                            onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, '').slice(0, 6))}
+                            placeholder="Enter 6-digit code"
+                            maxLength={6}
+                          />
+                          <div className="profile-verification-actions">
+                            <button type="button" className="primary" onClick={handleEnableTwoFactor} disabled={loading}>Enable 2FA</button>
+                          </div>
+                        </div>
+                      )}
+                      {twoFactorStatus.enabled && (
+                        <div className="profile-verification-form">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={twoFactorCode}
+                            onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, '').slice(0, 6))}
+                            placeholder="Current 6-digit code"
+                            maxLength={6}
+                          />
+                          <input
+                            type="text"
+                            value={twoFactorBackupCode}
+                            onChange={(event) => setTwoFactorBackupCode(event.target.value.trim().toUpperCase().slice(0, 20))}
+                            placeholder="Backup code (for disable)"
+                            maxLength={20}
+                          />
+                          <div className="profile-verification-actions">
+                            <button type="button" className="ghost" onClick={handleRegenerateBackupCodes} disabled={loading}>Regenerate backup codes</button>
+                            <button type="button" className="danger" onClick={handleDisableTwoFactor} disabled={loading}>Disable 2FA</button>
+                          </div>
+                        </div>
+                      )}
+                    </section>
+                  </section>
+                )}
+                {settingsSection === 'password' && (
+                  <section className="settings-pane">
+                    <h2>Пароль</h2>
+                    <p className="subtitle">Смена пароля с завершением других сессий.</p>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-form profile-password-form">
+                        <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))} placeholder="Current password" minLength={6} autoComplete="current-password" />
+                        <input type="password" value={passwordForm.newPassword} onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))} placeholder="New password" minLength={6} autoComplete="new-password" />
+                        <input type="password" value={passwordForm.confirmPassword} onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))} placeholder="Confirm new password" minLength={6} autoComplete="new-password" />
+                        <div className="profile-verification-actions">
+                          <button type="button" className="primary" onClick={handleChangePassword} disabled={loading}>Change password</button>
+                        </div>
+                      </div>
+                    </section>
+                  </section>
+                )}
+                {settingsSection === 'sessions' && (
+                  <section className="settings-pane">
+                    <h2>Активные сеансы</h2>
+                    <p className="subtitle">Список входов и завершение любой сессии.</p>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-head">
+                        <h3>Sessions</h3>
+                        <span className="verification-status-badge none">{settingsActiveSessionCount}</span>
+                      </div>
+                      <div className="profile-verification-actions">
+                        <button type="button" className="ghost" onClick={() => loadUserSessions()} disabled={sessionsLoading}>Refresh</button>
+                        <button type="button" className="danger" onClick={handleRevokeOtherSessions} disabled={sessionsLoading}>Revoke other sessions</button>
+                      </div>
+                      {sessionsLoading ? (
+                        <div className="empty small">Loading sessions...</div>
+                      ) : sessions.length === 0 ? (
+                        <div className="empty small">No active sessions.</div>
+                      ) : (
+                        <div className="admin-list">
+                          {sessions.map((sessionItem) => (
+                            <div key={sessionItem.id} className="admin-item">
+                              <div>
+                                <strong>{sessionItem.isCurrent ? 'Current device' : 'Device session'}</strong>
+                                <span>{sessionItem.userAgent || 'Unknown user agent'}</span>
+                                <div className="admin-meta">
+                                  <span>IP: {sessionItem.ipAddress || 'n/a'}</span>
+                                  <span>Last: {formatDateTime(sessionItem.lastSeenAt || sessionItem.createdAt) || 'n/a'}</span>
+                                </div>
+                              </div>
+                              {!sessionItem.isCurrent && !sessionItem.revokedAt && (
+                                <div className="admin-actions">
+                                  <button type="button" className="danger" onClick={() => handleRevokeSession(sessionItem.id)}>Revoke</button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  </section>
+                )}
+                {settingsSection === 'privacy' && (
+                  <section className="settings-pane">
+                    <h2>Конфиденциальность</h2>
+                    <p className="subtitle">Mute, block, hide profile content и запрет лички.</p>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-head">
+                        <h3>Privacy Controls</h3>
+                        <span className="verification-status-badge none">{privacyControls.length}</span>
+                      </div>
+                      <div className="profile-verification-actions">
+                        <button type="button" className="ghost" onClick={() => loadMyPrivacy()} disabled={privacyControlsLoading}>Refresh</button>
+                      </div>
+                      {privacyControlsLoading ? (
+                        <div className="empty small">Loading privacy controls...</div>
+                      ) : privacyControls.length === 0 ? (
+                        <div className="empty small">No custom privacy rules.</div>
+                      ) : (
+                        <div className="admin-list">
+                          {privacyControls.map((item) => (
+                            <div key={`settings-privacy-${item.targetUserId}`} className="admin-item">
+                              <div>
+                                <strong>{item.targetDisplayName || item.targetUsername || 'User'}</strong>
+                                <span>@{item.targetUsername || 'unknown'}</span>
+                                <div className="admin-badges">
+                                  {item.isMuted && <span className="badge role">MUTE</span>}
+                                  {item.isBlocked && <span className="badge role">BLOCK</span>}
+                                  {item.hideProfileContent && <span className="badge role">HIDE PROFILE</span>}
+                                  {item.denyDm && <span className="badge role">DENY DM</span>}
+                                </div>
+                              </div>
+                              <div className="admin-actions">
+                                <button
+                                  type="button"
+                                  onClick={() => applyPrivacyPatchForUser(item.targetUsername, { isMuted: !item.isMuted }, item.isMuted ? 'Mute removed.' : 'User muted.')}
+                                >
+                                  {item.isMuted ? 'Unmute' : 'Mute'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => applyPrivacyPatchForUser(item.targetUsername, { denyDm: !item.denyDm }, item.denyDm ? 'DM allowed.' : 'DM denied.')}
+                                >
+                                  {item.denyDm ? 'Allow DM' : 'Deny DM'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => applyPrivacyPatchForUser(item.targetUsername, { hideProfileContent: !item.hideProfileContent }, item.hideProfileContent ? 'Profile content visible.' : 'Profile content hidden.')}
+                                >
+                                  {item.hideProfileContent ? 'Show profile' : 'Hide profile'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="danger"
+                                  onClick={() => applyPrivacyPatchForUser(item.targetUsername, { isBlocked: !item.isBlocked }, item.isBlocked ? 'User unblocked.' : 'User blocked.')}
+                                >
+                                  {item.isBlocked ? 'Unblock' : 'Block'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost"
+                                  onClick={() => applyPrivacyPatchForUser(item.targetUsername, {
+                                    isMuted: false,
+                                    isBlocked: false,
+                                    hideProfileContent: false,
+                                    denyDm: false
+                                  }, 'Privacy rules cleared.')}
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  </section>
+                )}
+                {settingsSection === 'storage' && (
+                  <section className="settings-pane">
+                    <h2>Данные и память</h2>
+                    <p className="subtitle">Очистка локальных черновиков.</p>
+                    <div className="settings-action-list">
+                      <button
+                        type="button"
+                        className="settings-action-row"
+                        onClick={() => {
+                          setDraftsByConversation({})
+                          setStatus({ type: 'info', message: 'Локальные черновики очищены.' })
+                          try { localStorage.removeItem(DRAFT_STORAGE_KEY) } catch (err) {}
+                        }}
+                      >
+                        <strong>Очистить черновики</strong>
+                        <span>{Object.keys(draftsByConversation || {}).length} сохранено</span>
+                      </button>
+                    </div>
+                  </section>
+                )}
+                {settingsSection === 'stickers' && (
+                  <section className="settings-pane">
+                    <h2>Стикеры и эмодзи</h2>
+                    <p className="subtitle">Быстрый переход к медиа-панели.</p>
+                    <div className="settings-action-list">
+                      <button type="button" className="settings-action-row" onClick={() => { setView('chats'); setMediaPanelOpen(true); setMediaPanelTab(MEDIA_PANEL_TABS.stickers) }}>
+                        <strong>Мои стикеры</strong>
+                        <span>{myStickers.length} в наборе</span>
+                      </button>
+                      <button type="button" className="settings-action-row" onClick={() => { setView('chats'); setMediaPanelOpen(true); setMediaPanelTab(MEDIA_PANEL_TABS.gifs) }}>
+                        <strong>Мои GIF</strong>
+                        <span>{myGifs.length} в наборе</span>
+                      </button>
+                    </div>
+                  </section>
+                )}
+                {settingsSection === 'language' && (
+                  <section className="settings-pane">
+                    <h2>Язык</h2>
+                    <p className="subtitle">Сейчас интерфейс на русском языке.</p>
+                  </section>
+                )}
+                {settingsSection === 'support' && (
+                  <section className="settings-pane">
+                    <h2>Помощь</h2>
+                    <p className="subtitle">Справочные ссылки.</p>
+                    <div className="settings-action-list">
+                      <a className="settings-action-row as-link" href="https://telegram.org/faq" target="_blank" rel="noreferrer">
+                        <strong>Вопросы о Telegram</strong>
+                        <span>Открыть FAQ</span>
+                      </a>
+                    </div>
+                  </section>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
         {view === 'profile' && user && (
           <form className="panel profile-settings-panel" onSubmit={handleProfileSave}>
             <div className="panel-header">
@@ -12455,233 +12874,6 @@ export default function App() {
                     </div>
                   ) : null}
                 </>
-              )}
-            </section>
-            <section className="profile-verification-card">
-              <div className="profile-verification-head">
-                <h3>Security</h3>
-                <span className={`verification-status-badge ${twoFactorStatus.enabled ? 'approved' : 'none'}`.trim()}>
-                  {twoFactorStatus.enabled ? '2FA ON' : '2FA OFF'}
-                </span>
-              </div>
-              <p className="profile-verification-text">
-                Device protection with TOTP and backup codes. Available for admins and teachers.
-              </p>
-              {!twoFactorStatus.eligible && (
-                <p className="profile-verification-text">2FA setup is available for teacher/admin roles.</p>
-              )}
-              {twoFactorStatus.eligible && !twoFactorStatus.enabled && (
-                <div className="profile-verification-actions">
-                  <button type="button" className="primary" onClick={handleStartTwoFactorSetup} disabled={loading}>
-                    {twoFactorSetup ? 'Restart setup' : 'Start 2FA setup'}
-                  </button>
-                </div>
-              )}
-              {twoFactorSetup && (
-                <div className="profile-verification-form">
-                  <input type="text" readOnly value={twoFactorSetup.secret || ''} />
-                  <textarea rows={2} readOnly value={twoFactorSetup.otpAuthUrl || ''}></textarea>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={twoFactorCode}
-                    onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, '').slice(0, 6))}
-                    placeholder="Enter 6-digit code"
-                    maxLength={6}
-                  />
-                  <div className="profile-verification-actions">
-                    <button type="button" className="primary" onClick={handleEnableTwoFactor} disabled={loading}>
-                      Enable 2FA
-                    </button>
-                  </div>
-                </div>
-              )}
-              {twoFactorStatus.enabled && (
-                <div className="profile-verification-form">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={twoFactorCode}
-                    onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, '').slice(0, 6))}
-                    placeholder="Current 6-digit code"
-                    maxLength={6}
-                  />
-                  <input
-                    type="text"
-                    value={twoFactorBackupCode}
-                    onChange={(event) => setTwoFactorBackupCode(event.target.value.trim().toUpperCase().slice(0, 20))}
-                    placeholder="Backup code (for disable)"
-                    maxLength={20}
-                  />
-                  <div className="profile-verification-actions">
-                    <button type="button" className="ghost" onClick={handleRegenerateBackupCodes} disabled={loading}>
-                      Regenerate backup codes
-                    </button>
-                    <button type="button" className="danger" onClick={handleDisableTwoFactor} disabled={loading}>
-                      Disable 2FA
-                    </button>
-                  </div>
-                </div>
-              )}
-              {freshBackupCodes.length > 0 && (
-                <div className="profile-verification-meta">
-                  <span>Backup codes (save now): {freshBackupCodes.join(', ')}</span>
-                </div>
-              )}
-            </section>
-            <section className="profile-verification-card">
-              <div className="profile-verification-head">
-                <h3>Password</h3>
-                <span className="verification-status-badge none">Manual</span>
-              </div>
-              <p className="profile-verification-text">
-                Change account password. Other active sessions will be revoked automatically.
-              </p>
-              <div className="profile-verification-form profile-password-form">
-                <input
-                  type="password"
-                  value={passwordForm.currentPassword}
-                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
-                  placeholder="Current password"
-                  minLength={6}
-                  autoComplete="current-password"
-                />
-                <input
-                  type="password"
-                  value={passwordForm.newPassword}
-                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, newPassword: event.target.value }))}
-                  placeholder="New password"
-                  minLength={6}
-                  autoComplete="new-password"
-                />
-                <input
-                  type="password"
-                  value={passwordForm.confirmPassword}
-                  onChange={(event) => setPasswordForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
-                  placeholder="Confirm new password"
-                  minLength={6}
-                  autoComplete="new-password"
-                />
-                <div className="profile-verification-actions">
-                  <button type="button" className="primary" onClick={handleChangePassword} disabled={loading}>
-                    Change password
-                  </button>
-                </div>
-              </div>
-            </section>
-            <section className="profile-verification-card">
-              <div className="profile-verification-head">
-                <h3>Device Sessions</h3>
-                <span className="verification-status-badge none">{sessions.length}</span>
-              </div>
-              <div className="profile-verification-actions">
-                <button type="button" className="ghost" onClick={() => loadUserSessions()} disabled={sessionsLoading}>
-                  Refresh
-                </button>
-                <button type="button" className="danger" onClick={handleRevokeOtherSessions} disabled={sessionsLoading}>
-                  Revoke other sessions
-                </button>
-              </div>
-              {sessionsLoading ? (
-                <div className="empty small">Loading sessions...</div>
-              ) : sessions.length === 0 ? (
-                <div className="empty small">No active sessions.</div>
-              ) : (
-                <div className="admin-list">
-                  {sessions.map((sessionItem) => (
-                    <div key={sessionItem.id} className="admin-item">
-                      <div>
-                        <strong>{sessionItem.isCurrent ? 'Current device' : 'Device session'}</strong>
-                        <span>{sessionItem.userAgent || 'Unknown user agent'}</span>
-                        <div className="admin-meta">
-                          <span>IP: {sessionItem.ipAddress || 'n/a'}</span>
-                          <span>Last: {formatDateTime(sessionItem.lastSeenAt || sessionItem.createdAt) || 'n/a'}</span>
-                          <span>Expires: {formatDateTime(sessionItem.expiresAt) || 'n/a'}</span>
-                        </div>
-                      </div>
-                      {!sessionItem.isCurrent && !sessionItem.revokedAt && (
-                        <div className="admin-actions">
-                          <button type="button" className="danger" onClick={() => handleRevokeSession(sessionItem.id)}>
-                            Revoke
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-            <section className="profile-verification-card">
-              <div className="profile-verification-head">
-                <h3>Privacy Controls</h3>
-                <span className="verification-status-badge none">{privacyControls.length}</span>
-              </div>
-              <p className="profile-verification-text">Server-side controls for mute, block, hide profile content and deny DM.</p>
-              <div className="profile-verification-actions">
-                <button type="button" className="ghost" onClick={() => loadMyPrivacy()} disabled={privacyControlsLoading}>
-                  Refresh
-                </button>
-              </div>
-              {privacyControlsLoading ? (
-                <div className="empty small">Loading privacy controls...</div>
-              ) : privacyControls.length === 0 ? (
-                <div className="empty small">No custom privacy rules.</div>
-              ) : (
-                <div className="admin-list">
-                  {privacyControls.map((item) => (
-                    <div key={`privacy-${item.targetUserId}`} className="admin-item">
-                      <div>
-                        <strong>{item.targetDisplayName || item.targetUsername || 'User'}</strong>
-                        <span>@{item.targetUsername || 'unknown'}</span>
-                        <div className="admin-badges">
-                          {item.isMuted && <span className="badge role">MUTE</span>}
-                          {item.isBlocked && <span className="badge role">BLOCK</span>}
-                          {item.hideProfileContent && <span className="badge role">HIDE PROFILE</span>}
-                          {item.denyDm && <span className="badge role">DENY DM</span>}
-                        </div>
-                      </div>
-                      <div className="admin-actions">
-                        <button
-                          type="button"
-                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { isMuted: !item.isMuted }, item.isMuted ? 'Mute removed.' : 'User muted.')}
-                        >
-                          {item.isMuted ? 'Unmute' : 'Mute'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { denyDm: !item.denyDm }, item.denyDm ? 'DM allowed.' : 'DM denied.')}
-                        >
-                          {item.denyDm ? 'Allow DM' : 'Deny DM'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { hideProfileContent: !item.hideProfileContent }, item.hideProfileContent ? 'Profile content visible.' : 'Profile content hidden.')}
-                        >
-                          {item.hideProfileContent ? 'Show profile' : 'Hide profile'}
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, { isBlocked: !item.isBlocked }, item.isBlocked ? 'User unblocked.' : 'User blocked.')}
-                        >
-                          {item.isBlocked ? 'Unblock' : 'Block'}
-                        </button>
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => applyPrivacyPatchForUser(item.targetUsername, {
-                            isMuted: false,
-                            isBlocked: false,
-                            hideProfileContent: false,
-                            denyDm: false
-                          }, 'Privacy rules cleared.')}
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               )}
             </section>
             <label>
@@ -13290,6 +13482,14 @@ export default function App() {
               {icons.admin}
             </button>
           )}
+          <button
+            type="button"
+            className={view === 'settings' ? 'active' : ''}
+            onClick={() => setView('settings')}
+            title="Настройки"
+          >
+            {icons.settings}
+          </button>
           <button
             type="button"
             className={view === 'profile' ? 'active' : ''}
