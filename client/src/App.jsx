@@ -518,6 +518,65 @@ const PROFILE_BADGE_OPTIONS = [
   { id: 'night', emoji: '🌙', label: 'Night Owl' },
   { id: 'communicator', emoji: '💬', label: 'Communicator' }
 ]
+const DEV_PROFILE_PRESETS = [
+  {
+    id: 'frontend',
+    emoji: '🖥️',
+    label: 'Frontend',
+    headline: 'Frontend developer: UI, перформанс и UX.',
+    skills: ['React', 'TypeScript', 'CSS', 'Vite'],
+    badges: ['builder', 'designer', 'rapid'],
+    heroTheme: 'ocean',
+    accent: '#1f3f7a'
+  },
+  {
+    id: 'backend',
+    emoji: '🧱',
+    label: 'Backend',
+    headline: 'Backend engineer: API, базы данных, надежность.',
+    skills: ['Node.js', 'Express', 'PostgreSQL', 'REST'],
+    badges: ['builder', 'mentor', 'rapid'],
+    heroTheme: 'forest',
+    accent: '#145c49'
+  },
+  {
+    id: 'fullstack',
+    emoji: '🛠️',
+    label: 'Fullstack',
+    headline: 'Fullstack dev: от интерфейса до продакшн-API.',
+    skills: ['React', 'Node.js', 'PostgreSQL', 'Docker'],
+    badges: ['builder', 'designer', 'mentor'],
+    heroTheme: 'default',
+    accent: '#374151'
+  },
+  {
+    id: 'mobile',
+    emoji: '📱',
+    label: 'Mobile',
+    headline: 'Mobile developer: быстрые и удобные приложения.',
+    skills: ['Flutter', 'Dart', 'UI', 'Animations'],
+    badges: ['builder', 'designer', 'communicator'],
+    heroTheme: 'sunset',
+    accent: '#9a3412'
+  },
+  {
+    id: 'ai',
+    emoji: '🤖',
+    label: 'AI/ML',
+    headline: 'AI engineer: автоматизация, модели и эксперименты.',
+    skills: ['Python', 'ML', 'Prompting', 'APIs'],
+    badges: ['mentor', 'rapid', 'night'],
+    heroTheme: 'neon',
+    accent: '#5c2d91'
+  }
+]
+const DEV_TRACK_KEYWORDS = [
+  { id: 'frontend', label: 'Frontend', keywords: ['react', 'vue', 'svelte', 'javascript', 'typescript', 'css', 'html', 'next', 'vite'] },
+  { id: 'backend', label: 'Backend', keywords: ['node', 'express', 'nestjs', 'api', 'postgres', 'mysql', 'sql', 'redis', 'docker'] },
+  { id: 'mobile', label: 'Mobile', keywords: ['flutter', 'dart', 'android', 'ios', 'kotlin', 'swift', 'react native'] },
+  { id: 'data', label: 'Data/AI', keywords: ['python', 'ml', 'ai', 'llm', 'pandas', 'numpy', 'prompt', 'tensorflow'] },
+  { id: 'devops', label: 'DevOps', keywords: ['ci', 'cd', 'kubernetes', 'devops', 'linux', 'nginx', 'monitoring', 'cloud'] }
+]
 const UI_STYLE_OPTIONS = [
   { value: 'glass', label: 'Glass' },
   { value: 'neo', label: 'Neo' },
@@ -571,6 +630,12 @@ const INITIAL_CHAT_MENU_STATE = {
   y: 0,
   anchorX: null,
   anchorY: null
+}
+const INITIAL_MINI_PROFILE_CARD_STATE = {
+  open: false,
+  x: 0,
+  y: 0,
+  user: null
 }
 const QUICK_MESSAGE_REACTIONS = ['❤️', '👍', '😭', '👎', '🤩', '🐳', '❤️‍🔥']
 const ALL_MESSAGE_REACTIONS = Array.from(new Set([
@@ -795,6 +860,61 @@ function mapFormToShowcase(formValue) {
     badges,
     links
   })
+}
+
+function mergeSkillsInput(currentInput, skillsToAdd) {
+  const existing = String(currentInput || '')
+    .split(',')
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+  const existingSet = new Set(existing.map((item) => item.toLowerCase()))
+  const merged = [...existing]
+  ;(Array.isArray(skillsToAdd) ? skillsToAdd : []).forEach((skill) => {
+    const normalized = String(skill || '').trim()
+    if (!normalized) return
+    const key = normalized.toLowerCase()
+    if (existingSet.has(key)) return
+    existingSet.add(key)
+    merged.push(normalized)
+  })
+  return merged.slice(0, 8).join(', ')
+}
+
+function buildDeveloperSnapshot(showcase, roleValue, postsCount = 0) {
+  const normalized = normalizeProfileShowcase(showcase)
+  const skills = normalized.skills.map((item) => String(item || '').toLowerCase())
+  const tracks = DEV_TRACK_KEYWORDS.map((track) => {
+    const score = track.keywords.reduce((acc, keyword) => {
+      const hit = skills.some((skill) => skill.includes(keyword))
+      return acc + (hit ? 1 : 0)
+    }, 0)
+    return {
+      id: track.id,
+      label: track.label,
+      score
+    }
+  })
+  const activeTracks = tracks.filter((track) => track.score > 0)
+  const primary = activeTracks
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      return a.label.localeCompare(b.label)
+    })[0] || null
+  const role = String(roleValue || '').toLowerCase()
+  const roleBonus = role.includes('program') || role.includes('dev') ? 14 : 0
+  const coverageBonus = Math.min(35, activeTracks.length * 9)
+  const skillBonus = Math.min(35, normalized.skills.length * 5)
+  const activityBonus = Math.min(16, Number(postsCount || 0) * 2)
+  const total = clampNumber(Math.round(roleBonus + coverageBonus + skillBonus + activityBonus), 0, 100)
+  const level = total >= 80 ? 'Архитектор' : total >= 60 ? 'Продвинутый' : total >= 35 ? 'Уверенный' : 'Старт'
+  return {
+    score: total,
+    level,
+    primaryTrack: primary ? primary.label : 'General',
+    activeTracks: activeTracks
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+  }
 }
 
 function normalizeProfileShowcaseMap(value) {
@@ -1512,6 +1632,7 @@ export default function App() {
   const [adminUsers, setAdminUsers] = useState([])
   const [adminWarnReason, setAdminWarnReason] = useState({})
   const [lightboxImage, setLightboxImage] = useState('')
+  const [miniProfileCard, setMiniProfileCard] = useState(INITIAL_MINI_PROFILE_CARD_STATE)
   const [pushState, setPushState] = useState({
     supported: false,
     permission: 'default',
@@ -1566,6 +1687,8 @@ export default function App() {
   const previousViewRef = useRef(view)
   const profileThemeWheelRef = useRef(null)
   const profileThemeWheelPointerRef = useRef(null)
+  const miniProfileOpenTimerRef = useRef(null)
+  const miniProfileCloseTimerRef = useRef(null)
   const touchContextMenuRef = useRef({
     timer: null,
     startX: 0,
@@ -1582,6 +1705,9 @@ export default function App() {
   }
 
   const roleOptions = useMemo(() => (roles.length ? roles : fallbackRoles), [roles])
+  const roleLabelByValue = useMemo(() => (
+    new Map(roleOptions.map((item) => [String(item.value || ''), item.label]))
+  ), [roleOptions])
   const pinnedMessage = useMemo(() => {
     if (!activeConversation) return null
     return pinnedByConversation[activeConversation.id] || null
@@ -1944,6 +2070,7 @@ export default function App() {
       { id: 'theme', label: 'Выбрана тема профиля', done: Boolean(profileForm.themeColor) },
       { id: 'tracks', label: 'Есть музыка в профиле', done: myTracks.length > 0 },
       { id: 'posts', label: 'Опубликованы посты', done: myPostsCount > 0 },
+      { id: 'dev-stack', label: 'Заполнен dev-стек (3+ skills)', done: showcaseDraft.skills.length >= 3 },
       { id: 'showcase', label: 'Настроен Showcase', done: Boolean(showcaseDraft.headline || showcaseDraft.skills.length || showcaseDraft.badges.length || showcaseDraft.links.length) }
     ]
   }, [profileShowcaseForm, profileForm, myTracks.length, myPostsCount, user])
@@ -1992,6 +2119,13 @@ export default function App() {
   const profileAchievementsProgress = profileAchievementsTotal > 0
     ? Math.round((unlockedProfileAchievements.length / profileAchievementsTotal) * 100)
     : 0
+  const profileDeveloperSnapshot = useMemo(() => (
+    buildDeveloperSnapshot(profileShowcase, profileView && profileView.role, profilePosts.length)
+  ), [profileShowcase, profileView ? profileView.role : '', profilePosts.length])
+  const editorDeveloperSnapshot = useMemo(() => {
+    const draftShowcase = mapFormToShowcase(profileShowcaseForm)
+    return buildDeveloperSnapshot(draftShowcase, profileForm.role, myPostsCount)
+  }, [profileShowcaseForm, profileForm.role, myPostsCount])
   const activeChatMoodLabel = useMemo(() => {
     if (!activeConversation || activeConversation.isGroup || !activeConversation.other) return ''
     return getProfileMoodLabel(activeConversation.other)
@@ -4081,6 +4215,21 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    return () => {
+      if (miniProfileOpenTimerRef.current) {
+        window.clearTimeout(miniProfileOpenTimerRef.current)
+      }
+      if (miniProfileCloseTimerRef.current) {
+        window.clearTimeout(miniProfileCloseTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    setMiniProfileCard(INITIAL_MINI_PROFILE_CARD_STATE)
+  }, [view, user ? user.id : null])
+
+  useEffect(() => {
     if (!user || view !== 'dashboard' || !dashboardAutoRefresh) return
     const timer = window.setInterval(() => {
       refreshWorkspaceSnapshot()
@@ -5316,6 +5465,8 @@ export default function App() {
     setDashboardFeedQuery('')
     dashboardRefreshLoadingRef.current = false
     setDashboardRefreshLoading(false)
+    clearMiniProfileTimers()
+    setMiniProfileCard(INITIAL_MINI_PROFILE_CARD_STATE)
     setDashboardCommandInput('')
     setDashboardLastRefreshAt(null)
     setFeedAuthorFilter('')
@@ -6084,6 +6235,129 @@ export default function App() {
     setDashboardCommandInput('')
   }
 
+  const clearMiniProfileTimers = () => {
+    if (miniProfileOpenTimerRef.current) {
+      window.clearTimeout(miniProfileOpenTimerRef.current)
+      miniProfileOpenTimerRef.current = null
+    }
+    if (miniProfileCloseTimerRef.current) {
+      window.clearTimeout(miniProfileCloseTimerRef.current)
+      miniProfileCloseTimerRef.current = null
+    }
+  }
+
+  const hideMiniProfileCard = ({ immediate = false } = {}) => {
+    if (immediate) {
+      clearMiniProfileTimers()
+      setMiniProfileCard(INITIAL_MINI_PROFILE_CARD_STATE)
+      return
+    }
+    if (miniProfileCloseTimerRef.current) {
+      window.clearTimeout(miniProfileCloseTimerRef.current)
+    }
+    miniProfileCloseTimerRef.current = window.setTimeout(() => {
+      setMiniProfileCard(INITIAL_MINI_PROFILE_CARD_STATE)
+      miniProfileCloseTimerRef.current = null
+    }, 120)
+  }
+
+  const resolveMiniProfilePosition = (clientX, clientY) => {
+    if (typeof window === 'undefined') return { x: 20, y: 20 }
+    const cardWidth = 280
+    const cardHeight = 190
+    const offset = 14
+    const maxX = Math.max(8, window.innerWidth - cardWidth - 8)
+    const maxY = Math.max(8, window.innerHeight - cardHeight - 8)
+    const nextX = clampNumber(clientX + offset, 8, maxX)
+    const nextY = clampNumber(clientY + offset, 8, maxY)
+    return { x: nextX, y: nextY }
+  }
+
+  const normalizeMiniProfileUser = (rawUser) => {
+    if (!rawUser || typeof rawUser !== 'object') return null
+    const username = String(rawUser.username || '').trim()
+    const id = rawUser.id ? String(rawUser.id) : (username ? `username:${username}` : '')
+    if (!id && !username) return null
+    const roleValue = String(rawUser.role || '').trim()
+    const roleLabel = roleValue
+      ? (roleLabelByValue.get(roleValue) || roleValue)
+      : 'Участник'
+    const displayName = String(rawUser.displayName || username || 'Пользователь').trim()
+    const statusEmoji = String(rawUser.statusEmoji || '').trim()
+    const statusText = String(rawUser.statusText || '').trim()
+    return {
+      id,
+      username,
+      displayName,
+      avatarUrl: rawUser.avatarUrl || '',
+      roleLabel,
+      statusEmoji,
+      statusText,
+      online: rawUser.online === true
+    }
+  }
+
+  const queueMiniProfileCard = (event, rawUser) => {
+    if (!event) return
+    if (typeof window !== 'undefined' && window.matchMedia && !window.matchMedia('(hover: hover)').matches) {
+      return
+    }
+    const normalized = normalizeMiniProfileUser(rawUser)
+    if (!normalized) return
+    clearMiniProfileTimers()
+    const openAtX = Number(event.clientX || 0)
+    const openAtY = Number(event.clientY || 0)
+    miniProfileOpenTimerRef.current = window.setTimeout(() => {
+      const coords = resolveMiniProfilePosition(openAtX, openAtY)
+      setMiniProfileCard({
+        open: true,
+        x: coords.x,
+        y: coords.y,
+        user: normalized
+      })
+      miniProfileOpenTimerRef.current = null
+    }, 110)
+  }
+
+  const moveMiniProfileCard = (event) => {
+    if (!event || !miniProfileCard.open) return
+    const coords = resolveMiniProfilePosition(Number(event.clientX || 0), Number(event.clientY || 0))
+    setMiniProfileCard((prev) => {
+      if (!prev.open || !prev.user) return prev
+      if (Math.abs(prev.x - coords.x) < 2 && Math.abs(prev.y - coords.y) < 2) return prev
+      return {
+        ...prev,
+        x: coords.x,
+        y: coords.y
+      }
+    })
+  }
+
+  const handleMiniProfileOpen = () => {
+    const target = miniProfileCard.user
+    if (!target) return
+    hideMiniProfileCard({ immediate: true })
+    if (target.username) {
+      openProfile(target.username)
+      return
+    }
+    if (user && target.id === String(user.id)) {
+      setView('profile')
+    }
+  }
+
+  const handleMiniProfileMessage = () => {
+    const target = miniProfileCard.user
+    if (!target || !target.username) return
+    if (user && target.username === user.username) {
+      hideMiniProfileCard({ immediate: true })
+      setView('chats')
+      return
+    }
+    hideMiniProfileCard({ immediate: true })
+    handleStartConversation(target.username)
+  }
+
   const applyFeedQuickPreset = (preset) => {
     if (!preset || typeof preset !== 'object') return
     if (preset.action === 'tag') {
@@ -6231,6 +6505,29 @@ export default function App() {
 
   const applyProfileColorPreset = (color) => {
     setProfileThemeColor(color)
+  }
+
+  const applyDeveloperPreset = (presetId) => {
+    const preset = DEV_PROFILE_PRESETS.find((item) => item.id === presetId)
+    if (!preset) return
+    setProfileShowcaseForm((prev) => {
+      const currentBadges = Array.isArray(prev.badges) ? prev.badges : []
+      const badgeSet = new Set(currentBadges)
+      preset.badges.forEach((badgeId) => badgeSet.add(badgeId))
+      return {
+        ...prev,
+        headline: String(prev.headline || '').trim() ? prev.headline : preset.headline,
+        heroTheme: preset.heroTheme || prev.heroTheme,
+        skillsInput: mergeSkillsInput(prev.skillsInput, preset.skills),
+        badges: Array.from(badgeSet).slice(0, 6)
+      }
+    })
+    setProfileForm((prev) => ({
+      ...prev,
+      statusEmoji: String(prev.statusEmoji || '').trim() ? prev.statusEmoji : preset.emoji
+    }))
+    setProfileThemeColor(preset.accent)
+    setStatus({ type: 'success', message: `Применен dev-пресет: ${preset.label}.` })
   }
 
   const updateThemeColorFromWheelPoint = (clientX, clientY) => {
@@ -7193,7 +7490,12 @@ export default function App() {
                 onClick={() => setView('profile')}
                 title="Открыть профиль"
               >
-                <div className="avatar">
+                <div
+                  className="avatar with-mini-profile"
+                  onMouseEnter={(event) => queueMiniProfileCard(event, user)}
+                  onMouseMove={moveMiniProfileCard}
+                  onMouseLeave={() => hideMiniProfileCard()}
+                >
                   {user.avatarUrl ? (
                     <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
                   ) : (
@@ -7722,7 +8024,14 @@ export default function App() {
                         key={item.id}
                         onClick={() => handleStartConversation(item.username)}
                       >
-                        <span className="avatar">{item.username[0].toUpperCase()}</span>
+                        <span
+                          className="avatar with-mini-profile"
+                          onMouseEnter={(event) => queueMiniProfileCard(event, item)}
+                          onMouseMove={moveMiniProfileCard}
+                          onMouseLeave={() => hideMiniProfileCard()}
+                        >
+                          {item.username[0].toUpperCase()}
+                        </span>
                         <div>
                           <strong>{item.displayName || item.username}</strong>
                           <small>@{item.username}</small>
@@ -7823,7 +8132,18 @@ export default function App() {
                         setChatMobilePane('chat')
                       }}
                     >
-                      <span className="avatar">
+                      <span
+                        className="avatar with-mini-profile"
+                        onMouseEnter={(event) => {
+                          if (conv.isGroup || !conv.other) return
+                          queueMiniProfileCard(event, {
+                            ...conv.other,
+                            online: isOnline(conv.other.id)
+                          })
+                        }}
+                        onMouseMove={moveMiniProfileCard}
+                        onMouseLeave={() => hideMiniProfileCard()}
+                      >
                         {conv.isGroup
                           ? (conv.title || 'G')[0].toUpperCase()
                           : (conversationTitle || 'U')[0].toUpperCase()}
@@ -7868,7 +8188,15 @@ export default function App() {
                       </button>
                       {activeConversation.isGroup ? (
                         <div className="chat-user">
-                          <div className="avatar small">
+                          <div
+                            className="avatar small with-mini-profile"
+                            onMouseEnter={(event) => queueMiniProfileCard(event, {
+                              ...activeConversation.other,
+                              online: isOnline(activeConversation.other.id)
+                            })}
+                            onMouseMove={moveMiniProfileCard}
+                            onMouseLeave={() => hideMiniProfileCard()}
+                          >
                             {(activeConversation.title || 'G')[0].toUpperCase()}
                           </div>
                           <div>
@@ -8384,8 +8712,19 @@ export default function App() {
                         {msg.senderId !== user.id && (
                           <button
                             type="button"
-                            className="avatar tiny clickable"
+                            className="avatar tiny clickable with-mini-profile"
                             onClick={() => openProfile(msg.senderUsername)}
+                            onMouseEnter={(event) => queueMiniProfileCard(event, {
+                              id: msg.senderId,
+                              username: msg.senderUsername,
+                              displayName: msg.senderDisplayName || msg.senderUsername,
+                              avatarUrl: msg.senderAvatarUrl || '',
+                              role: msg.senderRole || '',
+                              statusEmoji: msg.senderStatusEmoji || '',
+                              statusText: msg.senderStatusText || ''
+                            })}
+                            onMouseMove={moveMiniProfileCard}
+                            onMouseLeave={() => hideMiniProfileCard()}
                             title="Открыть профиль"
                           >
                             {msg.senderAvatarUrl ? (
@@ -8526,8 +8865,11 @@ export default function App() {
                         {msg.senderId === user.id && (
                           <button
                             type="button"
-                            className="avatar tiny clickable"
+                            className="avatar tiny clickable with-mini-profile"
                             onClick={() => setView('profile')}
+                            onMouseEnter={(event) => queueMiniProfileCard(event, user)}
+                            onMouseMove={moveMiniProfileCard}
+                            onMouseLeave={() => hideMiniProfileCard()}
                             title="Открыть профиль"
                           >
                             {user.avatarUrl ? (
@@ -9558,7 +9900,12 @@ export default function App() {
                     className="feed-header clickable"
                     onClick={() => openProfile(post.author.username)}
                   >
-                    <div className="avatar small">
+                    <div
+                      className="avatar small with-mini-profile"
+                      onMouseEnter={(event) => queueMiniProfileCard(event, post.author)}
+                      onMouseMove={moveMiniProfileCard}
+                      onMouseLeave={() => hideMiniProfileCard()}
+                    >
                       {post.author.avatarUrl ? (
                         <img src={resolveMediaUrl(post.author.avatarUrl)} alt="avatar" />
                       ) : (
@@ -9664,7 +10011,12 @@ export default function App() {
                       <div className="comment-list">
                         {(commentsByPost[post.id] || []).map((comment) => (
                           <div key={comment.id} className="comment-item">
-                            <div className="avatar tiny">
+                            <div
+                              className="avatar tiny with-mini-profile"
+                              onMouseEnter={(event) => queueMiniProfileCard(event, comment.user)}
+                              onMouseMove={moveMiniProfileCard}
+                              onMouseLeave={() => hideMiniProfileCard()}
+                            >
                               {comment.user.avatarUrl ? (
                                 <img src={resolveMediaUrl(comment.user.avatarUrl)} alt="avatar" />
                               ) : (
@@ -9716,7 +10068,12 @@ export default function App() {
                     backgroundImage: profileView.bannerUrl ? `url(${resolveMediaUrl(profileView.bannerUrl)})` : 'none'
                   }}
                 >
-                  <div className="avatar large">
+                  <div
+                    className="avatar large with-mini-profile"
+                    onMouseEnter={(event) => queueMiniProfileCard(event, profileView)}
+                    onMouseMove={moveMiniProfileCard}
+                    onMouseLeave={() => hideMiniProfileCard()}
+                  >
                     {profileView.avatarUrl ? (
                       <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
                     ) : (
@@ -9848,6 +10205,27 @@ export default function App() {
                       ))}
                     </div>
                   </article>
+                  <article className="profile-dev-card">
+                    <div className="profile-dev-card-head">
+                      <h3>Dev Snapshot</h3>
+                      <strong>{profileDeveloperSnapshot.score}%</strong>
+                    </div>
+                    <p>
+                      Основной трек: <b>{profileDeveloperSnapshot.primaryTrack}</b> • уровень: {profileDeveloperSnapshot.level}
+                    </p>
+                    <p>
+                      Роль: <b>{profileView && profileView.role ? (roleLabelByValue.get(profileView.role) || profileView.role) : 'Не указана'}</b>
+                    </p>
+                    {profileDeveloperSnapshot.activeTracks.length > 0 ? (
+                      <div className="profile-dev-track-chips">
+                        {profileDeveloperSnapshot.activeTracks.map((track) => (
+                          <span key={`profile-track-${track.id}`}>{track.label} · {track.score}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="profile-dev-empty">Нет выраженного стека. Добавь skills в Showcase.</div>
+                    )}
+                  </article>
                 </section>
                 {profileShowcaseHasContent && (
                   <section className="profile-showcase-card">
@@ -9950,7 +10328,12 @@ export default function App() {
                         <div className="repost-badge">Repost</div>
                       )}
                       <div className="feed-header">
-                        <div className="avatar small">
+                        <div
+                          className="avatar small with-mini-profile"
+                          onMouseEnter={(event) => queueMiniProfileCard(event, profileView)}
+                          onMouseMove={moveMiniProfileCard}
+                          onMouseLeave={() => hideMiniProfileCard()}
+                        >
                           {profileView.avatarUrl ? (
                             <img src={resolveMediaUrl(profileView.avatarUrl)} alt="avatar" />
                           ) : (
@@ -10047,7 +10430,12 @@ export default function App() {
                           <div className="comment-list">
                             {(commentsByPost[post.id] || []).map((comment) => (
                               <div key={comment.id} className="comment-item">
-                                <div className="avatar tiny">
+                                <div
+                                  className="avatar tiny with-mini-profile"
+                                  onMouseEnter={(event) => queueMiniProfileCard(event, comment.user)}
+                                  onMouseMove={moveMiniProfileCard}
+                                  onMouseLeave={() => hideMiniProfileCard()}
+                                >
                                   {comment.user.avatarUrl ? (
                                     <img src={resolveMediaUrl(comment.user.avatarUrl)} alt="avatar" />
                                   ) : (
@@ -10197,7 +10585,12 @@ export default function App() {
               Для PNG/JPG/WebP откроется редактор: можно двигать и масштабировать обложку. GIF загружается без кадрирования.
             </p>
             <div className="profile-avatar">
-              <div className="avatar large">
+              <div
+                className="avatar large with-mini-profile"
+                onMouseEnter={(event) => queueMiniProfileCard(event, user)}
+                onMouseMove={moveMiniProfileCard}
+                onMouseLeave={() => hideMiniProfileCard()}
+              >
                 {user.avatarUrl ? (
                   <img src={resolveMediaUrl(user.avatarUrl)} alt="avatar" />
                 ) : (
@@ -10384,6 +10777,37 @@ export default function App() {
                 </div>
               </section>
             </div>
+            <section className="profile-dev-lab">
+              <div className="profile-dev-head">
+                <h3>Developer Mode</h3>
+                <span>{editorDeveloperSnapshot.score}% • {editorDeveloperSnapshot.level}</span>
+              </div>
+              <p>Быстрые пресеты для программистов: скиллы, бейджи, визуал и тематический стиль профиля.</p>
+              <div className="profile-dev-preset-grid">
+                {DEV_PROFILE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyDeveloperPreset(preset.id)}
+                  >
+                    <strong>{preset.emoji} {preset.label}</strong>
+                    <span>{preset.headline}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="profile-dev-track-row">
+                <strong>Текущее направление: {editorDeveloperSnapshot.primaryTrack}</strong>
+                {editorDeveloperSnapshot.activeTracks.length > 0 ? (
+                  <div className="profile-dev-track-chips">
+                    {editorDeveloperSnapshot.activeTracks.map((track) => (
+                      <span key={`editor-dev-track-${track.id}`}>{track.label} · {track.score}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <span>Добавь технические скиллы в Showcase, чтобы получить точный dev-срез.</span>
+                )}
+              </div>
+            </section>
             <section className="profile-showcase-editor">
               <div className="profile-showcase-head">
                 <h3>Showcase</h3>
@@ -10714,6 +11138,47 @@ export default function App() {
             </button>
           </div>,
           document.body
+        )}
+
+        {miniProfileCard.open && miniProfileCard.user && (
+          <div
+            className="mini-profile-card"
+            style={{ top: `${miniProfileCard.y}px`, left: `${miniProfileCard.x}px` }}
+            onMouseEnter={clearMiniProfileTimers}
+            onMouseLeave={() => hideMiniProfileCard()}
+          >
+            <div className="mini-profile-head">
+              <div className="avatar small">
+                {miniProfileCard.user.avatarUrl ? (
+                  <img src={resolveMediaUrl(miniProfileCard.user.avatarUrl)} alt="avatar" />
+                ) : (
+                  (miniProfileCard.user.displayName || miniProfileCard.user.username || 'U')[0].toUpperCase()
+                )}
+              </div>
+              <div>
+                <strong>{miniProfileCard.user.displayName || miniProfileCard.user.username || 'Пользователь'}</strong>
+                {miniProfileCard.user.username && <span>@{miniProfileCard.user.username}</span>}
+              </div>
+              <span className={`mini-profile-presence ${miniProfileCard.user.online ? 'online' : ''}`.trim()}>
+                {miniProfileCard.user.online ? 'online' : 'offline'}
+              </span>
+            </div>
+            <div className="mini-profile-meta">
+              <span>{miniProfileCard.user.roleLabel}</span>
+              {(miniProfileCard.user.statusEmoji || miniProfileCard.user.statusText) && (
+                <span>
+                  {miniProfileCard.user.statusEmoji ? `${miniProfileCard.user.statusEmoji} ` : ''}
+                  {miniProfileCard.user.statusText || 'без статуса'}
+                </span>
+              )}
+            </div>
+            <div className="mini-profile-actions">
+              <button type="button" className="ghost" onClick={handleMiniProfileOpen}>Профиль</button>
+              {miniProfileCard.user.username && (
+                <button type="button" className="primary" onClick={handleMiniProfileMessage}>Написать</button>
+              )}
+            </div>
+          </div>
         )}
 
         {callState.status === 'incoming' && (
