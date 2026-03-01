@@ -6254,35 +6254,24 @@ body {
 }
 
 .verified-mark {
-  --verified-size: 18px;
   display: inline-flex;
-  width: var(--verified-size);
-  height: var(--verified-size);
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #3b82f6, #22d3ee);
-  border: 1px solid rgba(147, 197, 253, 0.55);
-  color: #ffffff;
-  font-size: 0;
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.5);
+  color: #86efac;
+  font-size: 12px;
   font-weight: 800;
   line-height: 1;
   flex-shrink: 0;
-  box-shadow:
-    0 0 0 1px rgba(10, 14, 26, 0.55),
-    0 6px 16px rgba(59, 130, 246, 0.35);
-}
-
-.verified-mark::before {
-  content: '\2713';
-  font-size: 11px;
-  line-height: 1;
-  transform: translateY(-0.25px);
 }
 
 .mini-profile-verified {
-  --verified-size: 17px;
-  margin-left: 2px;
+  margin-left: 4px;
+  transform: translateY(-1px);
 }
 
 .mini-profile-identity span {
