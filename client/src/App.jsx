@@ -11135,8 +11135,8 @@ export default function App() {
   const settingsPanelClassName = `panel settings-panel settings-panel-redesign settings-theme-${settingsSection}`.trim()
 
   return (
-    <div className="page">
-      <main className="content">
+    <div className={`page page-view-${view} ${user ? 'page-authenticated' : 'page-guest'}`.trim()}>
+      <main className={`content ${user ? 'content-authenticated' : 'content-guest'}`.trim()}>
         <div className="topbar">
           <div className="brand-inline">
             <div className="brand-icon">КТК</div>
