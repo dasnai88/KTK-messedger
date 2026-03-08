@@ -479,6 +479,16 @@ const PULSE_TAB_OPTIONS = [
   { value: PULSE_TABS.pinned, label: 'Pinned', labelRu: 'Закреплённое', hint: 'saved focus', hintRu: 'сохранённый фокус' },
   { value: PULSE_TABS.archived, label: 'Done', labelRu: 'Готово', hint: 'resolved items', hintRu: 'закрытые пункты' }
 ]
+const DASHBOARD_PULSE_TAB_OPTIONS = PULSE_TAB_OPTIONS.filter((item) => (
+  [
+    PULSE_TABS.priority,
+    PULSE_TABS.chats,
+    PULSE_TABS.feed,
+    PULSE_TABS.profile,
+    PULSE_TABS.system,
+    PULSE_TABS.archived
+  ].includes(item.value)
+))
 const PULSE_LANE_LABELS = {
   [PULSE_TABS.chats]: 'Чаты',
   [PULSE_TABS.feed]: 'Лента',
@@ -2151,7 +2161,7 @@ export default function App() {
     }
   })
   const [dashboardLastRefreshAt, setDashboardLastRefreshAt] = useState(null)
-  const [pulseTab, setPulseTab] = useState(PULSE_TABS.all)
+  const [pulseTab, setPulseTab] = useState(PULSE_TABS.priority)
   const [pulseQuery, setPulseQuery] = useState('')
   const [pulseDismissedItemIds, setPulseDismissedItemIds] = useState(() => {
     if (typeof window === 'undefined') return []
@@ -4169,6 +4179,32 @@ export default function App() {
       ? 'Stable'
       : 'Clear'
   const pulseResolvedCount = pulseTabCounts[PULSE_TABS.archived] || 0
+  const dashboardPulseVisibleItems = useMemo(() => (
+    pulseVisibleItems.slice(0, pulseTab === PULSE_TABS.archived ? 5 : 4)
+  ), [pulseTab, pulseVisibleItems])
+  const dashboardPulseHealthLabel = useMemo(() => {
+    if (pulsePriorityCount > 0) return uiText('Требует внимания', 'Needs attention')
+    if (pulseActiveItems.length > 0) return uiText('Стабильно', 'Stable')
+    return uiText('Пусто', 'Clear')
+  }, [isEnglishUi, pulseActiveItems.length, pulsePriorityCount])
+  const dashboardPulseEmptyLabel = useMemo(() => {
+    if (pulseTab === PULSE_TABS.archived) {
+      return uiText('Здесь появятся скрытые пункты, если ты уберёшь их из входящих.', 'Hidden items will appear here after you remove them from the inbox.')
+    }
+    if (pulseTab === PULSE_TABS.chats) {
+      return uiText('По чатам сейчас тихо. Непрочитанных диалогов и черновиков нет.', 'Chats are quiet right now. No unread threads or drafts.')
+    }
+    if (pulseTab === PULSE_TABS.feed) {
+      return uiText('Лента спокойная. Упоминаний и горячих тем пока нет.', 'Feed is calm. No mentions or hot threads right now.')
+    }
+    if (pulseTab === PULSE_TABS.profile) {
+      return uiText('Профильный блок чистый. Критичных задач сейчас нет.', 'Profile is clear. No critical tasks right now.')
+    }
+    if (pulseTab === PULSE_TABS.system) {
+      return uiText('Система без явных предупреждений.', 'System has no obvious warnings.')
+    }
+    return uiText('Входящие пусты. Можно переключиться на чаты, ленту или профиль.', 'Inbox is clear. You can switch to chats, feed, or profile.')
+  }, [isEnglishUi, pulseTab])
   const scrollChatToBottom = (behavior = 'auto') => {
     const container = chatMessagesRef.current
     if (!container) return
@@ -5199,7 +5235,8 @@ export default function App() {
   const readStoredView = (isAdmin) => {
     try {
       const stored = localStorage.getItem('ktk_view')
-      const allowed = ['dashboard', 'pulse', 'feed', 'chats', 'profile', 'settings']
+      if (stored === 'pulse') return 'dashboard'
+      const allowed = ['dashboard', 'feed', 'chats', 'profile', 'settings']
       if (isAdmin) allowed.push('admin')
       return stored && allowed.includes(stored) ? stored : 'feed'
     } catch (err) {
@@ -5329,7 +5366,7 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return
-    const allowed = ['dashboard', 'pulse', 'feed', 'chats', 'profile', 'settings']
+    const allowed = ['dashboard', 'feed', 'chats', 'profile', 'settings']
     if (user.isAdmin) allowed.push('admin')
     if (allowed.includes(view)) {
       try {
@@ -8317,8 +8354,9 @@ export default function App() {
     setChatMobilePane(pane)
   }
 
-  const openPulseWorkspace = (tab = PULSE_TABS.all) => {
-    setView('pulse')
+  const openPulseWorkspace = (tab = PULSE_TABS.priority) => {
+    setView('dashboard')
+    setPulseQuery('')
     setPulseTab(normalizePulseTab(tab))
   }
 
@@ -8690,11 +8728,11 @@ export default function App() {
         run: () => setView('dashboard')
       },
       {
-        id: 'go-pulse',
-        title: 'Открыть Pulse',
-        hint: 'Входящие, приоритеты и triage-доска',
-        keywords: 'pulse активность входящие задачи фокус',
-        run: () => openPulseWorkspace()
+        id: 'go-inbox',
+        title: 'Открыть входящие',
+        hint: 'Компактный блок в центре управления',
+        keywords: 'pulse inbox активность входящие задачи панель фокус',
+        run: () => openPulseWorkspace(PULSE_TABS.priority)
       },
       {
         id: 'go-feed',
@@ -11169,6 +11207,7 @@ export default function App() {
             {user ? (
               <button
                 type="button"
+                style={{ display: 'none' }}
                 className={`pulse-toggle ${view === 'pulse' ? 'active' : ''}`.trim()}
                 onClick={() => openPulseWorkspace()}
                 title={uiText('Рабочее пространство Pulse', 'Pulse workspace')}
@@ -11337,6 +11376,7 @@ export default function App() {
             </button>
             <button
               type="button"
+              style={{ display: 'none' }}
               className={view === 'pulse' ? 'active' : ''}
               onClick={() => openPulseWorkspace()}
               title="Pulse"
@@ -11716,7 +11756,7 @@ export default function App() {
               <div className="dashboard-card-head">
                 <div>
                   <strong>Командная строка</strong>
-                  <span>команды: unread, drafts, hot, pulse, compose, mine, bookmarks, profile, chats, feed, refresh, push, mode:focus, #тег, @автор</span>
+                  <span>команды: unread, drafts, hot, inbox, compose, mine, bookmarks, profile, chats, feed, refresh, push, mode:focus, #тег, @автор</span>
                 </div>
               </div>
               <div className="dashboard-command-row">
@@ -11753,6 +11793,103 @@ export default function App() {
             </section>
 
             <div className={`dashboard-functional-grid ${dashboardFocusMode ? 'focus-mode' : ''}`.trim()}>
+              <article className="dashboard-functional-card dashboard-inbox-card">
+                <div className="dashboard-card-head">
+                  <div>
+                    <strong>{uiText('Входящие', 'Inbox')}</strong>
+                    <span>{uiText('чаты, лента, профиль и системные сигналы в одном компактном блоке', 'chats, feed, profile, and system signals in one compact block')}</span>
+                  </div>
+                  <span className="dashboard-inbox-health">{dashboardPulseHealthLabel}</span>
+                </div>
+                <div className="dashboard-inbox-stats">
+                  <article>
+                    <span>{uiText('Активно', 'Active')}</span>
+                    <strong>{pulseActiveItems.length}</strong>
+                  </article>
+                  <article>
+                    <span>{uiText('Важное', 'Priority')}</span>
+                    <strong>{pulsePriorityCount}</strong>
+                  </article>
+                  <article>
+                    <span>{uiText('Готово', 'Done')}</span>
+                    <strong>{pulseResolvedCount}</strong>
+                  </article>
+                </div>
+                <div className="dashboard-inbox-filters" role="tablist" aria-label={uiText('Фильтры входящих', 'Inbox filters')}>
+                  {DASHBOARD_PULSE_TAB_OPTIONS.map((item) => (
+                    <button
+                      key={`dashboard-inbox-tab-${item.value}`}
+                      type="button"
+                      className={pulseTab === item.value ? 'active' : ''}
+                      onClick={() => setPulseTab(item.value)}
+                    >
+                      <strong>{getPulseTabLabel(item)}</strong>
+                      <span>{pulseTabCounts[item.value] || 0}</span>
+                    </button>
+                  ))}
+                </div>
+                {dashboardPulseVisibleItems.length === 0 ? (
+                  <div className="dashboard-inbox-empty">{dashboardPulseEmptyLabel}</div>
+                ) : (
+                  <div className="dashboard-inbox-list">
+                    {dashboardPulseVisibleItems.map((item) => {
+                      const isArchived = pulseDismissedIdSet.has(item.id)
+                      const laneLabel = PULSE_LANE_LABELS[item.lane] || uiText('Обзор', 'Overview')
+                      const relativeAge = item.timestamp ? formatRelativeFeedAge(item.timestamp) : ''
+                      return (
+                        <div key={`dashboard-inbox-${item.id}`} className={`dashboard-inbox-item tone-${item.tone || 'neutral'}`.trim()}>
+                          <button
+                            type="button"
+                            className="dashboard-inbox-item-main"
+                            onClick={() => runPulseAction(item)}
+                          >
+                            <div className="dashboard-inbox-item-top">
+                              <span>{laneLabel}</span>
+                              <span>P{item.priority}</span>
+                            </div>
+                            <strong>{item.title}</strong>
+                            <small>{item.text}</small>
+                            <div className="dashboard-inbox-item-meta">
+                              <span>{item.meta || item.cta}</span>
+                              {relativeAge && <span>{relativeAge}</span>}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            className={`dashboard-inbox-action ${isArchived ? 'restore' : 'dismiss'}`.trim()}
+                            onClick={() => (isArchived ? restorePulseItem(item.id) : dismissPulseItem(item.id))}
+                            title={isArchived
+                              ? uiText('Вернуть пункт', 'Restore item')
+                              : uiText('Скрыть пункт', 'Hide item')}
+                          >
+                            {isArchived ? '↺' : '✓'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="dashboard-shortcut-row">
+                  <button type="button" className="ghost" onClick={() => setPulseTab(PULSE_TABS.priority)}>
+                    {uiText('Важное', 'Priority')}
+                  </button>
+                  <button type="button" className="ghost" onClick={() => setPulseTab(PULSE_TABS.chats)}>
+                    {uiText('Чаты', 'Chats')}
+                  </button>
+                  <button type="button" className="ghost" onClick={() => setPulseTab(PULSE_TABS.feed)}>
+                    {uiText('Лента', 'Feed')}
+                  </button>
+                  {pulseResolvedCount > 0 && (
+                    <button type="button" className="ghost" onClick={restoreAllPulseItems}>
+                      {uiText('Вернуть скрытое', 'Restore hidden')}
+                    </button>
+                  )}
+                  <button type="button" className="ghost" onClick={refreshWorkspaceSnapshot}>
+                    {uiText('Обновить', 'Refresh')}
+                  </button>
+                </div>
+              </article>
+
               <article className="dashboard-functional-card">
                 <div className="dashboard-card-head">
                   <div>
@@ -11785,7 +11922,7 @@ export default function App() {
                     Закладки
                   </button>
                   <button type="button" className="ghost" onClick={() => openPulseWorkspace(PULSE_TABS.priority)}>
-                    {uiText('Пульс', 'Pulse')}
+                    {uiText('Входящие', 'Inbox')}
                   </button>
                   <button type="button" className="ghost" onClick={() => runDashboardWorkbenchAction('settings')}>
                     Настройки
@@ -11984,7 +12121,7 @@ export default function App() {
           </div>
         )}
 
-        {view === 'pulse' && user && (
+        {false && user && (
           <div className="pulse-layout">
             <section className="pulse-hero">
               <div className="pulse-hero-main">
@@ -16428,7 +16565,7 @@ export default function App() {
                     </div>
                     <p className="settings-language-note">
                       {appLanguage === 'ru'
-                        ? 'Русский включён. Новые разделы Pulse, рабочая панель и оформление уже полностью русифицированы.'
+                        ? 'Русский включён. Центр управления и новое оформление уже полностью русифицированы.'
                         : 'English beta is enabled. The newest workspace panels switch first while legacy areas are still being aligned.'}
                     </p>
                   </section>
@@ -17334,6 +17471,7 @@ export default function App() {
           </button>
           <button
             type="button"
+            style={{ display: 'none' }}
             className={view === 'pulse' ? 'active' : ''}
             onClick={() => openPulseWorkspace()}
             title="Pulse"
