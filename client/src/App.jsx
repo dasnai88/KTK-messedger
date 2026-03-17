@@ -438,6 +438,7 @@ const RECENT_EMOJIS_STORAGE_KEY = 'ktk_recent_emojis'
 const UI_PREFERENCES_STORAGE_KEY = 'ktk_ui_preferences_v2'
 const UI_CUSTOM_THEME_PRESETS_STORAGE_KEY = 'ktk_ui_custom_theme_presets_v1'
 const UI_CUSTOM_THEME_PRESET_LIMIT = 24
+const WORKSPACE_STRIP_COLLAPSED_STORAGE_KEY = 'ktk_workspace_strip_collapsed_v1'
 const PROFILE_SHOWCASE_STORAGE_KEY = 'ktk_profile_showcase_v1'
 const DASHBOARD_WORKBENCH_MODES = {
   focus: 'focus',
@@ -2069,6 +2070,14 @@ export default function App() {
   })
   const [uiCustomPresetName, setUiCustomPresetName] = useState('')
   const [appearanceImportJson, setAppearanceImportJson] = useState('')
+  const [workspaceStripCollapsed, setWorkspaceStripCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return localStorage.getItem(WORKSPACE_STRIP_COLLAPSED_STORAGE_KEY) === '1'
+    } catch (err) {
+      return false
+    }
+  })
   const [profileShowcaseByUserId, setProfileShowcaseByUserId] = useState(() => {
     if (typeof window === 'undefined') return {}
     try {
@@ -4574,6 +4583,14 @@ export default function App() {
       // ignore storage errors
     }
   }, [uiCustomThemePresets])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WORKSPACE_STRIP_COLLAPSED_STORAGE_KEY, workspaceStripCollapsed ? '1' : '0')
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [workspaceStripCollapsed])
 
   useEffect(() => {
     try {
@@ -11521,11 +11538,26 @@ export default function App() {
         </div>
 
         {user && workspaceStrip ? (
-          <section className={`workspace-strip workspace-strip-view-${view}`.trim()} aria-label={workspaceStrip.title}>
+          <section
+            className={`workspace-strip workspace-strip-view-${view} ${workspaceStripCollapsed ? 'workspace-strip-collapsed' : ''}`.trim()}
+            aria-label={workspaceStrip.title}
+          >
             <div className="workspace-strip-main">
-              <span className="workspace-strip-kicker">{workspaceStrip.kicker}</span>
+              <div className="workspace-strip-headline">
+                <span className="workspace-strip-kicker">{workspaceStrip.kicker}</span>
+                <button
+                  type="button"
+                  className="workspace-strip-toggle"
+                  onClick={() => setWorkspaceStripCollapsed((prev) => !prev)}
+                  aria-expanded={!workspaceStripCollapsed}
+                >
+                  {workspaceStripCollapsed
+                    ? uiText('Развернуть', 'Expand')
+                    : uiText('Свернуть', 'Collapse')}
+                </button>
+              </div>
               <strong>{workspaceStrip.title}</strong>
-              <p>{workspaceStrip.description}</p>
+              {!workspaceStripCollapsed ? <p>{workspaceStrip.description}</p> : null}
             </div>
             <div className="workspace-strip-status">
               {workspaceStrip.chips.map((chip) => (
@@ -11534,14 +11566,16 @@ export default function App() {
                 </span>
               ))}
             </div>
-            <div className="workspace-strip-actions">
-              {workspaceStrip.actions.map((action) => (
-                <button key={action.id} type="button" onClick={() => runWorkspaceStripAction(action.id)}>
-                  <strong>{action.label}</strong>
-                  <span>{action.hint}</span>
-                </button>
-              ))}
-            </div>
+            {!workspaceStripCollapsed ? (
+              <div className="workspace-strip-actions">
+                {workspaceStrip.actions.map((action) => (
+                  <button key={action.id} type="button" onClick={() => runWorkspaceStripAction(action.id)}>
+                    <strong>{action.label}</strong>
+                    <span>{action.hint}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
