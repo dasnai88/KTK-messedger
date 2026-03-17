@@ -13208,6 +13208,16 @@ body::after {
   --chrome-topbar-blur: 18px;
   --chrome-border-alpha: 0.22;
   --chrome-highlight-alpha: 0.11;
+  --backdrop-body-primary-alpha: 0.12;
+  --backdrop-body-secondary-alpha: 0.16;
+  --backdrop-body-tertiary-alpha: 0.08;
+  --backdrop-surface-primary-alpha: 0.12;
+  --backdrop-surface-secondary-alpha: 0.08;
+  --chrome-content-shadow: 0 14px 30px rgba(2, 6, 23, 0.18);
+  --chrome-surface-shadow: 0 10px 24px rgba(2, 6, 23, 0.14);
+  --chrome-hover-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.08);
+  --chrome-panel-gloss-alpha: 0.04;
+  --chrome-topbar-gloss-alpha: 0.06;
 }
 
 :root[data-ui-backdrop='aurora'] {
@@ -13220,6 +13230,11 @@ body::after {
   --scene-orb-primary-opacity: 0.82;
   --scene-orb-secondary-opacity: 0.54;
   --scene-orb-tertiary-opacity: 0.24;
+  --backdrop-body-primary-alpha: 0.13;
+  --backdrop-body-secondary-alpha: 0.18;
+  --backdrop-body-tertiary-alpha: 0.09;
+  --backdrop-surface-primary-alpha: 0.14;
+  --backdrop-surface-secondary-alpha: 0.09;
 }
 
 :root[data-ui-backdrop='studio'] {
@@ -13232,6 +13247,11 @@ body::after {
   --scene-orb-primary-opacity: 0.56;
   --scene-orb-secondary-opacity: 0.28;
   --scene-orb-tertiary-opacity: 0.14;
+  --backdrop-body-primary-alpha: 0.08;
+  --backdrop-body-secondary-alpha: 0.08;
+  --backdrop-body-tertiary-alpha: 0.04;
+  --backdrop-surface-primary-alpha: 0.08;
+  --backdrop-surface-secondary-alpha: 0.05;
 }
 
 :root[data-ui-backdrop='spotlight'] {
@@ -13244,6 +13264,11 @@ body::after {
   --scene-orb-primary-opacity: 0.88;
   --scene-orb-secondary-opacity: 0.32;
   --scene-orb-tertiary-opacity: 0.16;
+  --backdrop-body-primary-alpha: 0.07;
+  --backdrop-body-secondary-alpha: 0.24;
+  --backdrop-body-tertiary-alpha: 0.03;
+  --backdrop-surface-primary-alpha: 0.16;
+  --backdrop-surface-secondary-alpha: 0.04;
 }
 
 :root[data-ui-backdrop='bloom'] {
@@ -13256,6 +13281,11 @@ body::after {
   --scene-orb-primary-opacity: 0.66;
   --scene-orb-secondary-opacity: 0.62;
   --scene-orb-tertiary-opacity: 0.2;
+  --backdrop-body-primary-alpha: 0.18;
+  --backdrop-body-secondary-alpha: 0.14;
+  --backdrop-body-tertiary-alpha: 0.1;
+  --backdrop-surface-primary-alpha: 0.11;
+  --backdrop-surface-secondary-alpha: 0.13;
 }
 
 :root[data-ui-chrome='soft'] {
@@ -13267,6 +13297,11 @@ body::after {
   --chrome-topbar-blur: 16px;
   --chrome-border-alpha: 0.16;
   --chrome-highlight-alpha: 0.14;
+  --chrome-content-shadow: 0 8px 18px rgba(2, 6, 23, 0.08);
+  --chrome-surface-shadow: 0 6px 14px rgba(2, 6, 23, 0.07);
+  --chrome-hover-shadow: 0 6px 14px rgba(var(--accent-rgb), 0.05);
+  --chrome-panel-gloss-alpha: 0.06;
+  --chrome-topbar-gloss-alpha: 0.08;
 }
 
 :root[data-ui-chrome='balanced'] {
@@ -13278,6 +13313,11 @@ body::after {
   --chrome-topbar-blur: 18px;
   --chrome-border-alpha: 0.22;
   --chrome-highlight-alpha: 0.11;
+  --chrome-content-shadow: 0 14px 30px rgba(2, 6, 23, 0.18);
+  --chrome-surface-shadow: 0 10px 24px rgba(2, 6, 23, 0.14);
+  --chrome-hover-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.08);
+  --chrome-panel-gloss-alpha: 0.04;
+  --chrome-topbar-gloss-alpha: 0.06;
 }
 
 :root[data-ui-chrome='vivid'] {
@@ -13289,12 +13329,18 @@ body::after {
   --chrome-topbar-blur: 22px;
   --chrome-border-alpha: 0.3;
   --chrome-highlight-alpha: 0.09;
+  --chrome-content-shadow: 0 18px 36px rgba(2, 6, 23, 0.2);
+  --chrome-surface-shadow: 0 14px 28px rgba(2, 6, 23, 0.16);
+  --chrome-hover-shadow: 0 12px 24px rgba(var(--accent-rgb), 0.12);
+  --chrome-panel-gloss-alpha: 0.08;
+  --chrome-topbar-gloss-alpha: 0.1;
 }
 
 body {
   background:
-    radial-gradient(circle at 10% 0%, rgba(var(--stripe-rgb), 0.1), transparent 28%),
-    radial-gradient(circle at 100% 12%, rgba(var(--accent-rgb), 0.16), transparent 34%),
+    radial-gradient(circle at 10% 0%, rgba(var(--stripe-rgb), var(--backdrop-body-tertiary-alpha)), transparent 28%),
+    radial-gradient(circle at 100% 12%, rgba(var(--accent-rgb), var(--backdrop-body-secondary-alpha)), transparent 34%),
+    radial-gradient(circle at 48% 10%, rgba(var(--accent-2-rgb), var(--backdrop-body-primary-alpha)), transparent 38%),
     linear-gradient(180deg, color-mix(in srgb, var(--bg) 94%, white 6%), var(--bg));
 }
 
@@ -13432,8 +13478,9 @@ body::after {
   inset: 0;
   border-radius: inherit;
   background:
-    radial-gradient(circle at 100% 0%, rgba(var(--accent-rgb), 0.12), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 26%);
+    radial-gradient(circle at 100% 0%, rgba(var(--accent-rgb), var(--backdrop-surface-primary-alpha)), transparent 30%),
+    radial-gradient(circle at 0% 100%, rgba(var(--accent-2-rgb), var(--backdrop-surface-secondary-alpha)), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, var(--chrome-panel-gloss-alpha)), transparent 26%);
   pointer-events: none;
 }
 
@@ -13461,8 +13508,9 @@ body::after {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 0% 0%, rgba(var(--accent-rgb), 0.18), transparent 34%),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 36%);
+    radial-gradient(circle at 0% 0%, rgba(var(--accent-rgb), calc(var(--backdrop-surface-primary-alpha) + 0.04)), transparent 34%),
+    radial-gradient(circle at 100% 100%, rgba(var(--accent-2-rgb), calc(var(--backdrop-surface-secondary-alpha) + 0.03)), transparent 38%),
+    linear-gradient(90deg, rgba(255, 255, 255, var(--chrome-topbar-gloss-alpha)), transparent 36%);
   pointer-events: none;
 }
 
@@ -13575,9 +13623,9 @@ body::after {
   border-radius: 26px;
   border: 1px solid rgba(var(--outline-rgb), 0.26);
   background:
-    radial-gradient(circle at 0% 0%, rgba(var(--accent-rgb), 0.18), transparent 34%),
-    radial-gradient(circle at 100% 0%, rgba(var(--accent-2-rgb), 0.14), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 36%),
+    radial-gradient(circle at 0% 0%, rgba(var(--accent-rgb), calc(var(--backdrop-surface-primary-alpha) + 0.06)), transparent 34%),
+    radial-gradient(circle at 100% 0%, rgba(var(--accent-2-rgb), calc(var(--backdrop-surface-secondary-alpha) + 0.05)), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--chrome-panel-gloss-alpha) + 0.02)), transparent 36%),
     color-mix(in srgb, var(--panel) 94%, transparent);
   box-shadow:
     var(--surface-shadow),
@@ -13646,8 +13694,9 @@ body::after {
   overflow: hidden;
   border: 1px solid rgba(var(--outline-rgb), 0.28);
   background:
-    linear-gradient(155deg, rgba(var(--accent-rgb), 0.2), transparent 45%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 42%),
+    linear-gradient(155deg, rgba(var(--accent-rgb), calc(var(--backdrop-surface-primary-alpha) + 0.08)), transparent 45%),
+    radial-gradient(circle at 100% 0%, rgba(var(--accent-2-rgb), calc(var(--backdrop-surface-secondary-alpha) + 0.08)), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--chrome-panel-gloss-alpha) + 0.04)), transparent 42%),
     color-mix(in srgb, var(--panel-2) 92%, transparent);
 }
 
@@ -13737,7 +13786,8 @@ body::after {
   border-radius: 20px;
   border: 1px solid rgba(var(--outline-rgb), 0.22);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, calc(var(--chrome-panel-gloss-alpha) + 0.01)), transparent 34%),
+    radial-gradient(circle at 100% 0%, rgba(var(--accent-rgb), var(--backdrop-surface-primary-alpha)), transparent 44%),
     color-mix(in srgb, var(--panel-2) 90%, transparent);
 }
 
@@ -13951,7 +14001,7 @@ body::after {
 
 .content {
   box-shadow:
-    var(--soft-shadow),
+    var(--chrome-content-shadow),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
@@ -13990,7 +14040,7 @@ body::after {
 .call-bar,
 .profile-hero.profile-hero-expanded {
   box-shadow:
-    var(--surface-shadow),
+    var(--chrome-surface-shadow),
     inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
@@ -14006,7 +14056,7 @@ body::after {
 .profile-dev-preset-grid button:hover,
 .feed-preset-item:hover,
 .feed-radar-card:hover {
-  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.08);
+  box-shadow: var(--chrome-hover-shadow);
 }
 
 .appearance-director-card {
