@@ -814,6 +814,17 @@ const UI_DENSITY_OPTIONS = [
   { value: 'comfortable', label: 'Comfort', labelRu: 'Комфортно' },
   { value: 'spacious', label: 'Spacious', labelRu: 'Свободно' }
 ]
+const UI_BACKDROP_OPTIONS = [
+  { value: 'aurora', label: 'Aurora', labelRu: 'Аврора' },
+  { value: 'studio', label: 'Studio Grid', labelRu: 'Студийная сетка' },
+  { value: 'spotlight', label: 'Spotlight', labelRu: 'Софиты' },
+  { value: 'bloom', label: 'Bloom', labelRu: 'Свечение' }
+]
+const UI_CHROME_OPTIONS = [
+  { value: 'soft', label: 'Soft', labelRu: 'Мягкий' },
+  { value: 'balanced', label: 'Balanced', labelRu: 'Баланс' },
+  { value: 'vivid', label: 'Vivid', labelRu: 'Яркий' }
+]
 const UI_THEME_COLOR_PRESETS = [
   { id: 'ember', label: 'Ember', accent: '#7a1f1d', accent2: '#b64d45' },
   { id: 'ocean', label: 'Ocean', accent: '#1f4f7a', accent2: '#3f86c4' },
@@ -830,6 +841,8 @@ const UI_THEME_SCENE_PRESETS = [
     preferences: {
       style: 'glass',
       density: 'comfortable',
+      backdropMode: 'aurora',
+      chrome: 'balanced',
       ambient: 64,
       radius: 20,
       lineStrength: 120,
@@ -858,6 +871,8 @@ const UI_THEME_SCENE_PRESETS = [
     preferences: {
       style: 'neo',
       density: 'compact',
+      backdropMode: 'spotlight',
+      chrome: 'vivid',
       ambient: 56,
       radius: 18,
       lineStrength: 132,
@@ -886,6 +901,8 @@ const UI_THEME_SCENE_PRESETS = [
     preferences: {
       style: 'classic',
       density: 'comfortable',
+      backdropMode: 'studio',
+      chrome: 'soft',
       ambient: 48,
       radius: 16,
       lineStrength: 96,
@@ -914,6 +931,8 @@ const UI_THEME_SCENE_PRESETS = [
     preferences: {
       style: 'glass',
       density: 'spacious',
+      backdropMode: 'bloom',
+      chrome: 'balanced',
       ambient: 36,
       radius: 20,
       lineStrength: 86,
@@ -932,6 +951,66 @@ const UI_THEME_SCENE_PRESETS = [
       feedAccentColor: '#ff6e6b',
       accentColor: '#2f5dff',
       accent2Color: '#5d8dff'
+    }
+  },
+  {
+    id: 'night-lounge',
+    label: 'Ночной лаунж',
+    hint: 'Глубокий тёмный фон с мягким неоном и более премиальным chrome-слоем.',
+    theme: 'dark',
+    preferences: {
+      style: 'glass',
+      density: 'spacious',
+      backdropMode: 'aurora',
+      chrome: 'vivid',
+      ambient: 72,
+      radius: 24,
+      lineStrength: 118,
+      syncAccent: false,
+      outlineMode: 'custom',
+      customPalette: true,
+      bgColor: '#070d18',
+      panelColor: '#10192a',
+      panel2Color: '#15223a',
+      cardColor: '#132035',
+      textColor: '#f3f8ff',
+      mutedColor: '#9db0cf',
+      outlineColor: '#68b4ff',
+      stripeColor: '#8f6dff',
+      chatAccentColor: '#55c7ff',
+      feedAccentColor: '#8f6dff',
+      accentColor: '#4ba0ff',
+      accent2Color: '#8f6dff'
+    }
+  },
+  {
+    id: 'editorial-sun',
+    label: 'Editorial Sun',
+    hint: 'Тёплый светлый режим с мягким bloom-фоном и спокойным chrome-слоем.',
+    theme: 'light',
+    preferences: {
+      style: 'classic',
+      density: 'comfortable',
+      backdropMode: 'bloom',
+      chrome: 'soft',
+      ambient: 42,
+      radius: 26,
+      lineStrength: 82,
+      syncAccent: false,
+      outlineMode: 'custom',
+      customPalette: true,
+      bgColor: '#f6efe6',
+      panelColor: '#fffdf8',
+      panel2Color: '#f5eee4',
+      cardColor: '#fffaf2',
+      textColor: '#1d2a38',
+      mutedColor: '#7a6e62',
+      outlineColor: '#e59f42',
+      stripeColor: '#f0bc74',
+      chatAccentColor: '#d88e43',
+      feedAccentColor: '#d46d6d',
+      accentColor: '#d88e43',
+      accent2Color: '#f0bc74'
     }
   }
 ]
@@ -977,6 +1056,8 @@ const THEME_PACK_KIND = 'ktk-ui-theme'
 const DEFAULT_UI_PREFERENCES = {
   style: 'glass',
   density: 'comfortable',
+  backdropMode: 'aurora',
+  chrome: 'balanced',
   ambient: 58,
   radius: 22,
   lineStrength: 100,
@@ -1179,6 +1260,12 @@ function normalizeUiPreferences(value) {
   const density = UI_DENSITY_OPTIONS.some((item) => item.value === source.density)
     ? source.density
     : DEFAULT_UI_PREFERENCES.density
+  const backdropMode = UI_BACKDROP_OPTIONS.some((item) => item.value === source.backdropMode)
+    ? source.backdropMode
+    : DEFAULT_UI_PREFERENCES.backdropMode
+  const chrome = UI_CHROME_OPTIONS.some((item) => item.value === source.chrome)
+    ? source.chrome
+    : DEFAULT_UI_PREFERENCES.chrome
   const ambient = clampNumber(source.ambient, 0, 100)
   const radius = clampNumber(source.radius, 12, 36)
   const lineStrength = clampNumber(source.lineStrength, 35, 180)
@@ -1201,6 +1288,8 @@ function normalizeUiPreferences(value) {
   return {
     style,
     density,
+    backdropMode,
+    chrome,
     ambient,
     radius,
     lineStrength,
@@ -1306,6 +1395,8 @@ function areUiPreferencesEqual(left, right) {
   return (
     a.style === b.style &&
     a.density === b.density &&
+    a.backdropMode === b.backdropMode &&
+    a.chrome === b.chrome &&
     a.ambient === b.ambient &&
     a.radius === b.radius &&
     a.lineStrength === b.lineStrength &&
@@ -1998,6 +2089,14 @@ export default function App() {
   }
   const getUiDensityLabel = (value) => {
     const option = UI_DENSITY_OPTIONS.find((item) => item.value === value)
+    return option ? (isEnglishUi ? option.label : option.labelRu || option.label) : value
+  }
+  const getUiBackdropLabel = (value) => {
+    const option = UI_BACKDROP_OPTIONS.find((item) => item.value === value)
+    return option ? (isEnglishUi ? option.label : option.labelRu || option.label) : value
+  }
+  const getUiChromeLabel = (value) => {
+    const option = UI_CHROME_OPTIONS.find((item) => item.value === value)
     return option ? (isEnglishUi ? option.label : option.labelRu || option.label) : value
   }
   const getWorkbenchModeLabel = (item) => (isEnglishUi ? item.label : item.labelRu || item.label)
@@ -4377,6 +4476,8 @@ export default function App() {
     const lineStrengthFactor = clampNumber(normalized.lineStrength / 100, 0.35, 1.8)
     root.dataset.uiStyle = normalized.style
     root.dataset.uiDensity = normalized.density
+    root.dataset.uiBackdrop = normalized.backdropMode
+    root.dataset.uiChrome = normalized.chrome
     root.style.setProperty('--ambient-opacity', ambientOpacity)
     root.style.setProperty('--surface-radius', `${radius}px`)
     root.style.setProperty('--surface-radius-md', `${Math.max(12, radius - 4)}px`)
@@ -11090,6 +11191,14 @@ export default function App() {
 
   return (
     <div className={`page page-view-${view} ${user ? 'page-authenticated' : 'page-guest'}`.trim()}>
+      <div className="page-scene" aria-hidden="true">
+        <span className="page-scene-orb page-scene-orb-primary" />
+        <span className="page-scene-orb page-scene-orb-secondary" />
+        <span className="page-scene-orb page-scene-orb-tertiary" />
+        <span className="page-scene-ribbon" />
+        <span className="page-scene-grid" />
+        <span className="page-scene-noise" />
+      </div>
       <main className={`content ${user ? 'content-authenticated' : 'content-guest'}`.trim()}>
         <div className="topbar">
           <div className="brand-inline">
@@ -15349,6 +15458,48 @@ export default function App() {
                     <h2>{uiText('Оформление', 'Appearance')}</h2>
                     <p className="subtitle">{uiText('Режим темы, плотность, радиусы и акцентные цвета.', 'Theme mode, density, radii and accent colors.')}</p>
                     <section className="ui-studio appearance-studio">
+                      <section className="appearance-director-card">
+                        <div className="appearance-director-copy">
+                          <span className="appearance-director-kicker">{uiText('Design studio', 'Design studio')}</span>
+                          <strong>{uiText('Собери свой visual layer для всего приложения', 'Build a visual layer for the whole app')}</strong>
+                          <p>
+                            {uiText(
+                              'Фон, glow, глубина карточек, акцентные рамки и палитра теперь собираются как единая сцена.',
+                              'Backdrop, glow, card depth, accent frames and palette now work as one scene.'
+                            )}
+                          </p>
+                          <div className="appearance-director-tags">
+                            <span>{theme === 'dark' ? uiText('Тёмная тема', 'Dark mode') : uiText('Светлая тема', 'Light mode')}</span>
+                            <span>{getUiStyleLabel(uiPreferences.style)}</span>
+                            <span>{getUiBackdropLabel(uiPreferences.backdropMode)}</span>
+                            <span>{getUiChromeLabel(uiPreferences.chrome)}</span>
+                          </div>
+                        </div>
+                        <div className="appearance-director-preview" aria-hidden="true">
+                          <div className="appearance-director-preview-shell">
+                            <span className="appearance-director-preview-glow" />
+                            <div className="appearance-director-preview-topline">
+                              <span />
+                              <span />
+                              <span />
+                            </div>
+                            <div className="appearance-director-preview-hero">
+                              <div />
+                              <div />
+                            </div>
+                            <div className="appearance-director-preview-grid">
+                              <article>
+                                <strong>{getUiStyleLabel(uiPreferences.style)}</strong>
+                                <small>{getUiDensityLabel(uiPreferences.density)}</small>
+                              </article>
+                              <article>
+                                <strong>{getUiBackdropLabel(uiPreferences.backdropMode)}</strong>
+                                <small>{getUiChromeLabel(uiPreferences.chrome)}</small>
+                              </article>
+                            </div>
+                          </div>
+                        </div>
+                      </section>
                       <div className="ui-studio-grid">
                         <label>
                           {uiText('Стиль', 'Style')}
@@ -15417,6 +15568,46 @@ export default function App() {
                           {uiText('Светлая', 'Light')}
                         </button>
                       </div>
+
+                      <section className="appearance-mode-grid-block">
+                        <article className="appearance-mode-card">
+                          <div className="appearance-mode-card-head">
+                            <strong>{uiText('Сцена фона', 'Backdrop scene')}</strong>
+                            <span>{getUiBackdropLabel(uiPreferences.backdropMode)}</span>
+                          </div>
+                          <div className="appearance-mode-chip-row">
+                            {UI_BACKDROP_OPTIONS.map((item) => (
+                              <button
+                                key={item.value}
+                                type="button"
+                                className={uiPreferences.backdropMode === item.value ? 'active' : ''}
+                                onClick={() => updateUiPreference('backdropMode', item.value)}
+                              >
+                                {getUiBackdropLabel(item.value)}
+                              </button>
+                            ))}
+                          </div>
+                        </article>
+
+                        <article className="appearance-mode-card">
+                          <div className="appearance-mode-card-head">
+                            <strong>{uiText('Характер chrome', 'Chrome mood')}</strong>
+                            <span>{getUiChromeLabel(uiPreferences.chrome)}</span>
+                          </div>
+                          <div className="appearance-mode-chip-row">
+                            {UI_CHROME_OPTIONS.map((item) => (
+                              <button
+                                key={item.value}
+                                type="button"
+                                className={uiPreferences.chrome === item.value ? 'active' : ''}
+                                onClick={() => updateUiPreference('chrome', item.value)}
+                              >
+                                {getUiChromeLabel(item.value)}
+                              </button>
+                            ))}
+                          </div>
+                        </article>
+                      </section>
 
                       <label className="ui-studio-toggle">
                         <input
@@ -15490,7 +15681,13 @@ export default function App() {
                                   <small>{scene.theme === 'light' ? uiText('Светлая', 'Light') : uiText('Тёмная', 'Dark')}</small>
                                 </span>
                                 <small className="appearance-scene-hint">{scene.hint}</small>
-                                <span className="appearance-scene-meta">{getUiStyleLabel(scenePrefs.style)} / {getUiDensityLabel(scenePrefs.density)}</span>
+                                <span className="appearance-scene-meta">
+                                  {getUiStyleLabel(scenePrefs.style)}
+                                  {' / '}
+                                  {getUiDensityLabel(scenePrefs.density)}
+                                  {' / '}
+                                  {getUiBackdropLabel(scenePrefs.backdropMode)}
+                                </span>
                               </button>
                             )
                           })}
@@ -15786,7 +15983,13 @@ export default function App() {
                                   />
                                   <span className="appearance-custom-preset-text">
                                     <strong>{preset.name}</strong>
-                                    <small>{getUiStyleLabel(preset.preferences.style)} / {getUiDensityLabel(preset.preferences.density)}</small>
+                                    <small>
+                                      {getUiStyleLabel(preset.preferences.style)}
+                                      {' / '}
+                                      {getUiDensityLabel(preset.preferences.density)}
+                                      {' / '}
+                                      {getUiBackdropLabel(preset.preferences.backdropMode)}
+                                    </small>
                                   </span>
                                 </button>
                                 <div className="appearance-custom-preset-actions">
@@ -15845,7 +16048,17 @@ export default function App() {
                         }}
                       >
                         <strong>{uiText('Превью темы', 'Theme preview')}</strong>
-                        <span>{theme === 'dark' ? uiText('Тёмная', 'Dark') : uiText('Светлая', 'Light')} / {getUiStyleLabel(uiPreferences.style)} / {getUiDensityLabel(uiPreferences.density)}</span>
+                        <span>
+                          {theme === 'dark' ? uiText('Тёмная', 'Dark') : uiText('Светлая', 'Light')}
+                          {' / '}
+                          {getUiStyleLabel(uiPreferences.style)}
+                          {' / '}
+                          {getUiDensityLabel(uiPreferences.density)}
+                          {' / '}
+                          {getUiBackdropLabel(uiPreferences.backdropMode)}
+                          {' / '}
+                          {getUiChromeLabel(uiPreferences.chrome)}
+                        </span>
                       </div>
 
                       <div className="ui-studio-actions">
@@ -16751,6 +16964,28 @@ export default function App() {
                     onChange={(event) => updateUiPreference('density', event.target.value)}
                   >
                     {UI_DENSITY_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Backdrop
+                  <select
+                    value={uiPreferences.backdropMode}
+                    onChange={(event) => updateUiPreference('backdropMode', event.target.value)}
+                  >
+                    {UI_BACKDROP_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>{item.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Chrome
+                  <select
+                    value={uiPreferences.chrome}
+                    onChange={(event) => updateUiPreference('chrome', event.target.value)}
+                  >
+                    {UI_CHROME_OPTIONS.map((item) => (
                       <option key={item.value} value={item.value}>{item.label}</option>
                     ))}
                   </select>
