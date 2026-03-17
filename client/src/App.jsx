@@ -1098,6 +1098,16 @@ const MENU_VIEWPORT_PADDING = 12
 const MENU_ANCHOR_GAP = 8
 const TOUCH_CONTEXT_MENU_DELAY_MS = 360
 const TOUCH_CONTEXT_MENU_MOVE_THRESHOLD = 12
+const MOBILE_CHAT_LAYOUT_BREAKPOINT = 860
+const CHAT_ITEM_SWIPE_ACTION_WIDTH = 136
+const CHAT_ITEM_SWIPE_OPEN_THRESHOLD = 54
+const CHAT_ITEM_SWIPE_ACTIVATE_THRESHOLD = 12
+const MOBILE_KEYBOARD_OPEN_THRESHOLD = 72
+const INITIAL_CHAT_LIST_SWIPE_STATE = {
+  conversationId: '',
+  offset: 0,
+  dragging: false
+}
 const INITIAL_MESSAGE_MENU_STATE = {
   open: false,
   x: 0,
@@ -2359,6 +2369,9 @@ export default function App() {
   const [chatExplorerTab, setChatExplorerTab] = useState(CHAT_EXPLORER_TABS.overview)
   const [chatExplorerQuery, setChatExplorerQuery] = useState('')
   const [chatMobilePane, setChatMobilePane] = useState('list')
+  const [chatListSwipe, setChatListSwipe] = useState({ ...INITIAL_CHAT_LIST_SWIPE_STATE })
+  const [composerFocusWithin, setComposerFocusWithin] = useState(false)
+  const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0)
   const [pinnedByConversation, setPinnedByConversation] = useState({})
   const [privacyByUsername, setPrivacyByUsername] = useState({})
   const [privacyControls, setPrivacyControls] = useState([])
@@ -2432,6 +2445,7 @@ export default function App() {
   const privacyByUsernameRef = useRef(privacyByUsername)
   const conversationsRef = useRef(conversations)
   const activeConversationRef = useRef(activeConversation)
+  const chatListSwipeStateRef = useRef({ ...INITIAL_CHAT_LIST_SWIPE_STATE })
   const viewRef = useRef(view)
   const profileViewRef = useRef(profileView)
   const toastIdRef = useRef(0)
@@ -2475,6 +2489,14 @@ export default function App() {
     currentTarget: null,
     onTrigger: null,
     triggered: false
+  })
+  const chatListSwipeGestureRef = useRef({
+    conversationId: '',
+    startX: 0,
+    startY: 0,
+    startOffset: 0,
+    active: false,
+    horizontal: false
   })
 
   const setCallStateSync = (nextState) => {
@@ -2972,6 +2994,52 @@ export default function App() {
     const found = CHAT_WALLPAPERS.find((item) => item.value === storedValue)
     return found || CHAT_WALLPAPERS[0]
   }, [activeConversation, chatWallpaperByConversation])
+  const activeConversationEmptyPrompts = useMemo(() => {
+    if (!activeConversation) return []
+    if (activeConversation.isGroup) {
+      return [
+        {
+          id: 'group-kickoff',
+          label: uiText('Старт обсуждения', 'Start thread'),
+          template: uiText('Привет! Давайте быстро синхронизируемся по задачам на сегодня.', 'Hey! Let us quickly align on today priorities.')
+        },
+        {
+          id: 'group-plan',
+          label: uiText('Собрать план', 'Build plan'),
+          template: uiText('Предлагаю коротко зафиксировать план и ответственных.', 'I suggest we briefly lock the plan and owners.')
+        },
+        {
+          id: 'group-time',
+          label: uiText('Сверить время', 'Check timing'),
+          template: uiText('Когда всем удобно вернуться к этому вопросу?', 'When is a good time for everyone to return to this?')
+        }
+      ]
+    }
+    return [
+      {
+        id: 'dm-hello',
+        label: uiText('Поздороваться', 'Say hi'),
+        template: uiText('Привет! Как тебе удобно продолжить разговор?', 'Hey! What is the easiest way for you to continue this?')
+      },
+      {
+        id: 'dm-review',
+        label: uiText('Дать апдейт', 'Share update'),
+        template: uiText('Я посмотрю детали и вернусь с ответом чуть позже.', 'I will check the details and get back to you shortly.')
+      },
+      {
+        id: 'dm-sync',
+        label: uiText('Сверить детали', 'Sync details'),
+        template: uiText('Давай быстро сверим детали, чтобы не потерять контекст.', 'Let us quickly align on the details so we do not lose context.')
+      }
+    ]
+  }, [activeConversation, isEnglishUi])
+  const isMobileComposerDocked = Boolean(
+    activeConversation &&
+    view === 'chats' &&
+    chatMobilePane === 'chat' &&
+    composerFocusWithin &&
+    mobileKeyboardInset >= MOBILE_KEYBOARD_OPEN_THRESHOLD
+  )
   const activeConversationBookmarkedMessageIds = useMemo(() => {
     if (!activeConversation) return new Set()
     const list = bookmarkedMessageIdsByConversation[activeConversation.id] || []
@@ -4593,6 +4661,65 @@ export default function App() {
   }, [uiPreferences, profileForm.themeColor, user ? user.themeColor : null, theme])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return undefined
+    const viewport = window.visualViewport
+    const updateInset = () => {
+      const nextInset = Math.max(
+        0,
+        Math.round(window.innerHeight - viewport.height - Math.max(0, viewport.offsetTop || 0))
+      )
+      setMobileKeyboardInset((prev) => (prev === nextInset ? prev : nextInset))
+    }
+    updateInset()
+    viewport.addEventListener('resize', updateInset)
+    viewport.addEventListener('scroll', updateInset)
+    window.addEventListener('resize', updateInset)
+    return () => {
+      viewport.removeEventListener('resize', updateInset)
+      viewport.removeEventListener('scroll', updateInset)
+      window.removeEventListener('resize', updateInset)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (composerFocusWithin) return
+    setMobileKeyboardInset(0)
+  }, [composerFocusWithin])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+    const root = document.documentElement
+    root.style.setProperty('--mobile-keyboard-offset', `${mobileKeyboardInset}px`)
+    if (isMobileComposerDocked) {
+      root.dataset.mobileKeyboard = 'open'
+    } else if (root.dataset.mobileKeyboard === 'open') {
+      delete root.dataset.mobileKeyboard
+    }
+    return () => {
+      if (root.dataset.mobileKeyboard === 'open') {
+        delete root.dataset.mobileKeyboard
+      }
+      root.style.removeProperty('--mobile-keyboard-offset')
+    }
+  }, [isMobileComposerDocked, mobileKeyboardInset])
+
+  useEffect(() => {
+    setChatListSwipe((prev) => (
+      prev.conversationId || prev.offset !== 0 || prev.dragging
+        ? { ...INITIAL_CHAT_LIST_SWIPE_STATE }
+        : prev
+    ))
+    chatListSwipeGestureRef.current = {
+      conversationId: '',
+      startX: 0,
+      startY: 0,
+      startOffset: 0,
+      active: false,
+      horizontal: false
+    }
+  }, [activeConversation ? activeConversation.id : '', chatMobilePane, chatListFilter, view])
+
+  useEffect(() => {
     try {
       localStorage.setItem(UI_CUSTOM_THEME_PRESETS_STORAGE_KEY, JSON.stringify(uiCustomThemePresets))
     } catch (err) {
@@ -6090,6 +6217,10 @@ export default function App() {
   useEffect(() => {
     conversationsRef.current = conversations
   }, [conversations])
+
+  useEffect(() => {
+    chatListSwipeStateRef.current = chatListSwipe
+  }, [chatListSwipe])
 
   useEffect(() => {
     activeConversationRef.current = activeConversation
@@ -7891,6 +8022,19 @@ export default function App() {
     }
   }
 
+  const focusChatDirectorySearch = () => {
+    if (typeof window === 'undefined') return
+    window.requestAnimationFrame(() => {
+      if (!chatSearchInputRef.current) return
+      chatSearchInputRef.current.focus()
+      try {
+        chatSearchInputRef.current.select()
+      } catch (err) {
+        // ignore selection errors
+      }
+    })
+  }
+
   const handleStartConversation = async (username) => {
     try {
       const data = await createConversation(username)
@@ -8421,6 +8565,158 @@ export default function App() {
     setActiveConversation(conversation)
     setView('chats')
     setChatMobilePane(pane)
+  }
+
+  const openConversationFromChatList = (conversation) => {
+    if (!conversation || !conversation.id) return
+    setChatListSwipe({ ...INITIAL_CHAT_LIST_SWIPE_STATE })
+    chatListSwipeGestureRef.current = {
+      conversationId: '',
+      startX: 0,
+      startY: 0,
+      startOffset: 0,
+      active: false,
+      horizontal: false
+    }
+    openConversationFromDashboard(conversation)
+  }
+
+  const closeChatListSwipe = () => {
+    setChatListSwipe((prev) => (
+      prev.conversationId || prev.offset !== 0 || prev.dragging
+        ? { ...INITIAL_CHAT_LIST_SWIPE_STATE }
+        : prev
+    ))
+    chatListSwipeGestureRef.current = {
+      conversationId: '',
+      startX: 0,
+      startY: 0,
+      startOffset: 0,
+      active: false,
+      horizontal: false
+    }
+  }
+
+  const handleChatItemSwipeStart = (event, conversationId) => {
+    if (
+      typeof window === 'undefined' ||
+      window.innerWidth > MOBILE_CHAT_LAYOUT_BREAKPOINT ||
+      !event ||
+      !event.touches ||
+      event.touches.length !== 1 ||
+      !conversationId
+    ) {
+      return
+    }
+    const touch = event.touches[0]
+    const currentSwipe = chatListSwipeStateRef.current
+    chatListSwipeGestureRef.current = {
+      conversationId,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      startOffset: currentSwipe.conversationId === conversationId ? currentSwipe.offset : 0,
+      active: true,
+      horizontal: false
+    }
+    if (currentSwipe.conversationId && currentSwipe.conversationId !== conversationId) {
+      setChatListSwipe({ ...INITIAL_CHAT_LIST_SWIPE_STATE })
+    }
+  }
+
+  const handleChatItemSwipeMove = (event, conversationId) => {
+    const gesture = chatListSwipeGestureRef.current
+    if (
+      typeof window === 'undefined' ||
+      window.innerWidth > MOBILE_CHAT_LAYOUT_BREAKPOINT ||
+      !gesture.active ||
+      gesture.conversationId !== conversationId ||
+      !event ||
+      !event.touches ||
+      event.touches.length !== 1
+    ) {
+      return
+    }
+    const touch = event.touches[0]
+    const deltaX = touch.clientX - gesture.startX
+    const deltaY = touch.clientY - gesture.startY
+    if (!gesture.horizontal) {
+      if (Math.abs(deltaY) > CHAT_ITEM_SWIPE_ACTIVATE_THRESHOLD && Math.abs(deltaY) > Math.abs(deltaX)) {
+        chatListSwipeGestureRef.current = {
+          conversationId: '',
+          startX: 0,
+          startY: 0,
+          startOffset: 0,
+          active: false,
+          horizontal: false
+        }
+        return
+      }
+      if (Math.abs(deltaX) < CHAT_ITEM_SWIPE_ACTIVATE_THRESHOLD || Math.abs(deltaX) <= Math.abs(deltaY)) {
+        return
+      }
+      gesture.horizontal = true
+    }
+    const nextOffset = clampNumber(
+      gesture.startOffset + deltaX,
+      -CHAT_ITEM_SWIPE_ACTION_WIDTH,
+      0
+    )
+    setChatListSwipe((prev) => (
+      prev.conversationId === conversationId && prev.offset === nextOffset && prev.dragging
+        ? prev
+        : {
+          conversationId,
+          offset: nextOffset,
+          dragging: true
+        }
+    ))
+    event.preventDefault()
+  }
+
+  const finalizeChatItemSwipe = (conversationId) => {
+    const currentSwipe = chatListSwipeStateRef.current
+    if (currentSwipe.conversationId !== conversationId) {
+      chatListSwipeGestureRef.current = {
+        conversationId: '',
+        startX: 0,
+        startY: 0,
+        startOffset: 0,
+        active: false,
+        horizontal: false
+      }
+      return
+    }
+    const nextState = currentSwipe.offset <= -CHAT_ITEM_SWIPE_OPEN_THRESHOLD
+      ? {
+        conversationId,
+        offset: -CHAT_ITEM_SWIPE_ACTION_WIDTH,
+        dragging: false
+      }
+      : { ...INITIAL_CHAT_LIST_SWIPE_STATE }
+    setChatListSwipe(nextState)
+    chatListSwipeGestureRef.current = {
+      conversationId: '',
+      startX: 0,
+      startY: 0,
+      startOffset: 0,
+      active: false,
+      horizontal: false
+    }
+  }
+
+  const handleChatComposerFocus = () => {
+    if (typeof window !== 'undefined' && window.innerWidth > MOBILE_CHAT_LAYOUT_BREAKPOINT) return
+    setComposerFocusWithin(true)
+  }
+
+  const handleChatComposerBlur = (event) => {
+    const currentTarget = event.currentTarget
+    const nextTarget = event.relatedTarget
+    if (nextTarget && currentTarget.contains(nextTarget)) return
+    window.setTimeout(() => {
+      if (typeof document !== 'undefined' && currentTarget.contains(document.activeElement)) return
+      setComposerFocusWithin(false)
+    }, 0)
   }
 
   const openPulseWorkspace = (tab = PULSE_TABS.priority) => {
@@ -12596,7 +12892,7 @@ export default function App() {
                 )}
               </div>
 
-              <div className="chat-items">
+              <div className="chat-items" onScroll={closeChatListSwipe}>
                 {conversationsLoading && (
                   <div className="chat-skeleton-list" aria-hidden="true">
                     {Array.from({ length: 5 }).map((_, index) => (
@@ -12615,13 +12911,56 @@ export default function App() {
                   </div>
                 )}
                 {!conversationsLoading && conversations.length === 0 && (
-                  <div className="empty">Пока нет диалогов. Найди пользователя по username.</div>
+                  <div className="chat-empty-card chat-empty-card-list">
+                    <span className="chat-empty-eyebrow">{uiText('Центр сообщений', 'Message center')}</span>
+                    <h3>{uiText('Пока нет диалогов', 'No conversations yet')}</h3>
+                    <p>{uiText('Найдите человека по username или соберите первый групповой чат.', 'Search by username or create your first group chat.')}</p>
+                    <div className="chat-empty-actions">
+                      <button type="button" className="primary" onClick={focusChatDirectorySearch}>
+                        {uiText('Найти людей', 'Find people')}
+                      </button>
+                      <button type="button" className="ghost" onClick={() => setGroupOpen(true)}>
+                        {uiText('Новая группа', 'New group')}
+                      </button>
+                      <button type="button" className="ghost" onClick={() => setView('feed')}>
+                        {uiText('Открыть ленту', 'Open feed')}
+                      </button>
+                    </div>
+                  </div>
                 )}
                 {!conversationsLoading && conversations.length > 0 && visibleConversations.length === 0 && (
-                  <div className="empty">
-                    {chatListFilter === CHAT_LIST_FILTERS.unread
-                      ? 'Непрочитанных диалогов пока нет.'
-                      : 'Избранных диалогов пока нет.'}
+                  <div className="chat-empty-card chat-empty-card-list">
+                    <span className="chat-empty-eyebrow">
+                      {chatListFilter === CHAT_LIST_FILTERS.unread
+                        ? uiText('Inbox clean', 'Inbox clean')
+                        : uiText('Избранное', 'Favorites')}
+                    </span>
+                    <h3>
+                      {chatListFilter === CHAT_LIST_FILTERS.unread
+                        ? uiText('Новых сообщений нет', 'No unread conversations')
+                        : uiText('Избранное пока пустое', 'No favorites yet')}
+                    </h3>
+                    <p>
+                      {chatListFilter === CHAT_LIST_FILTERS.unread
+                        ? uiText('Переключитесь на все диалоги или откройте избранные для быстрого доступа.', 'Switch back to all chats or jump into favorites for quick access.')
+                        : uiText('Свайпните карточку чата влево, чтобы закрепить его в быстром доступе.', 'Swipe a chat card left to pin it into quick access.')}
+                    </p>
+                    <div className="chat-empty-actions">
+                      <button type="button" className="primary" onClick={() => setChatListFilter(CHAT_LIST_FILTERS.all)}>
+                        {uiText('Показать все', 'Show all')}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setChatListFilter(
+                          chatListFilter === CHAT_LIST_FILTERS.unread ? CHAT_LIST_FILTERS.favorites : CHAT_LIST_FILTERS.unread
+                        )}
+                      >
+                        {chatListFilter === CHAT_LIST_FILTERS.unread
+                          ? uiText('Открыть избранное', 'Open favorites')
+                          : uiText('Проверить непрочитанное', 'Check unread')}
+                      </button>
+                    </div>
                   </div>
                 )}
                 {visibleConversations.map((conv) => {
@@ -12634,58 +12973,123 @@ export default function App() {
                   const draftPreview = hasDraft
                     ? `Draft: ${draftText.length > 80 ? `${draftText.slice(0, 77)}...` : draftText}`
                     : ''
+                  const swipeOffset = chatListSwipe.conversationId === conv.id ? chatListSwipe.offset : 0
+                  const isSwipeDragging = chatListSwipe.conversationId === conv.id && chatListSwipe.dragging
+                  const secondarySwipeAction = unreadCount > 0
+                    ? {
+                      key: 'read',
+                      tone: 'ok',
+                      icon: '✓',
+                      label: uiText('Прочитано', 'Read'),
+                      action: () => clearConversationUnread(conv.id)
+                    }
+                    : (!conv.isGroup && conv.other && conv.other.username
+                      ? {
+                        key: 'profile',
+                        tone: 'neutral',
+                        icon: '@',
+                        label: uiText('Профиль', 'Profile'),
+                        action: () => openProfile(conv.other.username)
+                      }
+                      : {
+                        key: 'open',
+                        tone: 'neutral',
+                        icon: '→',
+                        label: uiText('Открыть', 'Open'),
+                        action: () => openConversationFromChatList(conv)
+                      })
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={conv.id}
-                      className={`chat-item ${isActive ? 'active' : ''} ${!isActive && unreadCount > 0 ? 'unread' : ''} ${isFavorite ? 'favorite' : ''}`.trim()}
-                      onClick={() => {
-                        setActiveConversation(conv)
-                        setChatMobilePane('chat')
-                      }}
+                      className={`chat-item-shell ${swipeOffset < 0 ? 'swipe-open' : ''} ${isSwipeDragging ? 'dragging' : ''}`.trim()}
                     >
-                      <span
-                        className="avatar with-mini-profile"
-                        onMouseEnter={(event) => {
-                          if (conv.isGroup || !conv.other) return
-                          queueMiniProfileCard(event, {
-                            ...conv.other,
-                            online: isOnline(conv.other.id)
-                          })
+                      <div className="chat-item-actions" aria-hidden={swipeOffset === 0}>
+                        <button
+                          type="button"
+                          className={`chat-item-action-btn tone-favorite ${isFavorite ? 'active' : ''}`.trim()}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            toggleConversationFavorite(conv.id)
+                            closeChatListSwipe()
+                          }}
+                        >
+                          <span>{isFavorite ? '★' : '☆'}</span>
+                          <strong>{isFavorite ? uiText('Убрать', 'Unsave') : uiText('В избр.', 'Save')}</strong>
+                        </button>
+                        <button
+                          type="button"
+                          className={`chat-item-action-btn tone-${secondarySwipeAction.tone}`.trim()}
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            secondarySwipeAction.action()
+                            closeChatListSwipe()
+                          }}
+                        >
+                          <span>{secondarySwipeAction.icon}</span>
+                          <strong>{secondarySwipeAction.label}</strong>
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className={`chat-item ${isActive ? 'active' : ''} ${!isActive && unreadCount > 0 ? 'unread' : ''} ${isFavorite ? 'favorite' : ''}`.trim()}
+                        style={swipeOffset !== 0 ? { transform: `translateX(${swipeOffset}px)` } : undefined}
+                        onClick={() => {
+                          if (swipeOffset < 0) {
+                            closeChatListSwipe()
+                            return
+                          }
+                          openConversationFromChatList(conv)
                         }}
-                        onMouseMove={moveMiniProfileCard}
-                        onMouseLeave={() => hideMiniProfileCard()}
+                        onTouchStart={(event) => handleChatItemSwipeStart(event, conv.id)}
+                        onTouchMove={(event) => handleChatItemSwipeMove(event, conv.id)}
+                        onTouchEnd={() => finalizeChatItemSwipe(conv.id)}
+                        onTouchCancel={() => finalizeChatItemSwipe(conv.id)}
                       >
-                        {conv.isGroup
-                          ? (conv.title || 'G')[0].toUpperCase()
-                          : (conversationTitle || 'U')[0].toUpperCase()}
-                      </span>
-                      <div className="chat-meta">
-                        <div className="chat-title-row">
-                          <div className="chat-title">
-                            {conversationTitle}
+                        <span
+                          className="avatar with-mini-profile"
+                          onMouseEnter={(event) => {
+                            if (conv.isGroup || !conv.other) return
+                            queueMiniProfileCard(event, {
+                              ...conv.other,
+                              online: isOnline(conv.other.id)
+                            })
+                          }}
+                          onMouseMove={moveMiniProfileCard}
+                          onMouseLeave={() => hideMiniProfileCard()}
+                        >
+                          {conv.isGroup
+                            ? (conv.title || 'G')[0].toUpperCase()
+                            : (conversationTitle || 'U')[0].toUpperCase()}
+                        </span>
+                        <div className="chat-meta">
+                          <div className="chat-title-row">
+                            <div className="chat-title">
+                              {conversationTitle}
+                            </div>
+                            {isFavorite && (
+                              <span className="chat-favorite-mark" title="Избранный чат">★</span>
+                            )}
                           </div>
-                          {isFavorite && (
-                            <span className="chat-favorite-mark" title="Избранный чат">★</span>
+                          <div className={`chat-preview ${hasDraft ? 'draft' : ''}`}>
+                            {hasDraft ? draftPreview : (conv.lastMessage || getProfileMoodLabel(conv.other) || 'Нет сообщений')}
+                          </div>
+                        </div>
+                        <div className="chat-side">
+                          <div className="chat-time">{formatTime(conv.lastAt)}</div>
+                          {!isActive && unreadCount > 0 && (
+                            <span className="chat-unread">{unreadCount}</span>
                           )}
                         </div>
-                        <div className={`chat-preview ${hasDraft ? 'draft' : ''}`}>
-                          {hasDraft ? draftPreview : (conv.lastMessage || getProfileMoodLabel(conv.other) || 'Нет сообщений')}
-                        </div>
-                      </div>
-                      <div className="chat-side">
-                        <div className="chat-time">{formatTime(conv.lastAt)}</div>
-                        {!isActive && unreadCount > 0 && (
-                          <span className="chat-unread">{unreadCount}</span>
-                        )}
-                      </div>
-                    </button>
+                      </button>
+                    </div>
                   )
                 })}
               </div>
             </section>
 
-            <section className={`chat-window chat-wallpaper-${activeChatWallpaper.value}`.trim()}>
+            <section className={`chat-window chat-wallpaper-${activeChatWallpaper.value} ${isMobileComposerDocked ? 'chat-window-composer-docked' : ''}`.trim()}>
               {activeConversation ? (
                 <>
                   <div className="chat-top">
@@ -13238,8 +13642,65 @@ export default function App() {
                       </div>
                     )}
                     {!messagesLoading && filteredMessages.length === 0 && (
-                      <div className="empty">
-                        {chatSearchQuery ? 'Сообщения не найдены.' : 'Напишите первое сообщение.'}
+                      <div className="chat-empty-card chat-empty-card-inline">
+                        <span className="chat-empty-eyebrow">
+                          {chatSearchQuery
+                            ? uiText('Поиск внутри чата', 'In-chat search')
+                            : (activeConversation.isGroup ? uiText('Новый тред', 'New thread') : activeChatTitle)}
+                        </span>
+                        <h3>
+                          {chatSearchQuery
+                            ? uiText('Ничего не найдено', 'Nothing found')
+                            : (isChatBlocked
+                              ? uiText('Отправка недоступна', 'Messaging unavailable')
+                              : (activeConversation.isGroup
+                                ? uiText('Запустите обсуждение', 'Start the conversation')
+                                : uiText(`Начните чат с ${activeChatTitle}`, `Start chatting with ${activeChatTitle}`)))}
+                        </h3>
+                        <p>
+                          {chatSearchQuery
+                            ? uiText('Попробуйте другое слово или сбросьте поиск внутри диалога.', 'Try another term or clear the conversation search.')
+                            : (isChatBlocked
+                              ? uiText('Для этого пользователя переписка сейчас закрыта. Можно открыть профиль или вернуться к списку.', 'Messaging with this user is currently closed. Open the profile or return to the list.')
+                              : (activeConversation.isGroup
+                                ? uiText('Пустой чат удобнее запускать готовым сообщением: план, синхронизация или быстрый вопрос.', 'An empty group chat is easier to kick off with a plan, sync, or quick question.')
+                                : uiText('Отправьте первое сообщение или используйте один из быстрых шаблонов ниже.', 'Send the first message or start from one of the quick prompts below.')))}
+                        </p>
+                        {chatSearchQuery ? (
+                          <div className="chat-empty-actions chat-empty-actions-compact">
+                            <button type="button" className="primary" onClick={() => setChatSearchQuery('')}>
+                              {uiText('Сбросить поиск', 'Clear search')}
+                            </button>
+                          </div>
+                        ) : isChatBlocked ? (
+                          <div className="chat-empty-actions chat-empty-actions-compact">
+                            {!activeConversation.isGroup && activeConversation.other && activeConversation.other.username && (
+                              <button
+                                type="button"
+                                className="primary"
+                                onClick={() => openProfile(activeConversation.other.username)}
+                              >
+                                {uiText('Открыть профиль', 'Open profile')}
+                              </button>
+                            )}
+                            <button type="button" className="ghost" onClick={() => setChatMobilePane('list')}>
+                              {uiText('К списку чатов', 'Back to chat list')}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="chat-empty-suggestions">
+                            {activeConversationEmptyPrompts.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className="chat-empty-suggestion"
+                                onClick={() => applyCommandSuggestion(item.template)}
+                              >
+                                {item.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   {!messagesLoading && filteredMessages.map((msg) => (
@@ -13515,7 +13976,12 @@ export default function App() {
                       ))}
                     </div>
                   )}
-                  <form className={`composer ${isChatBlocked ? 'disabled' : ''}`} onSubmit={handleSendMessage}>
+                  <form
+                    className={`composer ${isChatBlocked ? 'disabled' : ''}`.trim()}
+                    onSubmit={handleSendMessage}
+                    onFocusCapture={handleChatComposerFocus}
+                    onBlurCapture={handleChatComposerBlur}
+                  >
                     {replyMessage && (
                       <div className="composer-reply">
                         <div className="composer-reply-head">
@@ -13997,9 +14463,24 @@ export default function App() {
                   )}
                 </>
               ) : (
-                <div className="chat-empty">
-                  <h3>Выберите диалог</h3>
-                  <p>Найдите пользователя по username и начните чат.</p>
+                <div className="chat-empty chat-empty-card chat-empty-card-window">
+                  <span className="chat-empty-eyebrow">{uiText('Чаты', 'Chats')}</span>
+                  <h3>{uiText('Выберите диалог', 'Pick a conversation')}</h3>
+                  <p>{uiText('Откройте существующий чат, свайпните карточку для быстрых действий или найдите пользователя по username.', 'Open an existing chat, swipe a card for quick actions, or search by username.')}</p>
+                  <div className="chat-empty-actions">
+                    <button type="button" className="primary" onClick={focusChatDirectorySearch}>
+                      {uiText('Найти человека', 'Find someone')}
+                    </button>
+                    {visibleConversations.length > 0 && (
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => openConversationFromChatList(visibleConversations[0])}
+                      >
+                        {uiText('Открыть последний чат', 'Open latest chat')}
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </section>

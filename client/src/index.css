@@ -44,6 +44,7 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --mobile-rail-height: 72px;
+  --mobile-keyboard-offset: 0px;
   --chat-surface-accent-rgb: 56 189 248;
   --feed-surface-accent-rgb: var(--accent-rgb);
   --font-body: 'Manrope', 'IBM Plex Sans', 'Segoe UI', sans-serif;
@@ -1056,6 +1057,44 @@ pre,
 .chat-layout-surface .chat-item.favorite {
   border-color: rgba(var(--chat-surface-accent-rgb), 0.45);
   background: rgba(var(--chat-surface-accent-rgb), 0.14);
+}
+
+.chat-item-shell {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--surface-radius-md);
+}
+
+.chat-item-shell .chat-item {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+}
+
+.chat-item-shell.dragging .chat-item {
+  transition: none;
+}
+
+.chat-item-actions {
+  display: none;
+}
+
+.chat-item-action-btn {
+  border: 1px solid transparent;
+  border-radius: calc(var(--surface-radius-md) - 4px);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.chat-item-action-btn span {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.chat-item-action-btn strong {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .chat-meta {
@@ -9003,6 +9042,102 @@ pre,
   font-size: 12px;
 }
 
+.chat-empty {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+}
+
+.chat-empty-card {
+  width: min(100%, 440px);
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--surface-radius-md);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-2) 94%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.chat-empty-card h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.chat-empty-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.chat-empty-card-list {
+  width: 100%;
+  justify-items: start;
+  text-align: left;
+}
+
+.chat-empty-card-window {
+  justify-items: center;
+  text-align: center;
+}
+
+.chat-empty-card-inline {
+  width: min(100%, 520px);
+  margin: auto;
+  justify-items: center;
+  text-align: center;
+}
+
+.chat-empty-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-empty-actions,
+.chat-empty-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-empty-actions button,
+.chat-empty-suggestion {
+  min-height: 40px;
+}
+
+.chat-empty-actions-compact,
+.chat-empty-card-window .chat-empty-actions,
+.chat-empty-card-inline .chat-empty-suggestions {
+  justify-content: center;
+}
+
+.chat-empty-suggestion {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--text);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.chat-empty-suggestion:hover {
+  border-color: rgba(var(--accent-rgb), 0.28);
+  background: rgba(var(--accent-rgb), 0.08);
+}
+
 @media (max-width: 980px) {
 
   .topbar {
@@ -15055,6 +15190,12 @@ body::after,
   z-index: 18;
 }
 
+:root[data-mobile-keyboard='open'] .icon-rail-root {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(100% + 16px));
+}
+
 .icon-rail button {
   position: relative;
 }
@@ -15269,6 +15410,21 @@ body::after,
     animation: mobilePaneEnter 180ms ease-out;
   }
 
+  .chat-window-composer-docked {
+    overflow: visible;
+  }
+
+  .chat-window-composer-docked .chat-messages {
+    padding-bottom: 18px;
+  }
+
+  .chat-window-composer-docked .composer {
+    position: sticky;
+    bottom: calc(var(--mobile-keyboard-offset, 0px) + var(--safe-bottom));
+    z-index: 4;
+    box-shadow: 0 14px 28px rgba(2, 6, 23, 0.18);
+  }
+
   .chat-top {
     gap: 8px;
   }
@@ -15398,6 +15554,57 @@ body::after,
     scroll-padding-bottom: 84px;
   }
 
+  .chat-item-shell {
+    touch-action: pan-y;
+  }
+
+  .chat-item-actions {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 136px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 4px;
+    pointer-events: none;
+  }
+
+  .chat-item-shell.swipe-open .chat-item-actions,
+  .chat-item-shell.dragging .chat-item-actions {
+    pointer-events: auto;
+  }
+
+  .chat-item-action-btn {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 4px;
+    min-width: 0;
+    padding: 8px 4px;
+  }
+
+  .chat-item-action-btn.tone-favorite {
+    border-color: rgba(var(--accent-rgb), 0.18);
+    background: rgba(var(--accent-rgb), 0.14);
+  }
+
+  .chat-item-action-btn.tone-favorite.active {
+    border-color: rgba(var(--accent-rgb), 0.3);
+    background: rgba(var(--accent-rgb), 0.2);
+  }
+
+  .chat-item-action-btn.tone-ok {
+    border-color: rgba(34, 197, 94, 0.22);
+    background: rgba(34, 197, 94, 0.14);
+  }
+
+  .chat-item-action-btn.tone-neutral {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--panel) 92%, transparent);
+  }
+
   .chat-item {
     padding: 12px;
     gap: 10px;
@@ -15423,6 +15630,23 @@ body::after,
   .chat-side {
     padding-top: 2px;
     gap: 4px;
+  }
+
+  .chat-empty-card {
+    width: 100%;
+    padding: 16px;
+    gap: 10px;
+  }
+
+  .chat-empty-actions,
+  .chat-empty-suggestions {
+    width: 100%;
+  }
+
+  .chat-empty-actions button,
+  .chat-empty-suggestion {
+    flex: 1 1 calc(50% - 8px);
+    justify-content: center;
   }
 
   .chat-time {
@@ -15510,6 +15734,10 @@ body::after,
     width: min(86%, 280px);
   }
 
+  .chat-item-actions {
+    width: 128px;
+  }
+
   .composer-input-row {
     grid-template-columns: 1fr;
   }
@@ -15535,6 +15763,11 @@ body::after,
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .chat-empty-actions button,
+  .chat-empty-suggestion {
+    flex-basis: 100%;
   }
 
   .profile-actions-row,
