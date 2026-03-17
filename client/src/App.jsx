@@ -11188,7 +11188,244 @@ export default function App() {
     uiPreferences.style
   ])
   const settingsPanelClassName = `panel settings-panel settings-panel-redesign settings-theme-${settingsSection}`.trim()
+  const workspaceStrip = useMemo(() => {
+    if (!user) return null
+
+    const draftsCount = Object.keys(draftsByConversation || {}).length
+    const activeConversationLabel = activeConversation
+      ? String(
+        activeConversation.name ||
+        (activeConversation.other && (activeConversation.other.displayName || activeConversation.other.username)) ||
+        ''
+      ).trim()
+      : ''
+
+    if (view === 'dashboard') {
+      return {
+        kicker: uiText('Рабочий режим', 'Workspace mode'),
+        title: uiText('Общий пульт пространства', 'Workspace command deck'),
+        description: uiText(
+          'Здесь виден срез по чатам, ленте и профилю. Быстро переключайся в проблемную зону или обновляй снимок.',
+          'This view summarizes chats, feed and profile. Jump into the noisy area or refresh the snapshot.'
+        ),
+        chips: [
+          { id: 'score', tone: 'accent', label: `${dashboardWorkspaceScore}% ${uiText('ритм', 'rhythm')}` },
+          { id: 'chat', tone: unreadMessagesCount > 0 ? 'warn' : 'ok', label: uiText(`${unreadMessagesCount} непрочитанных`, `${unreadMessagesCount} unread`) },
+          { id: 'feed', tone: feedDigest.freshCount > 0 ? 'accent' : 'neutral', label: uiText(`${feedDigest.freshCount} свежих в ленте`, `${feedDigest.freshCount} fresh in feed`) },
+          { id: 'profile', tone: profileEditorScore >= 80 ? 'ok' : 'neutral', label: uiText(`${profileEditorScore}% профиль`, `${profileEditorScore}% profile`) }
+        ],
+        actions: [
+          { id: 'refresh-snapshot', label: uiText('Обновить срез', 'Refresh snapshot'), hint: dashboardLastRefreshLabel || uiText('Сейчас', 'Now') },
+          { id: 'go-chats', label: uiText('Открыть чаты', 'Open chats'), hint: uiText('Ответы и черновики', 'Replies and drafts') },
+          { id: 'go-feed', label: uiText('Открыть ленту', 'Open feed'), hint: uiText('Тренды и посты', 'Trends and posts') }
+        ]
+      }
+    }
+
+    if (view === 'chats') {
+      return {
+        kicker: uiText('Коммуникация', 'Communication'),
+        title: activeConversationLabel || uiText('Чаты и сообщения', 'Chats and messages'),
+        description: activeConversation
+          ? uiText(
+            'Управляй сохранёнными сообщениями, медиа и быстрым переключением, не уходя далеко из диалога.',
+            'Manage bookmarks, media and quick switches without leaving the conversation flow.'
+          )
+          : uiText(
+            'Выбери диалог, открой медиа-панель или вернись к ленте, если нужен новый контекст.',
+            'Pick a conversation, open the media panel or jump back to feed when you need fresh context.'
+          ),
+        chips: [
+          { id: 'unread', tone: unreadMessagesCount > 0 ? 'warn' : 'ok', label: uiText(`${unreadMessagesCount} непрочитанных`, `${unreadMessagesCount} unread`) },
+          { id: 'drafts', tone: draftsCount > 0 ? 'accent' : 'neutral', label: uiText(`${draftsCount} черновиков`, `${draftsCount} drafts`) },
+          { id: 'bookmarks', tone: bookmarkPanelOpen ? 'accent' : 'neutral', label: bookmarkPanelOpen ? uiText('Закладки открыты', 'Bookmarks open') : uiText('Закладки скрыты', 'Bookmarks hidden') },
+          { id: 'media', tone: mediaPanelOpen ? 'accent' : 'neutral', label: mediaPanelOpen ? uiText('Медиа-панель активна', 'Media panel active') : uiText('Медиа-панель закрыта', 'Media panel closed') }
+        ],
+        actions: [
+          { id: 'chat-bookmarks', label: uiText('Сохранённые', 'Bookmarks'), hint: uiText('Открыть быстрый архив', 'Open quick archive') },
+          { id: 'chat-stickers', label: uiText('Стикеры', 'Stickers'), hint: uiText('Панель медиа', 'Media panel') },
+          { id: 'go-dashboard', label: uiText('Назад к пульту', 'Back to deck'), hint: uiText('Общая сводка', 'Overview') }
+        ]
+      }
+    }
+
+    if (view === 'feed') {
+      return {
+        kicker: uiText('Лента и контент', 'Feed and content'),
+        title: uiText('Поток внимания и публикаций', 'Attention and publishing flow'),
+        description: uiText(
+          'Следи за свежими постами, быстро возвращайся к своему composer и держи профиль в одной связке с лентой.',
+          'Track fresh posts, jump back into composer and keep your profile tied to the feed workflow.'
+        ),
+        chips: [
+          { id: 'fresh', tone: feedDigest.freshCount > 0 ? 'accent' : 'neutral', label: uiText(`${feedDigest.freshCount} свежих`, `${feedDigest.freshCount} fresh`) },
+          { id: 'filters', tone: feedActiveFilterCount > 0 ? 'warn' : 'ok', label: uiText(`${feedActiveFilterCount} фильтров`, `${feedActiveFilterCount} filters`) },
+          { id: 'mine', tone: feedMetrics.mine > 0 ? 'ok' : 'neutral', label: uiText(`${feedMetrics.mine} моих постов`, `${feedMetrics.mine} my posts`) },
+          { id: 'window', tone: 'neutral', label: `${feedTimeWindowLabel} / ${feedSortModeLabel}` }
+        ],
+        actions: [
+          { id: 'feed-compose', label: uiText('Новый пост', 'New post'), hint: uiText('Фокус на composer', 'Focus composer') },
+          { id: 'go-profile', label: uiText('Профиль', 'Profile'), hint: uiText('Показать витрину', 'Open showcase') },
+          { id: 'go-dashboard', label: uiText('Пульт', 'Deck'), hint: uiText('Вернуться к сводке', 'Back to overview') }
+        ]
+      }
+    }
+
+    if (view === 'settings') {
+      return {
+        kicker: uiText('Настройки и контроль', 'Settings and control'),
+        title: settingsCurrentItem ? settingsCurrentItem.label : uiText('Настройки аккаунта', 'Account settings'),
+        description: uiText(
+          'Быстрый доступ к самому частому: оформление, уведомления, безопасность и возврат в профиль.',
+          'Quick access to the frequent tools: appearance, notifications, security and profile return path.'
+        ),
+        chips: [
+          { id: 'theme', tone: 'accent', label: `${settingsIdentityBadge} / ${getUiStyleLabel(uiPreferences.style)}` },
+          { id: 'push', tone: pushState.enabled ? 'ok' : 'warn', label: settingsPushBadge },
+          { id: 'security', tone: twoFactorStatus.enabled ? 'ok' : 'neutral', label: settingsSecurityBadge },
+          { id: 'section', tone: 'neutral', label: settingsCurrentItem ? settingsCurrentItem.description : uiText('Панель настроек', 'Settings panel') }
+        ],
+        actions: [
+          { id: 'settings-appearance', label: uiText('Оформление', 'Appearance'), hint: uiText('Сцены и акценты', 'Scenes and accents') },
+          { id: 'settings-notifications', label: uiText('Уведомления', 'Notifications'), hint: uiText('Push и сигналы', 'Push and signals') },
+          { id: 'settings-security', label: uiText('Безопасность', 'Security'), hint: uiText('2FA и защита', '2FA and login safety') }
+        ]
+      }
+    }
+
+    if (view === 'profile') {
+      return {
+        kicker: uiText('Профиль и витрина', 'Profile and showcase'),
+        title: uiText('Личный бренд и карточка профиля', 'Personal brand and profile card'),
+        description: uiText(
+          'Держи под рукой состояние профиля, достижения и быстрый переход к постам или настройкам.',
+          'Keep profile status, achievements and quick jumps to posts or settings within reach.'
+        ),
+        chips: [
+          { id: 'score', tone: profileEditorScore >= 80 ? 'ok' : 'accent', label: uiText(`${profileEditorScore}% готовности`, `${profileEditorScore}% ready`) },
+          { id: 'pending', tone: profileEditorPendingChecklist.length > 0 ? 'warn' : 'ok', label: uiText(`${profileEditorPendingChecklist.length} задач`, `${profileEditorPendingChecklist.length} tasks`) },
+          { id: 'achievements', tone: profileAchievementsProgress >= 70 ? 'ok' : 'neutral', label: uiText(`${profileAchievementsProgress}% ачивок`, `${profileAchievementsProgress}% achievements`) },
+          { id: 'tracks', tone: myTracks.length > 0 ? 'accent' : 'neutral', label: uiText(`${myTracks.length} треков`, `${myTracks.length} tracks`) }
+        ],
+        actions: [
+          { id: 'go-settings', label: uiText('Настройки', 'Settings'), hint: uiText('Аккаунт и приватность', 'Account and privacy') },
+          { id: 'feed-compose', label: uiText('Новый пост', 'New post'), hint: uiText('Поделиться обновлением', 'Share an update') },
+          { id: 'go-chats', label: uiText('Чаты', 'Chats'), hint: uiText('Связаться с людьми', 'Talk to people') }
+        ]
+      }
+    }
+
+    if (view === 'admin') {
+      return {
+        kicker: uiText('Админ-зона', 'Admin zone'),
+        title: uiText('Контроль пользователей и модерации', 'User and moderation control'),
+        description: uiText(
+          'Держи быстрый путь назад к рабочей панели и в пользовательские разделы, пока админка открыта.',
+          'Keep a fast route back to the workspace deck and user sections while admin tools are open.'
+        ),
+        chips: [
+          { id: 'role', tone: 'accent', label: currentUserIsOwner ? uiText('Владелец', 'Owner') : uiText('Админ', 'Admin') },
+          { id: 'push', tone: pushState.enabled ? 'ok' : 'neutral', label: settingsPushBadge },
+          { id: 'security', tone: twoFactorStatus.enabled ? 'ok' : 'warn', label: settingsSecurityBadge }
+        ],
+        actions: [
+          { id: 'go-dashboard', label: uiText('Пульт', 'Deck'), hint: uiText('Вернуться к обзору', 'Back to overview') },
+          { id: 'go-settings', label: uiText('Настройки', 'Settings'), hint: uiText('Аккаунт и сигналы', 'Account and signals') },
+          { id: 'go-chats', label: uiText('Чаты', 'Chats'), hint: uiText('Связаться с участниками', 'Open conversations') }
+        ]
+      }
+    }
+
+    return null
+  }, [
+    activeConversation,
+    bookmarkPanelOpen,
+    currentUserIsOwner,
+    dashboardLastRefreshLabel,
+    dashboardWorkspaceScore,
+    draftsByConversation,
+    feedActiveFilterCount,
+    feedDigest.freshCount,
+    feedMetrics.mine,
+    feedSortModeLabel,
+    feedTimeWindowLabel,
+    getUiStyleLabel,
+    myTracks.length,
+    profileAchievementsProgress,
+    profileEditorPendingChecklist.length,
+    profileEditorScore,
+    pushState.enabled,
+    settingsCurrentItem,
+    settingsIdentityBadge,
+    settingsPushBadge,
+    settingsSecurityBadge,
+    twoFactorStatus.enabled,
+    uiPreferences.style,
+    unreadMessagesCount,
+    user,
+    view
+  ])
   const showPageScene = view === 'settings' && settingsSection === 'appearance'
+
+  const runWorkspaceStripAction = (actionId) => {
+    if (!actionId) return
+    if (actionId === 'refresh-snapshot') {
+      refreshWorkspaceSnapshot()
+      return
+    }
+    if (actionId === 'go-dashboard') {
+      setView('dashboard')
+      return
+    }
+    if (actionId === 'go-feed') {
+      setView('feed')
+      return
+    }
+    if (actionId === 'go-chats') {
+      setView('chats')
+      setChatMobilePane('list')
+      return
+    }
+    if (actionId === 'go-profile') {
+      setView('profile')
+      return
+    }
+    if (actionId === 'go-settings') {
+      setView('settings')
+      return
+    }
+    if (actionId === 'settings-appearance') {
+      setView('settings')
+      setSettingsSection('appearance')
+      return
+    }
+    if (actionId === 'settings-notifications') {
+      setView('settings')
+      setSettingsSection('notifications')
+      return
+    }
+    if (actionId === 'settings-security') {
+      setView('settings')
+      setSettingsSection('security')
+      return
+    }
+    if (actionId === 'feed-compose') {
+      focusFeedComposer()
+      return
+    }
+    if (actionId === 'chat-bookmarks') {
+      setView('chats')
+      if (activeConversation) {
+        setBookmarkPanelOpen((prev) => !prev)
+      }
+      return
+    }
+    if (actionId === 'chat-stickers') {
+      setView('chats')
+      setMediaPanelTab(MEDIA_PANEL_TABS.stickers)
+      setMediaPanelOpen(true)
+    }
+  }
 
   return (
     <div className={`page page-view-${view} ${user ? 'page-authenticated' : 'page-guest'}`.trim()}>
@@ -11282,6 +11519,31 @@ export default function App() {
             ) : null}
           </div>
         </div>
+
+        {user && workspaceStrip ? (
+          <section className={`workspace-strip workspace-strip-view-${view}`.trim()} aria-label={workspaceStrip.title}>
+            <div className="workspace-strip-main">
+              <span className="workspace-strip-kicker">{workspaceStrip.kicker}</span>
+              <strong>{workspaceStrip.title}</strong>
+              <p>{workspaceStrip.description}</p>
+            </div>
+            <div className="workspace-strip-status">
+              {workspaceStrip.chips.map((chip) => (
+                <span key={chip.id} className={`workspace-strip-chip tone-${chip.tone || 'neutral'}`.trim()}>
+                  {chip.label}
+                </span>
+              ))}
+            </div>
+            <div className="workspace-strip-actions">
+              {workspaceStrip.actions.map((action) => (
+                <button key={action.id} type="button" onClick={() => runWorkspaceStripAction(action.id)}>
+                  <strong>{action.label}</strong>
+                  <span>{action.hint}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {globalPaletteOpen && (
           <div className="modal-overlay" onClick={closeGlobalPalette}>

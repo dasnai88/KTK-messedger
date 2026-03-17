@@ -14087,3 +14087,185 @@ body::after {
   }
 }
 
+.workspace-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(280px, 1fr);
+  gap: 16px;
+  padding: 18px 20px;
+  border-radius: 26px;
+  border: 1px solid rgba(var(--outline-rgb), 0.22);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 36%),
+    radial-gradient(circle at 100% 0%, rgba(var(--accent-rgb), 0.1), transparent 34%),
+    color-mix(in srgb, var(--panel) 95%, transparent);
+  box-shadow: var(--chrome-surface-shadow);
+}
+
+.workspace-strip-main {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.workspace-strip-kicker {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--accent-rgb), 0.24);
+  background: rgba(var(--accent-rgb), 0.08);
+  color: var(--accent-soft);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.workspace-strip-main strong {
+  font-family: var(--font-display);
+  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+  letter-spacing: var(--type-tight);
+}
+
+.workspace-strip-main p {
+  margin: 0;
+  max-width: 42rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.workspace-strip-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-content: start;
+}
+
+.workspace-strip-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workspace-strip-chip.tone-accent {
+  border-color: rgba(var(--accent-rgb), 0.34);
+  background: rgba(var(--accent-rgb), 0.12);
+}
+
+.workspace-strip-chip.tone-ok {
+  border-color: rgba(34, 197, 94, 0.34);
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.workspace-strip-chip.tone-warn {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.workspace-strip-chip.tone-neutral {
+  border-color: rgba(var(--outline-rgb), 0.2);
+}
+
+.workspace-strip-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workspace-strip-actions button {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-height: 84px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(var(--outline-rgb), 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 38%),
+    color-mix(in srgb, var(--panel-2) 92%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.workspace-strip-actions button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background:
+    linear-gradient(180deg, rgba(var(--accent-rgb), 0.12), transparent 48%),
+    color-mix(in srgb, var(--panel-2) 94%, transparent);
+  box-shadow: var(--chrome-hover-shadow);
+}
+
+.workspace-strip-actions button strong {
+  font-size: 13px;
+}
+
+.workspace-strip-actions button span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.workspace-strip-view-dashboard {
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
+.workspace-strip-view-chats {
+  border-color: rgba(var(--chat-surface-accent-rgb), 0.24);
+}
+
+.workspace-strip-view-feed {
+  border-color: rgba(var(--feed-surface-accent-rgb), 0.24);
+}
+
+.workspace-strip-view-profile {
+  border-color: rgba(var(--accent-rgb), 0.26);
+}
+
+.workspace-strip-view-settings {
+  border-color: rgba(244, 114, 182, 0.24);
+}
+
+.workspace-strip-view-admin {
+  border-color: rgba(251, 191, 36, 0.28);
+}
+
+@media (max-width: 1180px) {
+  .workspace-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-strip-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-strip {
+    padding: 14px;
+    border-radius: 20px;
+    gap: 14px;
+  }
+
+  .workspace-strip-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-strip-actions button {
+    min-height: 72px;
+  }
+}
+
