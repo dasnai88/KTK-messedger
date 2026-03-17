@@ -13862,3 +13862,178 @@ body::after {
   }
 }
 
+/* Performance tuning pass */
+:root,
+:root[data-theme='dark'],
+:root[data-theme='light'] {
+  --soft-shadow: 0 14px 30px rgba(2, 6, 23, 0.18);
+  --surface-shadow: 0 10px 24px rgba(2, 6, 23, 0.14);
+  --topbar-shadow: 0 8px 18px rgba(2, 6, 23, 0.12);
+}
+
+body::before,
+body::after {
+  animation: none;
+  filter: blur(12px);
+  opacity: 0.42;
+}
+
+.page-scene {
+  contain: layout paint;
+  overflow: hidden;
+}
+
+.page-scene-orb,
+.page-scene-ribbon {
+  animation: none;
+}
+
+.page-scene-orb {
+  filter: blur(8px);
+  mix-blend-mode: normal;
+  opacity: 0.72;
+}
+
+.page-scene-ribbon {
+  filter: blur(28px);
+  opacity: calc(var(--scene-ribbon-opacity) * 0.58);
+}
+
+.page-scene-grid {
+  inset: 8% 0 0;
+  opacity: 0.38;
+  mask-image: none;
+  transform: none;
+}
+
+.page-scene-noise {
+  display: none;
+}
+
+.content,
+.topbar,
+.icon-rail,
+.panel,
+.chat-layout-surface,
+.chat-list,
+.chat-window,
+.feed-layout-surface,
+.feed-composer,
+.feed-toolbox,
+.feed-card,
+.settings-panel,
+.settings-pane,
+.settings-sidebar,
+.settings-hero,
+.settings-kpi,
+.settings-account-card,
+.dashboard-functional-head,
+.dashboard-mission-panel,
+.dashboard-command-deck,
+.profile-power-card,
+.profile-achievements-card,
+.profile-showcase-card,
+.profile-dev-card,
+.profile-pro-card,
+.profile-showcase-editor,
+.profile-theme-customizer,
+.profile-visual-scenes,
+.profile-verification-card,
+.admin-section-card,
+.admin-stage-card,
+.global-palette-card,
+.call-modal,
+.call-bar,
+.profile-hero.profile-hero-expanded {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.content {
+  box-shadow:
+    var(--soft-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.topbar,
+.icon-rail,
+.panel,
+.chat-layout-surface,
+.chat-list,
+.chat-window,
+.feed-layout-surface,
+.feed-composer,
+.feed-toolbox,
+.feed-card,
+.settings-panel,
+.settings-pane,
+.settings-sidebar,
+.settings-hero,
+.settings-kpi,
+.settings-account-card,
+.dashboard-functional-head,
+.dashboard-mission-panel,
+.dashboard-command-deck,
+.profile-power-card,
+.profile-achievements-card,
+.profile-showcase-card,
+.profile-dev-card,
+.profile-pro-card,
+.profile-showcase-editor,
+.profile-theme-customizer,
+.profile-visual-scenes,
+.profile-verification-card,
+.admin-section-card,
+.admin-stage-card,
+.global-palette-card,
+.call-modal,
+.call-bar,
+.profile-hero.profile-hero-expanded {
+  box-shadow:
+    var(--surface-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.chat-item:hover,
+.chat-item.active,
+.feed-card:hover,
+.feed-author-item:hover,
+.feed-hot-item:hover,
+.global-palette-action:hover,
+.global-palette-user:hover,
+.profile-achievement-item:hover,
+.profile-visual-scene-card:hover,
+.profile-dev-preset-grid button:hover,
+.feed-preset-item:hover,
+.feed-radar-card:hover {
+  box-shadow: 0 8px 18px rgba(var(--accent-rgb), 0.08);
+}
+
+.appearance-director-card {
+  box-shadow:
+    var(--surface-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.appearance-director-preview-glow {
+  filter: blur(10px);
+  opacity: 0.66;
+}
+
+.appearance-preview-card {
+  box-shadow:
+    0 12px 22px rgba(var(--accent-rgb), 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+@media (max-width: 980px), (hover: none), (pointer: coarse) {
+  body::before,
+  body::after {
+    opacity: 0.28;
+  }
+
+  .page-scene {
+    display: none;
+  }
+}
+

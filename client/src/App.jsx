@@ -11188,17 +11188,20 @@ export default function App() {
     uiPreferences.style
   ])
   const settingsPanelClassName = `panel settings-panel settings-panel-redesign settings-theme-${settingsSection}`.trim()
+  const showPageScene = view === 'settings' && settingsSection === 'appearance'
 
   return (
     <div className={`page page-view-${view} ${user ? 'page-authenticated' : 'page-guest'}`.trim()}>
-      <div className="page-scene" aria-hidden="true">
-        <span className="page-scene-orb page-scene-orb-primary" />
-        <span className="page-scene-orb page-scene-orb-secondary" />
-        <span className="page-scene-orb page-scene-orb-tertiary" />
-        <span className="page-scene-ribbon" />
-        <span className="page-scene-grid" />
-        <span className="page-scene-noise" />
-      </div>
+      {showPageScene ? (
+        <div className="page-scene" aria-hidden="true">
+          <span className="page-scene-orb page-scene-orb-primary" />
+          <span className="page-scene-orb page-scene-orb-secondary" />
+          <span className="page-scene-orb page-scene-orb-tertiary" />
+          <span className="page-scene-ribbon" />
+          <span className="page-scene-grid" />
+          <span className="page-scene-noise" />
+        </div>
+      ) : null}
       <main className={`content ${user ? 'content-authenticated' : 'content-guest'}`.trim()}>
         <div className="topbar">
           <div className="brand-inline">
