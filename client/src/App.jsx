@@ -413,7 +413,8 @@ const rawApiBase = import.meta.env.VITE_API_BASE || ''
 const apiBase = rawApiBase.replace(/\/$/, '')
 const apiOrigin = apiBase.endsWith('/api') ? apiBase.slice(0, -4) : ''
 const mediaBase = (import.meta.env.VITE_MEDIA_BASE || import.meta.env.VITE_SOCKET_URL || apiOrigin || '').replace(/\/$/, '')
-const webPushFeatureEnabled = String(import.meta.env.VITE_ENABLE_WEB_PUSH || '').toLowerCase() === 'true'
+const webPushFeatureFlag = String(import.meta.env.VITE_ENABLE_WEB_PUSH || 'auto').trim().toLowerCase()
+const webPushFeatureEnabled = !['false', '0', 'off', 'disabled'].includes(webPushFeatureFlag)
 const AVATAR_ZOOM_MIN = 1
 const AVATAR_ZOOM_MAX = 2.5
 const BANNER_ZOOM_MIN = 1

