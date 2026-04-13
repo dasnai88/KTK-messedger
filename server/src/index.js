@@ -2502,6 +2502,23 @@ function logPushDeliveryFailure(details) {
   console.error('Web push delivery failed', details)
 }
 
+function createPushTopic(value) {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  if (!raw) return ''
+
+  const sanitized = raw
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  if (sanitized && sanitized.length <= 32) {
+    return sanitized
+  }
+
+  const hash = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 16)
+  const prefix = sanitized.slice(0, 15).replace(/^-+|-+$/g, '')
+  return prefix ? `${prefix}-${hash}` : hash
+}
+
 async function sendPushToUsers(userIds, payload) {
   const summary = {
     sent: 0,
@@ -2544,7 +2561,7 @@ async function sendPushToUsers(userIds, payload) {
       }, body, {
         TTL: 60,
         urgency: 'high',
-        topic: normalizedPayload.tag || undefined
+        topic: createPushTopic(normalizedPayload.tag) || undefined
       })
       return {
         userId: row.user_id,
