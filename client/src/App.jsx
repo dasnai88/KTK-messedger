@@ -5992,7 +5992,12 @@ export default function App() {
 
   const handleInstallAppAction = async () => {
     if (!installPromptRef.current) {
-      setStatus({ type: 'info', message: installPromptState.installed ? 'The app is already installed.' : 'Install prompt is not available on this browser yet.' })
+      setStatus({
+        type: 'info',
+        message: installPromptState.installed
+          ? 'The app is already installed.'
+          : 'Install prompt is not ready yet. In Edge/Chrome, try page menu -> Apps -> Install this site as an app after a hard refresh.'
+      })
       return
     }
     setInstallPromptState((prev) => ({ ...prev, loading: true }))

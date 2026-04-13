@@ -1,6 +1,5 @@
-const APP_SHELL_CACHE = 'ktk-app-shell-v3'
+const APP_SHELL_CACHE = 'ktk-app-shell-v4'
 const APP_SHELL_URLS = [
-  '/',
   '/manifest.webmanifest',
   '/pwa-icon.svg',
   '/pwa-maskable.svg',
