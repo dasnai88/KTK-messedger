@@ -121,6 +121,48 @@
   color: #ff9b9b;
 }
 
+.push-test-result-list {
+  display: grid;
+  gap: 12px;
+}
+
+.push-test-result-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(125, 211, 252, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.push-test-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.push-test-result-head strong {
+  text-transform: uppercase;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+}
+
+.push-test-result-head span,
+.push-test-endpoint,
+.push-test-error {
+  color: rgba(214, 223, 242, 0.72);
+}
+
+.push-test-endpoint {
+  word-break: break-all;
+}
+
+.push-test-error {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .feed-card-targeted {
   border-color: rgba(125, 211, 252, 0.68) !important;
   box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.48), 0 28px 60px rgba(14, 165, 233, 0.18);

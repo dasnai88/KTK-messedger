@@ -287,6 +287,12 @@ export async function deletePushSubscription(endpoint) {
   })
 }
 
+export async function testPushNotifications() {
+  return request('/notifications/test', {
+    method: 'POST'
+  })
+}
+
 export async function getPosts() {
   return request('/posts')
 }

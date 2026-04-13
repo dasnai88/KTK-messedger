@@ -60,6 +60,7 @@ import {
   deleteProfileTrack,
   savePushSubscription,
   deletePushSubscription,
+  testPushNotifications,
   getMyStickers,
   uploadSticker,
   deleteSticker,
@@ -1755,6 +1756,13 @@ function getPushSupportSnapshot() {
   const serviceWorkerSupported = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
   const pushManagerSupported = typeof window !== 'undefined' && 'PushManager' in window
   const notificationSupported = typeof window !== 'undefined' && 'Notification' in window
+  const iosPlatform = isIosPlatform()
+  const installMode = (
+    typeof window !== 'undefined' && (
+      (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) ||
+      window.navigator.standalone === true
+    )
+  ) ? 'standalone' : 'browser-tab'
 
   if (!webPushFeatureEnabled) {
     return {
@@ -1764,7 +1772,22 @@ function getPushSupportSnapshot() {
       secureContext,
       serviceWorkerSupported,
       pushManagerSupported,
-      notificationSupported
+      notificationSupported,
+      iosPlatform,
+      installMode
+    }
+  }
+  if (iosPlatform && installMode !== 'standalone') {
+    return {
+      supported: false,
+      reason: 'ios-install-required',
+      message: 'On iPhone, web push works only from the installed Home Screen app on iOS 16.4+.',
+      secureContext,
+      serviceWorkerSupported,
+      pushManagerSupported,
+      notificationSupported,
+      iosPlatform,
+      installMode
     }
   }
   if (!secureContext) {
@@ -1775,7 +1798,9 @@ function getPushSupportSnapshot() {
       secureContext,
       serviceWorkerSupported,
       pushManagerSupported,
-      notificationSupported
+      notificationSupported,
+      iosPlatform,
+      installMode
     }
   }
   if (!serviceWorkerSupported) {
@@ -1786,7 +1811,9 @@ function getPushSupportSnapshot() {
       secureContext,
       serviceWorkerSupported,
       pushManagerSupported,
-      notificationSupported
+      notificationSupported,
+      iosPlatform,
+      installMode
     }
   }
   if (!pushManagerSupported) {
@@ -1797,7 +1824,9 @@ function getPushSupportSnapshot() {
       secureContext,
       serviceWorkerSupported,
       pushManagerSupported,
-      notificationSupported
+      notificationSupported,
+      iosPlatform,
+      installMode
     }
   }
   if (!notificationSupported) {
@@ -1808,7 +1837,9 @@ function getPushSupportSnapshot() {
       secureContext,
       serviceWorkerSupported,
       pushManagerSupported,
-      notificationSupported
+      notificationSupported,
+      iosPlatform,
+      installMode
     }
   }
   return {
@@ -1818,7 +1849,9 @@ function getPushSupportSnapshot() {
     secureContext,
     serviceWorkerSupported,
     pushManagerSupported,
-    notificationSupported
+    notificationSupported,
+    iosPlatform,
+    installMode
   }
 }
 
@@ -1930,7 +1963,15 @@ function normalizePushOpenIntent(value) {
 }
 
 function getPushErrorFeedback(err) {
+  const explicitReason = err && typeof err.reason === 'string' ? err.reason.trim() : ''
   const rawMessage = err && typeof err.message === 'string' ? err.message.trim() : ''
+  if (explicitReason === 'ios-install-required') {
+    return {
+      supported: false,
+      reason: explicitReason,
+      message: rawMessage || 'On iPhone, web push works only from the installed Home Screen app on iOS 16.4+.'
+    }
+  }
   const lower = rawMessage.toLowerCase()
   const hasCertificateError = (
     lower.includes('ssl') ||
@@ -1958,10 +1999,19 @@ function getPushErrorFeedback(err) {
 }
 
 function getPushSetupFeedback(err) {
+  const explicitReason = err && typeof err.reason === 'string' ? err.reason.trim() : ''
   const rawMessage = err && typeof err.message === 'string' ? err.message.trim() : ''
   const lower = rawMessage.toLowerCase()
   const baseFeedback = getPushErrorFeedback(err)
   if (baseFeedback && baseFeedback.reason) return baseFeedback
+  if (explicitReason === 'ios-install-required') {
+    return {
+      ...baseFeedback,
+      supported: false,
+      reason: explicitReason,
+      message: baseFeedback.message || 'On iPhone, web push works only from the installed Home Screen app on iOS 16.4+.'
+    }
+  }
   if (lower.includes('certificate') || lower.includes('https')) {
     return {
       ...baseFeedback,
@@ -2642,10 +2692,7 @@ export default function App() {
   const [targetedPostId, setTargetedPostId] = useState('')
   const [installPromptState, setInstallPromptState] = useState({
     available: false,
-    installed: typeof window !== 'undefined' && (
-      window.matchMedia('(display-mode: standalone)').matches ||
-      window.navigator.standalone === true
-    ),
+    installed: initialPushSupport.installMode === 'standalone',
     loading: false
   })
   const [secureCapabilityState, setSecureCapabilityState] = useState({
@@ -2653,10 +2700,22 @@ export default function App() {
     notifications: initialPushSupport.notificationSupported && typeof Notification !== 'undefined'
       ? normalizeCapabilityPermission(Notification.permission)
       : 'unsupported',
+    serviceWorker: initialPushSupport.serviceWorkerSupported,
+    pushManager: initialPushSupport.pushManagerSupported,
+    installMode: initialPushSupport.installMode,
+    iosPlatform: initialPushSupport.iosPlatform,
     microphone: 'ask',
     camera: 'ask',
     share: typeof navigator !== 'undefined' && typeof navigator.share === 'function',
     clipboard: typeof navigator !== 'undefined' && Boolean(navigator.clipboard && typeof navigator.clipboard.writeText === 'function')
+  })
+  const [pushTestState, setPushTestState] = useState({
+    loading: false,
+    ran: false,
+    summary: '',
+    results: [],
+    error: '',
+    lastRunAt: ''
   })
 
   const socketRef = useRef(null)
@@ -5650,18 +5709,20 @@ export default function App() {
   }
 
   const isAppInstalledAction = () => (
-    typeof window !== 'undefined' && (
-      window.matchMedia('(display-mode: standalone)').matches ||
-      window.navigator.standalone === true
-    )
+    getPushSupportSnapshot().installMode === 'standalone'
   )
 
   const syncSecureCapabilitiesAction = async () => {
+    const pushSupport = getPushSupportSnapshot()
     const nextState = {
-      secureContext: typeof window !== 'undefined' && window.isSecureContext === true,
+      secureContext: pushSupport.secureContext,
       notifications: typeof Notification !== 'undefined'
         ? normalizeCapabilityPermission(Notification.permission)
         : 'unsupported',
+      serviceWorker: pushSupport.serviceWorkerSupported,
+      pushManager: pushSupport.pushManagerSupported,
+      installMode: pushSupport.installMode,
+      iosPlatform: pushSupport.iosPlatform,
       microphone: 'unsupported',
       camera: 'unsupported',
       share: typeof navigator !== 'undefined' && typeof navigator.share === 'function',
@@ -5685,6 +5746,61 @@ export default function App() {
       installed: isAppInstalledAction(),
       available: Boolean(installPromptRef.current)
     }))
+  }
+
+  const runPushSelfTestAction = async ({ silentSuccess = false } = {}) => {
+    if (!user) return []
+    setPushTestState((prev) => ({
+      ...prev,
+      loading: true,
+      error: ''
+    }))
+    try {
+      const data = await testPushNotifications()
+      const results = Array.isArray(data && data.results)
+        ? data.results.map((item) => ({
+          endpoint: String(item && item.endpoint ? item.endpoint : ''),
+          status: String(item && item.status ? item.status : 'failed'),
+          errorCode: String(item && item.errorCode ? item.errorCode : ''),
+          errorMessage: String(item && item.errorMessage ? item.errorMessage : '')
+        }))
+        : []
+      const sentCount = results.filter((item) => item.status === 'sent').length
+      const expiredCount = results.filter((item) => item.status === 'expired').length
+      const failedCount = results.filter((item) => item.status === 'failed').length
+      const summary = results.length === 0
+        ? 'No active push subscriptions were found for this account on the server.'
+        : `Push delivery check finished: ${sentCount} sent, ${expiredCount} expired, ${failedCount} failed.`
+      setPushTestState({
+        loading: false,
+        ran: true,
+        summary,
+        results,
+        error: '',
+        lastRunAt: new Date().toISOString()
+      })
+      if (!silentSuccess) {
+        setStatus({
+          type: failedCount > 0 ? 'error' : results.length === 0 ? 'info' : 'success',
+          message: summary
+        })
+      }
+      return results
+    } catch (err) {
+      const message = err && err.message ? err.message : 'Push self-test failed.'
+      setPushTestState({
+        loading: false,
+        ran: true,
+        summary: '',
+        results: [],
+        error: message,
+        lastRunAt: new Date().toISOString()
+      })
+      if (!silentSuccess) {
+        setStatus({ type: 'error', message })
+      }
+      return []
+    }
   }
 
   const persistPushIntentAction = (intent) => {
@@ -5879,11 +5995,21 @@ export default function App() {
         return
       }
       await attachPushSubscriptionToUserAction()
+      const testResults = await runPushSelfTestAction({ silentSuccess: true })
+      const failedCount = testResults.filter((item) => item.status === 'failed').length
+      const expiredCount = testResults.filter((item) => item.status === 'expired').length
       pushToast({
         title: 'Notifications enabled',
         message: 'This browser is ready to receive KTK Messenger alerts.',
         type: 'info'
       })
+      if (failedCount > 0) {
+        setStatus({ type: 'error', message: 'Push subscription was created, but delivery test failed. Check the diagnostics below.' })
+      } else if (expiredCount > 0) {
+        setStatus({ type: 'info', message: 'Push subscription was refreshed. Some stale server subscriptions were removed during the test.' })
+      } else if (testResults.length === 0) {
+        setStatus({ type: 'info', message: 'Push subscription was created, but the server did not report any active subscriptions for delivery.' })
+      }
       syncSecureCapabilitiesAction().catch(() => {})
     } catch (err) {
       const feedback = getPushSetupFeedback(err)
@@ -5942,6 +6068,14 @@ export default function App() {
         error: '',
         reason: 'ready'
       })
+      setPushTestState({
+        loading: false,
+        ran: false,
+        summary: '',
+        results: [],
+        error: '',
+        lastRunAt: ''
+      })
       if (!silent) {
         pushToast({
           title: 'Notifications disabled',
@@ -5991,6 +6125,13 @@ export default function App() {
   }
 
   const handleInstallAppAction = async () => {
+    if (secureCapabilityState.iosPlatform && secureCapabilityState.installMode !== 'standalone') {
+      setStatus({
+        type: 'info',
+        message: 'On iPhone, open Safari Share menu, choose "Add to Home Screen", then launch the installed app to enable push.'
+      })
+      return
+    }
     if (!installPromptRef.current) {
       setStatus({
         type: 'info',
@@ -6297,6 +6438,16 @@ export default function App() {
   useEffect(() => {
     syncPushStateAction().catch(() => {})
     syncSecureCapabilitiesAction().catch(() => {})
+    if (!user) {
+      setPushTestState({
+        loading: false,
+        ran: false,
+        summary: '',
+        results: [],
+        error: '',
+        lastRunAt: ''
+      })
+    }
   }, [user])
 
   useEffect(() => {
@@ -11752,7 +11903,9 @@ export default function App() {
     : pushState.enabled
       ? 'Notifications on'
       : !pushState.supported
-        ? 'Push unavailable'
+        ? pushState.reason === 'ios-install-required'
+          ? 'Install app on iPhone'
+          : 'Push unavailable'
         : pushState.permission === 'denied'
           ? 'Notifications blocked'
           : pushState.reason === 'server-config'
@@ -11765,17 +11918,45 @@ export default function App() {
   const pushStatusBadgeLabel = pushState.enabled
     ? 'Enabled'
     : !pushState.supported
-      ? 'Unavailable'
+      ? pushState.reason === 'ios-install-required' ? 'Install app' : 'Unavailable'
       : pushState.permission === 'denied'
         ? 'Blocked'
         : 'Off'
   const installButtonLabel = installPromptState.loading
     ? 'Preparing...'
+    : secureCapabilityState.iosPlatform && secureCapabilityState.installMode !== 'standalone'
+      ? 'Add to Home Screen'
     : installPromptState.installed
       ? 'App installed'
       : installPromptState.available
         ? 'Install app'
         : 'Install unavailable'
+  const pushTestButtonLabel = pushTestState.loading ? 'Testing...' : 'Send test push'
+  const pushTestButtonDisabled = !user || pushState.loading || pushTestState.loading || !pushState.enabled
+  const pushTestSummary = useMemo(() => {
+    if (pushTestState.error) {
+      return {
+        badge: 'rejected',
+        label: 'Delivery failed',
+        text: pushTestState.error
+      }
+    }
+    if (!pushTestState.ran) {
+      return {
+        badge: 'none',
+        label: 'Not checked',
+        text: 'Run a delivery check after enabling push to verify that the server can reach this device.'
+      }
+    }
+    const sentCount = pushTestState.results.filter((item) => item.status === 'sent').length
+    const expiredCount = pushTestState.results.filter((item) => item.status === 'expired').length
+    const failedCount = pushTestState.results.filter((item) => item.status === 'failed').length
+    return {
+      badge: failedCount > 0 ? 'rejected' : sentCount > 0 ? 'approved' : expiredCount > 0 ? 'pending' : 'none',
+      label: failedCount > 0 ? 'Delivery issues' : sentCount > 0 ? 'Delivery OK' : expiredCount > 0 ? 'Subscription cleaned' : 'No subscriptions',
+      text: pushTestState.summary || 'Push delivery check is ready.'
+    }
+  }, [pushTestState.error, pushTestState.ran, pushTestState.results, pushTestState.summary])
   const secureCapabilityCards = useMemo(() => ([
     {
       id: 'secure-context',
@@ -11788,6 +11969,28 @@ export default function App() {
       label: 'Notifications',
       value: pushState.enabled ? 'granted' : normalizeCapabilityPermission(pushState.permission, pushState.supported ? 'ask' : 'unsupported'),
       description: pushState.error || (pushState.enabled ? 'Push subscription is connected.' : 'Browser notification permission state.')
+    },
+    {
+      id: 'service-worker',
+      label: 'Service worker',
+      value: secureCapabilityState.serviceWorker ? 'granted' : 'unsupported',
+      description: secureCapabilityState.serviceWorker ? 'Background worker support is available.' : 'This browser cannot register a service worker for push delivery.'
+    },
+    {
+      id: 'push-manager',
+      label: 'PushManager',
+      value: secureCapabilityState.pushManager ? 'granted' : 'unsupported',
+      description: secureCapabilityState.pushManager ? 'Browser push subscription API is available.' : 'PushManager is not exposed in this browser context.'
+    },
+    {
+      id: 'install-mode',
+      label: 'Install mode',
+      value: secureCapabilityState.installMode === 'standalone' ? 'granted' : installPromptState.available ? 'ask' : 'denied',
+      description: secureCapabilityState.installMode === 'standalone'
+        ? 'App is running in standalone mode.'
+        : secureCapabilityState.iosPlatform
+          ? 'On iPhone, push requires launching the installed Home Screen app.'
+          : 'App is running in a browser tab.'
     },
     {
       id: 'microphone',
@@ -11815,13 +12018,15 @@ export default function App() {
     },
     {
       id: 'install',
-      label: 'Install app',
+      label: 'Install prompt',
       value: installPromptState.installed ? 'granted' : installPromptState.available ? 'ask' : 'unsupported',
       description: installPromptState.installed
         ? 'App is already installed on this device.'
         : installPromptState.available
           ? 'This browser can install KTK Messenger as an app.'
-          : 'Install prompt is not available yet on this browser.'
+          : secureCapabilityState.iosPlatform
+            ? 'Use Safari Share menu -> Add to Home Screen on iPhone.'
+            : 'Install prompt is not available yet on this browser.'
     }
   ]), [
     installPromptState.available,
@@ -11832,8 +12037,12 @@ export default function App() {
     pushState.supported,
     secureCapabilityState.camera,
     secureCapabilityState.clipboard,
+    secureCapabilityState.installMode,
+    secureCapabilityState.iosPlatform,
     secureCapabilityState.microphone,
+    secureCapabilityState.pushManager,
     secureCapabilityState.secureContext,
+    secureCapabilityState.serviceWorker,
     secureCapabilityState.share
   ])
   const canSubscribeProfile = Boolean(user && profileView && user.id !== profileView.id)
@@ -17165,6 +17374,9 @@ export default function App() {
                         <button type="button" className="primary" onClick={handlePushToggleAction} disabled={pushButtonDisabled}>
                           {pushButtonLabel}
                         </button>
+                        <button type="button" className="ghost" onClick={() => runPushSelfTestAction().catch(() => {})} disabled={pushTestButtonDisabled}>
+                          {pushTestButtonLabel}
+                        </button>
                         <button type="button" className="ghost" onClick={handleInstallAppAction} disabled={installPromptState.loading}>
                           {installButtonLabel}
                         </button>
@@ -17173,6 +17385,34 @@ export default function App() {
                     <p className="settings-capability-copy">
                       {pushState.error || 'Push, install prompt and secure browser APIs are available through HTTPS.'}
                     </p>
+                    <section className="profile-verification-card">
+                      <div className="profile-verification-head">
+                        <h3>Delivery diagnostics</h3>
+                        <span className={`verification-status-badge ${pushTestSummary.badge}`.trim()}>
+                          {pushTestSummary.label}
+                        </span>
+                      </div>
+                      <p className="profile-verification-text">{pushTestSummary.text}</p>
+                      {pushTestState.lastRunAt ? (
+                        <div className="profile-verification-meta">
+                          <span>Last check: {formatDateTime(pushTestState.lastRunAt)}</span>
+                        </div>
+                      ) : null}
+                      {pushTestState.results.length > 0 ? (
+                        <div className="push-test-result-list">
+                          {pushTestState.results.map((item, index) => (
+                            <article key={`${item.endpoint || 'push'}-${index}`} className="push-test-result-card">
+                              <div className="push-test-result-head">
+                                <strong>{item.status}</strong>
+                                {item.errorCode ? <span>{item.errorCode}</span> : <span>server</span>}
+                              </div>
+                              <small className="push-test-endpoint">{item.endpoint}</small>
+                              {item.errorMessage ? <p className="push-test-error">{item.errorMessage}</p> : null}
+                            </article>
+                          ))}
+                        </div>
+                      ) : null}
+                    </section>
                     <section className="secure-capability-grid">
                       {secureCapabilityCards.map((item) => (
                         <article key={`secure-capability-${item.id}`} className="secure-capability-card">

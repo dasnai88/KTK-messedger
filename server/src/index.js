@@ -2461,10 +2461,58 @@ function shouldSendPushToUser(userId, conversationId) {
   })
 }
 
+function serializePushErrorHeaders(headers) {
+  if (!headers || typeof headers !== 'object') return {}
+  if (typeof headers.forEach === 'function') {
+    const serialized = {}
+    headers.forEach((value, key) => {
+      serialized[key] = String(value)
+    })
+    return serialized
+  }
+  return Object.fromEntries(Object.entries(headers).map(([key, value]) => {
+    if (Array.isArray(value)) {
+      return [key, value.map((item) => String(item)).join(', ')]
+    }
+    return [key, String(value)]
+  }))
+}
+
+function createPushErrorPreview(value, maxLength = 280) {
+  let raw = ''
+  if (typeof value === 'string') {
+    raw = value
+  } else if (Buffer.isBuffer(value)) {
+    raw = value.toString('utf8')
+  } else if (value && typeof value === 'object') {
+    try {
+      raw = JSON.stringify(value)
+    } catch (_err) {
+      raw = String(value)
+    }
+  } else if (value != null) {
+    raw = String(value)
+  }
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}...` : trimmed
+}
+
+function logPushDeliveryFailure(details) {
+  console.error('Web push delivery failed', details)
+}
+
 async function sendPushToUsers(userIds, payload) {
-  if (!webPushEnabled) return
+  const summary = {
+    sent: 0,
+    expired: 0,
+    failed: 0,
+    skipped: 0,
+    results: []
+  }
+  if (!webPushEnabled) return summary
   const targets = Array.from(new Set((userIds || []).filter((id) => typeof id === 'string')))
-  if (targets.length === 0) return
+  if (targets.length === 0) return summary
   const normalizedPayload = createPushPayload(payload)
 
   const subscriptions = await pool.query(
@@ -2473,11 +2521,19 @@ async function sendPushToUsers(userIds, payload) {
      where user_id = any($1::uuid[])`,
     [targets]
   )
-  if (subscriptions.rowCount === 0) return
+  if (subscriptions.rowCount === 0) return summary
 
   const body = JSON.stringify(normalizedPayload)
-  await Promise.all(subscriptions.rows.map(async (row) => {
-    if (!shouldSendPushToUser(row.user_id, normalizedPayload.conversationId || null)) return
+  const results = await Promise.all(subscriptions.rows.map(async (row) => {
+    if (!shouldSendPushToUser(row.user_id, normalizedPayload.conversationId || null)) {
+      return {
+        userId: row.user_id,
+        endpoint: row.endpoint,
+        status: 'skipped-visible',
+        errorCode: '',
+        errorMessage: ''
+      }
+    }
     try {
       await webpush.sendNotification({
         endpoint: row.endpoint,
@@ -2490,12 +2546,62 @@ async function sendPushToUsers(userIds, payload) {
         urgency: 'high',
         topic: normalizedPayload.tag || undefined
       })
+      return {
+        userId: row.user_id,
+        endpoint: row.endpoint,
+        status: 'sent',
+        errorCode: '',
+        errorMessage: ''
+      }
     } catch (err) {
-      if (err && (err.statusCode === 404 || err.statusCode === 410)) {
+      const statusCode = err && typeof err.statusCode === 'number' ? err.statusCode : null
+      const errorCode = String(
+        (err && (err.code || err.name)) ||
+        (statusCode ? `http_${statusCode}` : 'push_send_failed')
+      ).trim()
+      const errorMessage = createPushErrorPreview(
+        err && Object.prototype.hasOwnProperty.call(err, 'body') ? err.body : (err && err.message ? err.message : '')
+      )
+      logPushDeliveryFailure({
+        userId: row.user_id,
+        endpoint: row.endpoint,
+        statusCode,
+        errorCode,
+        errorMessage,
+        headers: serializePushErrorHeaders(err && err.headers ? err.headers : null)
+      })
+      if (statusCode === 404 || statusCode === 410) {
         await pool.query('delete from push_subscriptions where endpoint = $1', [row.endpoint]).catch(() => {})
+        return {
+          userId: row.user_id,
+          endpoint: row.endpoint,
+          status: 'expired',
+          errorCode,
+          errorMessage: errorMessage || 'Push subscription is no longer valid.'
+        }
+      }
+      return {
+        userId: row.user_id,
+        endpoint: row.endpoint,
+        status: 'failed',
+        errorCode,
+        errorMessage: errorMessage || 'Push delivery failed.'
       }
     }
   }))
+  results.filter(Boolean).forEach((result) => {
+    summary.results.push(result)
+    if (result.status === 'sent') {
+      summary.sent += 1
+    } else if (result.status === 'expired') {
+      summary.expired += 1
+    } else if (result.status === 'failed') {
+      summary.failed += 1
+    } else {
+      summary.skipped += 1
+    }
+  })
+  return summary
 }
 
 async function notifyUserAboutAdminAction(userId, payload = {}) {
@@ -3546,6 +3652,34 @@ app.delete('/api/notifications/push-subscription', auth, ensureNotBanned, async 
     res.json({ ok: true })
   } catch (err) {
     console.error('Delete push subscription error', err)
+    res.status(500).json({ error: 'Unexpected error' })
+  }
+})
+
+app.post('/api/notifications/test', auth, ensureNotBanned, async (req, res) => {
+  try {
+    if (!webPushEnabled) {
+      return res.status(503).json({ error: 'Web push is not configured on the server' })
+    }
+    const delivery = await sendPushToUsers([req.userId], createPushPayload({
+      title: 'KTK Messenger test notification',
+      body: `Push self-test at ${new Date().toISOString()}`,
+      url: '/?settings=notifications',
+      settingsSection: 'notifications',
+      tag: `push-test-${req.userId}`,
+      skipWhenVisible: false
+    }))
+    res.json({
+      ok: true,
+      results: delivery.results.map((item) => ({
+        endpoint: item.endpoint,
+        status: item.status,
+        errorCode: item.errorCode || '',
+        errorMessage: item.errorMessage || ''
+      }))
+    })
+  } catch (err) {
+    console.error('Push self-test error', err)
     res.status(500).json({ error: 'Unexpected error' })
   }
 })
@@ -7113,6 +7247,12 @@ async function startServer() {
   try {
     await applySchemaOnStartup()
     await repairLegacyPersonalFavoritesConversations()
+    console.log('Web push configuration', {
+      enabled: webPushEnabled,
+      hasPublicKey: Boolean(webPushPublicKey),
+      hasPrivateKey: Boolean(webPushPrivateKey),
+      hasCustomSubject: Boolean(webPushSubject && webPushSubject !== 'mailto:admin@example.com')
+    })
     server.listen(port, () => {
       console.log('Server listening on http://localhost:' + port)
     })
